@@ -8,7 +8,7 @@ import time
 import copy
 
 # import types for typed python
-from typing import Optional, List, Tuple, Literal
+from typing import Optional, List, Tuple
 from torch import Tensor
 
 import matplotlib as mpl
