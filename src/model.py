@@ -1,3 +1,6 @@
+from typing_extensions import Self
+import datasets
+from matplotlib.cbook import print_cycles
 from transformers import GPT2Tokenizer, OPTModel, OPTConfig, OPTForCausalLM
 from transformers.models.opt.modeling_opt import OPTAttention, OPTDecoderLayer
 import torch
@@ -29,6 +32,8 @@ def pad_zeros( d, n=2 ):
     return "0"*k + s
 
 model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b", "175b" ]
+
+most_common_code_tokens = [' ', '\n', '.', '_', ',', '#', '(', ' =', ' import', 'from', ' the', ':', ')', '\n\n', 'import', " '", '/', '-', '):', '\t', "',", ' "', ' self', '=', ' of', "'", '__', ' (', 'self', ' in', ' License', '</s>', ' is', '0', ' for', ' to', 's', '1', '2', ' a', ' as', '\r', ' -', ' and', ' def', ' #', 'x', '()', "('", '\\']
 
 class Model():
     def __init__( self, model_size : str  = "125m" ):
@@ -227,3 +232,139 @@ class Model():
         indices = torch.tensor( list(range( n-1, L, n )) )
 
         return torch.index_select( output, self.token_index, indices )
+
+    def get_ids( self, text:str, limit:Optional[int]=None ):
+        input_ids = self.tokenizer( text, return_tensors='pt').input_ids
+        if not limit is None:
+            input_ids = torch.stack([ input_ids[0][:limit] ])
+        return input_ids
+
+    def unembed( self, embedded_outputs: Tensor ):
+        lm_head = self.predictor.get_output_embeddings()
+        return lm_head( embedded_outputs )
+ 
+    def get_all_logits( self, input_ids ):
+        outputs = self.model( input_ids, output_hidden_states=False )
+        logits = self.unembed( outputs.last_hidden_state )
+
+        return logits
+
+    def top_k_tokens( self, logits: Tensor, k: int = 10 ):
+        topk = torch.topk( logits, k, dim=-1, largest=True, sorted=True )
+        return topk.indices.squeeze()
+
+    def predict_top_k_tokens( self, text: str, k: int = 10 ):
+        logits = self.get_all_logits( text )
+        return self.top_k_tokens( logits, k=k )
+
+    def evaluate_top_k_performance( self,
+                text : str,
+                k: int,
+                min_index: int = 1,
+                skip_strings: List[str] = [],
+                limit: Optional[int] = None
+            ):
+        # Generate input token ids and output top k token ids
+        input_ids = self.get_ids( text, limit=limit )
+        logits = self.get_all_logits( input_ids )
+        token_dictionary_size = logits.size()[-1]
+        top_k_tokens = self.top_k_tokens( logits, k )
+        
+        # Get the set of token ids to skip when evaluating performance
+        skip_ids = set()
+        for skip_string in skip_strings:
+            skip_id = int( self.get_ids( skip_string ).squeeze()[-1] )
+            skip_ids.add( skip_id )
+
+        # Count top-k prediction accuracy 
+        input_ids = input_ids.squeeze()
+        num_predictions = 0
+        num_accurate = 0
+        for i in range( min_index, len(input_ids) ):
+            if int(input_ids[i]) in skip_ids:
+                continue
+            num_predictions += 1
+            if input_ids[i] in top_k_tokens[i-1]:
+                num_accurate += 1
+
+        # Keep track of most used tokens
+        token_counts = np.zeros( token_dictionary_size )
+        for id in input_ids:
+            token_counts[id] += 1
+
+        output = {
+            'num_predictions': num_predictions,
+            'num_accurate': num_accurate,
+            'token_counts': token_counts,
+            'input_ids': input_ids,
+            'top_k_tokens': top_k_tokens,
+        }
+
+        return output
+
+    def batch_decode( self, input_ids ):
+        output_str = self.tokenizer.batch_decode( input_ids )
+        return output_str
+
+    def evaluate_dataset( self,
+            dataset: datasets.Dataset,
+            token_limit: Optional[int] = None,
+            k: int = 1,
+            count_tokens: bool = False,
+            num_top_tokens: int = 50,
+            skip_eval: list = [],
+            verbose: bool = True
+            ):
+
+        # Initialize variables
+        token_counts = None
+        out = {
+            "num_predictions": 0,
+            "num_accurate": 0,
+            "token_counts": None,
+        }
+
+        # Loop over the dataset
+        for data in dataset:
+            # predict next token from text
+            text = data['content']
+            output =  self.evaluate_top_k_performance( text, k=k,
+                min_index=10, skip_strings=skip_eval, limit=token_limit )
+
+            # Record performance
+            out["num_predictions"] += output['num_predictions']
+            out["num_accurate"]    += output['num_accurate']
+
+            # Record token counts
+            if count_tokens:
+                # Get current token counts
+                if token_counts is None:
+                    token_counts = output['token_counts']
+                else:
+                    token_counts += output['token_counts']
+
+                # Save token counts
+                out["token_counts"] = token_counts
+                
+                # Get top token counts if verbose
+                if verbose:
+                    topk = token_counts.argpartition(
+                        -num_top_tokens )[-num_top_tokens:]
+                    topk = topk[np.argsort(token_counts[topk])][::-1]
+                    print( self.batch_decode( topk ) )
+
+            # Print the current prediction accuracy
+            if verbose:
+                # Print overall average prediction accuracy
+                pred, acc = out["num_predictions"], out["num_accurate"]
+                percentage = round( 100 * acc / pred, 1 )
+                out_str = f'accuracy {percentage}% {acc}/{pred}  '
+
+                # Print current prediction accuracy
+                pred, acc = output["num_predictions"], output["num_accurate"]
+                percentage = round( 100 * acc / (pred+1), 1 )
+                out_str += f'( curr {percentage}% )'
+
+                print( out_str )
+
+        return out
