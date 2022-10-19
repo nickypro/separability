@@ -144,10 +144,10 @@ class Model():
         return layers
 
     def get_text_activations( self,
-                text : Optional[str] = None,
-                inputs_embeds : Tensor = None,
-                verbose : bool = False,
-                limit : Optional[int] = None,
+                text: Optional[str] = None,
+                inputs_embeds: Optional[Tensor] = None,
+                verbose: bool = False,
+                limit: Optional[int] = None,
                 **kwargs
             ):
         if inputs_embeds is None and text is None:
@@ -174,15 +174,15 @@ class Model():
         ff_out = torch.stack( ff_out ).squeeze().detach()
 
         # get final output
-        output = outputs.last_hidden_state[0].detach()
+        output: Tensor = outputs.last_hidden_state[0].detach()
 
         return input, attention_out, ff_out, output
 
     def get_residual_stream( self,
-                text : Optional[str] = None,
-                inputs_embeds : Tensor = None,
-                verbose : bool = False,
-                limit : Optional[int] = None,
+                text: Optional[str] = None,
+                inputs_embeds: Optional[Tensor] = None,
+                verbose: bool = False,
+                limit: Optional[int] = None,
                 **kwargs
             ) -> Tensor:
 
@@ -203,10 +203,88 @@ class Model():
         for delta in adjustments:
             residual_stream.append( residual_stream[-1] + delta )
         
-        residual_stream.append( output )
-
         return torch.stack( residual_stream )
 
+
+    def get_ff_key_activations( self,
+                text: Optional[str] = None,
+                residual_stream: Optional[Tensor] = None,
+                inputs_embeds: Optional[Tensor] = None,
+                verbose: bool = False,
+                limit: Optional[int] = None,
+                **kwargs
+            ) -> Tensor:
+        if residual_stream is None:
+            residual_stream = self.get_residual_stream( text,
+                inputs_embeds, verbose, limit, **kwargs )
+        
+        ff_inputs = residual_stream[1:-2:2]
+        ff_keys = self.calculate_ff_keys( ff_inputs )
+
+        return ff_keys
+    
+    # Functions for calculating attention
+    def prepare_attention_mask( self, input: Tensor ):
+        decoder = self.model.decoder
+        input_shape = input.size()[:-1]
+
+        # embed positions
+        attention_mask = torch.ones( input_shape, dtype=torch.bool, device=input.device )
+        pos_embeds = decoder.embed_positions(attention_mask, past_key_values_length=0)
+        attention_mask = decoder._prepare_decoder_attention_mask(
+            attention_mask, input_shape, input, past_key_values_length=0
+        )
+        return attention_mask
+
+    def calculate_attn_out_layer( self, input: Tensor, layer: int, attention_mask: Tensor):
+        u = self.model.decoder.layers[ layer ]
+        x = u.self_attn_layer_norm( input )
+        x = u.self_attn( x, attention_mask=attention_mask )[0]
+        return x
+
+    def calculate_attn_out( self, attn_in: Tensor, add_residual: bool = False ):
+        attention_mask = self.prepare_attention_mask( input )
+
+        outs = []
+        for layer, input in enumerate(attn_in):
+            attn_out = self.calculate_attn_out_layer(input, layer, attention_mask)
+            if add_residual:
+                attn_out += input
+            outs.append( attn_out )
+        return torch.stack( outs )
+
+    # Functions for calculating feed-forward fully connected layer activations
+    def calculate_ff_keys_layer( self, ff_in: Tensor, layer: int ):
+        u = self.model.decoder.layers[ layer ]
+        x = u.final_layer_norm( ff_in )
+        x = u.fc1( x )
+        x = u.activation_fn( x )
+        return x
+
+    def calculate_ff_keys( self, ff_in: Tensor ):
+        out = []
+        for layer, input in enumerate(ff_in):
+            out.append( self.calculate_ff_keys_layer( input, layer ) )
+        return torch.stack( out )
+
+    def calculate_ff_out_layer( self, ff_in: Tensor, layer: int):
+        u = self.model.decoder.layers[ layer ]
+        x = u.final_layer_norm( ff_in )
+        x = u.fc1( x )
+        x = u.activation_fn( x )
+        x = u.fc2( x )
+        return x
+
+    def calculate_ff_out( self, ff_in: Tensor, add_residual: bool = False ):
+        out = []
+        for layer in range(len(ff_in)):
+            ff_out = self.calculate_ff_out_layer( input, layer )
+            if add_residual:
+                ff_out += input
+            out.append( ff_out )
+        return torch.stack( out )
+
+    # Next token prediction, show tokens
     def predict( self,
                 text : str,
                 num : int = 10,
@@ -227,7 +305,6 @@ class Model():
         return before, after
 
     def get_nth_tokens( self, output: Tensor, n: int = 16 ):
-
         L = output.size()[self.token_index]
         indices = torch.tensor( list(range( n-1, L, n )) )
 
@@ -371,3 +448,5 @@ class Model():
                 print( out_str )
 
         return out
+    
+    
