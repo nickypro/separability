@@ -33,8 +33,6 @@ def pad_zeros( d, n=2 ):
 
 model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b", "175b" ]
 
-most_common_code_tokens = [' ', '\n', '.', '_', ',', '#', '(', ' =', ' import', 'from', ' the', ':', ')', '\n\n', 'import', " '", '/', '-', '):', '\t', "',", ' "', ' self', '=', ' of', "'", '__', ' (', 'self', ' in', ' License', '</s>', ' is', '0', ' for', ' to', 's', '1', '2', ' a', ' as', '\r', ' -', ' and', ' def', ' #', 'x', '()', "('", '\\']
-
 class Model():
     def __init__( self, model_size : str  = "125m" ):
         """
@@ -204,7 +202,6 @@ class Model():
             residual_stream.append( residual_stream[-1] + delta )
         
         return torch.stack( residual_stream )
-
 
     def get_ff_key_activations( self,
                 text: Optional[str] = None,

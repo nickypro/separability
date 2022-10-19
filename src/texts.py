@@ -2,7 +2,7 @@ from datasets import load_dataset
 from evaluate import evaluator
 import torch
 import numpy as np
-from model import Model, most_common_code_tokens
+from model import Model
 import argparse
 
 Text2TextEvaluator = evaluator("text2text-generation")
@@ -15,9 +15,14 @@ def load_pile():
     dataset = load_dataset("the_pile", split="validation", streaming=True )
     return dataset
 
-#skip_eval = set([' ', '\n', '.', '_', ',', '#', '\n\n', '\t' ])
-#skip_eval = set([' ', '\n', '.', '_', ',', '#', ' =', '(', ' import', 'from', ' the', '\t', ':', ')', " '", '\n\n', '-', '/', 'import', '):', "'", "',", ' self', 'self', ' "', ' of', '__', '=', ' (', '</s>', ' in', ' is', 's', ' License', '\r', ' for', '0', ' def', "('", ';', '1', '()', ' -', ' #', 'XXXX', '2', ' and', '",', ' to', ' as'])
+most_common_code_tokens = [' ', '\n', '.', '_', ',', '#', '(', ' =', ' import', 'from', ' the', ':', ')', '\n\n', 'import', " '", '/', '-', '):', '\t', "',", ' "', ' self', '=', ' of', "'", '__', ' (', 'self', ' in', ' License', '</s>', ' is', '0', ' for', ' to', 's', '1', '2', ' a', ' as', '\r', ' -', ' and', ' def', ' #', 'x', '()', "('", '\\']
 most_common_pile_tokens = ['\n', '.', ',', ' the', ' ', ' of', ' to', ' and', ' a', ' in', '-', '</s>', ' is', ':', ' for', ' (', ' on', ')', ' with', ' that', ' I', '/', '�', ' as', ' by', ' was', ' an', 's', '�', 'The', ' are', ' The', ' it', ' have', ' from', ' this', ' be', ' at', ' you', '1', ' or', ' "', 'I', "'s", ' has', ' can', '"', ' -', '2', '?']
+
+def prepare_code():
+    return load_code(), 'content', most_common_code_tokens
+
+def prepare_pile():
+    return load_pile(), 'text', most_common_pile_tokens
 
 if __name__ == "__main__":
     # syntax: python texts.py model_size dataset
@@ -30,12 +35,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.dataset == 'code':
-        code = load_code()
-        dataset, label, skip_eval = code, 'content', most_common_code_tokens
+        dataset, label, skip_eval = prepare_code()
 
     elif args.dataset == 'pile':
-        pile = load_pile()
-        dataset, label, skip_eval = pile, 'text',    most_common_pile_tokens
+        dataset, label, skip_eval = prepare_pile()
     
     else:
             raise ValueError('Unknown dataset: {}'.format(args.dataset))
