@@ -264,11 +264,13 @@ class Model():
                 skip_strings: List[str] = [],
                 limit: Optional[int] = None
             ):
+        
         # Generate input token ids and output top k token ids
-        input_ids = self.get_ids( text, limit=limit )
-        logits = self.get_all_logits( input_ids )
-        token_dictionary_size = logits.size()[-1]
-        top_k_tokens = self.top_k_tokens( logits, k )
+        with torch.no_grad():
+            input_ids = self.get_ids( text, limit=limit )
+            logits = self.get_all_logits( input_ids )
+            token_dictionary_size = logits.size()[-1]
+            top_k_tokens = self.top_k_tokens( logits, k )
         
         # Get the set of token ids to skip when evaluating performance
         skip_ids = set()
@@ -313,7 +315,8 @@ class Model():
             count_tokens: bool = False,
             num_top_tokens: int = 50,
             skip_eval: list = [],
-            verbose: bool = True
+            verbose: bool = True,
+            dataset_text_label: str = 'content'
             ):
 
         # Initialize variables
@@ -327,7 +330,7 @@ class Model():
         # Loop over the dataset
         for data in dataset:
             # predict next token from text
-            text = data['content']
+            text = data[ dataset_text_label ]
             output =  self.evaluate_top_k_performance( text, k=k,
                 min_index=10, skip_strings=skip_eval, limit=token_limit )
 
@@ -339,9 +342,8 @@ class Model():
             if count_tokens:
                 # Get current token counts
                 if token_counts is None:
-                    token_counts = output['token_counts']
-                else:
-                    token_counts += output['token_counts']
+                    token_counts = np.zeros_like( output['token_counts'] )
+                token_counts += output['token_counts']
 
                 # Save token counts
                 out["token_counts"] = token_counts
