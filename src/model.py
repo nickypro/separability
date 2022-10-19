@@ -260,7 +260,7 @@ class Model():
     def evaluate_top_k_performance( self,
                 text : str,
                 k: int,
-                min_index: int = 1,
+                start_index: int = 1,
                 skip_strings: List[str] = [],
                 limit: Optional[int] = None
             ):
@@ -282,7 +282,7 @@ class Model():
         input_ids = input_ids.squeeze()
         num_predictions = 0
         num_accurate = 0
-        for i in range( min_index, len(input_ids) ):
+        for i in range( start_index, len(input_ids) ):
             if int(input_ids[i]) in skip_ids:
                 continue
             num_predictions += 1
@@ -314,6 +314,7 @@ class Model():
             k: int = 1,
             count_tokens: bool = False,
             num_top_tokens: int = 50,
+            start_index: int = 1,
             skip_eval: list = [],
             verbose: bool = True,
             dataset_text_label: str = 'content'
@@ -332,7 +333,7 @@ class Model():
             # predict next token from text
             text = data[ dataset_text_label ]
             output =  self.evaluate_top_k_performance( text, k=k,
-                min_index=10, skip_strings=skip_eval, limit=token_limit )
+                start_index=start_index, skip_strings=skip_eval, limit=token_limit )
 
             # Record performance
             out["num_predictions"] += output['num_predictions']
