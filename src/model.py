@@ -44,25 +44,19 @@ class Model():
             raise ValueError( "model_size must be one of the following: " + str(model_sizes) )
 
         repo = f"facebook/opt-{model_size}"
-
-        """
-        configuration = OPTConfig()
-        model = OPTModel(configuration)
-        configuration = model.config
-        """
-
-        self.tokenizer = GPT2Tokenizer.from_pretrained( repo )
-        self.predictor = OPTForCausalLM.from_pretrained( repo )
-        self.model = self.predictor.model
-
-        self.activations = {}
-
-        self.register_activations()
+        self.init_model( repo )
 
         # Indices of outputs for reference
         self.layer_index     = -3
         self.token_index     = -2
         self.dimension_index = -1
+    
+    def init_model( self, repo: str ):
+        self.tokenizer = GPT2Tokenizer.from_pretrained( repo )
+        self.predictor = OPTForCausalLM.from_pretrained( repo )
+        self.model = self.predictor.model
+        self.activations = {}
+        self.register_activations()
 
     def get_activation_of( self, name : str ):
         # Define hook function which adds output to self.activations
