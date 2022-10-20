@@ -41,7 +41,7 @@ if __name__ == "__main__":
         dataset, label, skip_eval = prepare_pile()
     
     else:
-            raise ValueError('Unknown dataset: {}'.format(args.dataset))
+        raise ValueError('Unknown dataset: {}'.format(args.dataset))
 
     opt = Model( args.model_size )
 

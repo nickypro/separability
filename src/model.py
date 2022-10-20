@@ -9,6 +9,7 @@ import seaborn as sns
 import numpy as np
 import time
 import copy
+from tqdm import tqdm
 
 # import types for typed python
 from typing import Optional, List, Tuple
@@ -85,13 +86,14 @@ class Model():
         print( f" - Registered {attention_index} OPT Attention Layers" )
 
     def get_inputs_embeds( self,
-                text : str,
-                verbose : bool = False,
-                limit : Optional[int] = None
+                text: Optional[str] = None,
+                input_ids: Optional[Tensor] = None,
+                verbose: bool = False,
+                limit: Optional[int] = None
             ):
-        inputs = self.tokenizer(text, return_tensors="pt")
-
-        input_ids = inputs.input_ids
+        if input_ids is None:
+            inputs = self.tokenizer(text, return_tensors="pt")
+            input_ids = inputs.input_ids
         
         if verbose >= 2:
             print("inputs:")
@@ -144,16 +146,20 @@ class Model():
     def get_text_activations( self,
                 text: Optional[str] = None,
                 inputs_embeds: Optional[Tensor] = None,
+                input_ids: Optional[Tensor] = None,
                 verbose: bool = False,
                 limit: Optional[int] = None,
                 **kwargs
             ):
-        if inputs_embeds is None and text is None:
-            raise ValueError( "must provide either inputs_embeds or text" )
+        if inputs_embeds is None and input_ids is None and text is None:
+            raise ValueError( "must provide data: inputs_embeds | input_ids | text" )
 
         if text:
             inputs_embeds = self.get_inputs_embeds( text, verbose, limit )
 
+        if not input_ids is None:
+            inputs_embeds = self.model.decoder.embed_tokens( input_ids )
+        
         # run the model
         outputs = self.model( inputs_embeds=inputs_embeds, output_hidden_states=True, **kwargs )
 
@@ -179,13 +185,14 @@ class Model():
     def get_residual_stream( self,
                 text: Optional[str] = None,
                 inputs_embeds: Optional[Tensor] = None,
+                input_ids: Optional[Tensor] = None,
                 verbose: bool = False,
                 limit: Optional[int] = None,
                 **kwargs
             ) -> Tensor:
 
-        input, attention_out, ff_out, output = \
-            self.get_text_activations( text, inputs_embeds, verbose, limit, **kwargs )
+        input, attention_out, ff_out, output = self.get_text_activations( text,
+            inputs_embeds, input_ids, verbose, limit, **kwargs )
         
         assert len(attention_out) == len(ff_out)
         L = len(attention_out)
@@ -207,13 +214,14 @@ class Model():
                 text: Optional[str] = None,
                 residual_stream: Optional[Tensor] = None,
                 inputs_embeds: Optional[Tensor] = None,
+                input_ids: Optional[Tensor] = None,
                 verbose: bool = False,
                 limit: Optional[int] = None,
                 **kwargs
             ) -> Tensor:
         if residual_stream is None:
             residual_stream = self.get_residual_stream( text,
-                inputs_embeds, verbose, limit, **kwargs )
+                inputs_embeds, input_ids, verbose, limit, **kwargs )
         
         ff_inputs = residual_stream[1:-2:2]
         ff_keys = self.calculate_ff_keys( ff_inputs )
@@ -356,12 +364,21 @@ class Model():
         input_ids = input_ids.squeeze()
         num_predictions = 0
         num_accurate = 0
+        num_skip_predictions = 0
+        num_skip_accurate = 0
         for i in range( start_index, len(input_ids) ):
+            # Check if accurate
+            is_accurate = (input_ids[i] in top_k_tokens[i-1])
+
+            # Count normal prediction ( ignoring skip )
+            num_predictions += 1
+            num_accurate    += is_accurate
+
+            # Now count only if the token is not supposed to be skipped
             if int(input_ids[i]) in skip_ids:
                 continue
-            num_predictions += 1
-            if input_ids[i] in top_k_tokens[i-1]:
-                num_accurate += 1
+            num_skip_predictions += 1
+            num_skip_accurate    += is_accurate
 
         # Keep track of most used tokens
         token_counts = np.zeros( token_dictionary_size )
@@ -371,6 +388,8 @@ class Model():
         output = {
             'num_predictions': num_predictions,
             'num_accurate': num_accurate,
+            'num_skip_predictions': num_skip_predictions,
+            'num_skip_accurate': num_skip_accurate,
             'token_counts': token_counts,
             'input_ids': input_ids,
             'top_k_tokens': top_k_tokens,
@@ -391,7 +410,8 @@ class Model():
             start_index: int = 1,
             skip_eval: list = [],
             verbose: bool = True,
-            dataset_text_label: str = 'content'
+            dataset_text_label: str = 'content',
+            stopping_index: int = 1e6,
             ):
 
         # Initialize variables
@@ -399,51 +419,61 @@ class Model():
         out = {
             "num_predictions": 0,
             "num_accurate": 0,
+            "num_skip_predictions": 0,
+            "num_skip_accurate": 0,
             "token_counts": None,
         }
 
-        # Loop over the dataset
-        for data in dataset:
-            # predict next token from text
-            text = data[ dataset_text_label ]
-            output =  self.evaluate_top_k_performance( text, k=k,
-                start_index=start_index, skip_strings=skip_eval, limit=token_limit )
+        # Set up approx stopping index
+        with tqdm(total=stopping_index) as pbar:
 
-            # Record performance
-            out["num_predictions"] += output['num_predictions']
-            out["num_accurate"]    += output['num_accurate']
+            # Loop over the dataset
+            for data in dataset:
+                # predict next token from text
+                text = data[ dataset_text_label ]
+                curr =  self.evaluate_top_k_performance( text, k=k,
+                    start_index=start_index, skip_strings=skip_eval, limit=token_limit )
 
-            # Record token counts
-            if count_tokens:
-                # Get current token counts
-                if token_counts is None:
-                    token_counts = np.zeros_like( output['token_counts'] )
-                token_counts += output['token_counts']
+                # Record performance
+                out["num_predictions"] += curr['num_predictions']
+                out["num_accurate"]    += curr['num_accurate']
+                out["num_skip_predictions"] += curr['num_skip_predictions']
+                out["num_skip_accurate"]    += curr['num_skip_accurate']
+                pbar.update( curr["num_skip_predictions"] )
 
-                # Save token counts
-                out["token_counts"] = token_counts
-                
-                # Get top token counts if verbose
-                if verbose:
-                    topk = token_counts.argpartition(
-                        -num_top_tokens )[-num_top_tokens:]
-                    topk = topk[np.argsort(token_counts[topk])][::-1]
-                    print( self.batch_decode( topk ) )
+                # Record token counts
+                if count_tokens:
+                    # Get current token counts
+                    if token_counts is None:
+                        token_counts = np.zeros_like( curr['token_counts'] )
+                    token_counts += curr['token_counts']
 
-            # Print the current prediction accuracy
-            if verbose:
+                    # Save token counts
+                    out["token_counts"] = token_counts
+                    
+                    # Get top token counts if verbose
+                    if verbose:
+                        topk = token_counts.argpartition(
+                            -num_top_tokens )[-num_top_tokens:]
+                        topk = topk[np.argsort(token_counts[topk])][::-1]
+                        print( self.batch_decode( topk ) )
+
                 # Print overall average prediction accuracy
-                pred, acc = out["num_predictions"], out["num_accurate"]
+                pred, acc = out["num_skip_predictions"], out["num_skip_accurate"]
                 percentage = round( 100 * acc / pred, 1 )
-                out_str = f'accuracy {percentage}% {acc}/{pred}  '
+                out_str = f'accuracy {percentage}% '
 
                 # Print current prediction accuracy
-                pred, acc = output["num_predictions"], output["num_accurate"]
+                pred, acc = curr["num_skip_predictions"], curr["num_skip_accurate"]
                 percentage = round( 100 * acc / (pred+1), 1 )
-                out_str += f'( curr {percentage}% )'
+                out_str += f'(curr {percentage}%)'
 
-                print( out_str )
-
-        return out
+                pbar.set_description( out_str )
+                
+                # Stop if limit is reached
+                if out["num_skip_predictions"] > stopping_index:
+                    break
+            
+            return out
     
     
