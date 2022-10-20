@@ -40,20 +40,27 @@ class Model():
         OPT Model with functions for extracting activations.
         model_size : 125m, 350m, 1.3b, 2.7b, 6.7b, 13b, 30b, 66b, 175b
         """
-        if model_size not in model_sizes:
-            raise ValueError( "model_size must be one of the following: " + str(model_sizes) )
 
-        repo = f"facebook/opt-{model_size}"
-        self.init_model( repo )
+        self.set_repo( model_size )
+        self.init_model()
 
         # Indices of outputs for reference
         self.layer_index     = -3
         self.token_index     = -2
         self.dimension_index = -1
     
-    def init_model( self, repo: str ):
-        self.tokenizer = GPT2Tokenizer.from_pretrained( repo )
-        self.predictor = OPTForCausalLM.from_pretrained( repo )
+    def set_repo( self, model_size: str ):
+        if model_size not in model_sizes:
+            raise ValueError( "model_size must be one of the following: " + str(model_sizes) )
+        self.model_size = model_size
+        repo = f"facebook/opt-{model_size}"
+        self.repo = repo
+
+    def init_model( self, model_size: Optional[str] = None ):
+        if not model_size is None:
+            self.set_repo( model_size )
+        self.tokenizer = GPT2Tokenizer.from_pretrained( self.repo )
+        self.predictor = OPTForCausalLM.from_pretrained( self.repo )
         self.model = self.predictor.model
         self.activations = {}
         self.register_activations()
@@ -79,6 +86,12 @@ class Model():
                 continue
         print( f" - Registered {attention_index} OPT Attention Layers" )
 
+    def get_ids( self, text:str, limit:Optional[int]=None ):
+        input_ids = self.tokenizer( text, return_tensors='pt').input_ids
+        if not limit is None:
+            input_ids = torch.stack([ input_ids[0][:limit] ])
+        return input_ids
+    
     def get_inputs_embeds( self,
                 text: Optional[str] = None,
                 input_ids: Optional[Tensor] = None,
@@ -86,29 +99,9 @@ class Model():
                 limit: Optional[int] = None
             ):
         if input_ids is None:
-            inputs = self.tokenizer(text, return_tensors="pt")
-            input_ids = inputs.input_ids
-        
-        if verbose >= 2:
-            print("inputs:")
-            print( inputs.input_ids.size() )
-        
-        if limit:
-            prev_size = input_ids.size()
-            input_ids = input_ids[0][:limit].reshape(1, -1)
-            new_size = input_ids.size()
-
-            if verbose == 1:
-                print("trimmed from", list(prev_size), "to", list(new_size) )
-
-            if verbose >= 2:
-                print("trimmed inputs:")
-                print( new_size )
+            input_ids = self.get_ids( text, limit )
 
         inputs_embeds = self.model.decoder.embed_tokens( input_ids )
-        
-        if verbose >= 2:
-            print( inputs_embeds.size() )
 
         return inputs_embeds
 
@@ -139,8 +132,8 @@ class Model():
 
     def get_text_activations( self,
                 text: Optional[str] = None,
-                inputs_embeds: Optional[Tensor] = None,
                 input_ids: Optional[Tensor] = None,
+                inputs_embeds: Optional[Tensor] = None,
                 verbose: bool = False,
                 limit: Optional[int] = None,
                 **kwargs
@@ -148,12 +141,9 @@ class Model():
         if inputs_embeds is None and input_ids is None and text is None:
             raise ValueError( "must provide data: inputs_embeds | input_ids | text" )
 
-        if text:
-            inputs_embeds = self.get_inputs_embeds( text, verbose, limit )
+        if text or (not input_ids is None):
+            inputs_embeds = self.get_inputs_embeds( text, input_ids, verbose, limit )
 
-        if not input_ids is None:
-            inputs_embeds = self.model.decoder.embed_tokens( input_ids )
-        
         # run the model
         outputs = self.model( inputs_embeds=inputs_embeds, output_hidden_states=True, **kwargs )
 
@@ -186,7 +176,7 @@ class Model():
             ) -> Tensor:
 
         input, attention_out, ff_out, output = self.get_text_activations( text,
-            inputs_embeds, input_ids, verbose, limit, **kwargs )
+            input_ids, inputs_embeds, verbose, limit, **kwargs )
         
         assert len(attention_out) == len(ff_out)
         L = len(attention_out)
@@ -206,9 +196,9 @@ class Model():
 
     def get_ff_key_activations( self,
                 text: Optional[str] = None,
-                residual_stream: Optional[Tensor] = None,
-                inputs_embeds: Optional[Tensor] = None,
                 input_ids: Optional[Tensor] = None,
+                inputs_embeds: Optional[Tensor] = None,
+                residual_stream: Optional[Tensor] = None,
                 verbose: bool = False,
                 limit: Optional[int] = None,
                 **kwargs
@@ -298,9 +288,11 @@ class Model():
         
         generate_ids = self.predictor.generate( input_ids, max_length=len(input_ids[0])+num )
         
-        before = self.tokenizer.batch_decode( input_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-        after  = self.tokenizer.batch_decode( generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-        after = after[len(before):]
+        before = self.tokenizer.batch_decode( input_ids,
+            skip_special_tokens=True, clean_up_tokenization_spaces=False )[0]
+        after  = self.tokenizer.batch_decode( generate_ids,
+            skip_special_tokens=True, clean_up_tokenization_spaces=False )[0]
+        after = after[ len(before): ]
         return before, after
 
     def get_nth_tokens( self, output: Tensor, n: int = 16 ):
@@ -308,12 +300,6 @@ class Model():
         indices = torch.tensor( list(range( n-1, L, n )) )
 
         return torch.index_select( output, self.token_index, indices )
-
-    def get_ids( self, text:str, limit:Optional[int]=None ):
-        input_ids = self.tokenizer( text, return_tensors='pt').input_ids
-        if not limit is None:
-            input_ids = torch.stack([ input_ids[0][:limit] ])
-        return input_ids
 
     def unembed( self, embedded_outputs: Tensor ):
         lm_head = self.predictor.get_output_embeddings()
@@ -470,4 +456,14 @@ class Model():
             
             return out
     
-    
+    def delete_ff_keys( self, layer_key_map: Tensor ):
+        for layer, key_map in enumerate(layer_key_map):
+            # Get state dict
+            ff_1  = self.model.decoder.layers[ layer ].fc1
+            state_dict = ff_1.state_dict()
+
+            # set biases to -inf to 'delete' the keys (due to ReLU)
+            for index, delete in enumerate(key_map):
+                if delete:
+                    state_dict['bias'][index] = - torch.inf
+            ff_1.load_state_dict( state_dict )
