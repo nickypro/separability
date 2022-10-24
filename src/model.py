@@ -51,7 +51,8 @@ class Model():
     
     def set_repo( self, model_size: str ):
         if model_size not in model_sizes:
-            raise ValueError( "model_size must be one of the following: " + str(model_sizes) )
+            raise ValueError( "model_size must be one of the following: " +
+                              str(model_sizes) )
         self.model_size = model_size
         repo = f"facebook/opt-{model_size}"
         self.repo = repo
@@ -62,6 +63,7 @@ class Model():
         self.tokenizer = GPT2Tokenizer.from_pretrained( self.repo )
         self.predictor = OPTForCausalLM.from_pretrained( self.repo )
         self.model = self.predictor.model
+        print(f'- Loaded OPT-{model_size}')
         self.activations = {}
         self.register_activations()
 
@@ -145,7 +147,8 @@ class Model():
             inputs_embeds = self.get_inputs_embeds( text, input_ids, verbose, limit )
 
         # run the model
-        outputs = self.model( inputs_embeds=inputs_embeds, output_hidden_states=True, **kwargs )
+        outputs = self.model( inputs_embeds=inputs_embeds,
+                              output_hidden_states=True, **kwargs )
 
         # get the hidden states
         hidden_states = torch.stack( outputs.hidden_states ).squeeze().detach()
@@ -225,7 +228,11 @@ class Model():
         )
         return attention_mask
 
-    def calculate_attn_out_layer( self, input: Tensor, layer: int, attention_mask: Tensor):
+    def calculate_attn_out_layer( self,
+                input: Tensor,
+                layer: int,
+                attention_mask: Tensor
+            ):
         u = self.model.decoder.layers[ layer ]
         x = u.self_attn_layer_norm( input )
         x = u.self_attn( x, attention_mask=attention_mask )[0]
@@ -285,8 +292,9 @@ class Model():
 
         if limit:
             input_ids = input_ids[0][:limit].reshape(1, -1)
-        
-        generate_ids = self.predictor.generate( input_ids, max_length=len(input_ids[0])+num )
+
+        new_len = len(input_ids[0])+num
+        generate_ids = self.predictor.generate( input_ids, max_length=new_len )
         
         before = self.tokenizer.batch_decode( input_ids,
             skip_special_tokens=True, clean_up_tokenization_spaces=False )[0]
@@ -383,16 +391,26 @@ class Model():
 
     def evaluate_dataset( self,
             dataset: datasets.Dataset,
+            dataset_text_label: str = 'content',
             token_limit: Optional[int] = None,
             k: int = 1,
             count_tokens: bool = False,
             num_top_tokens: int = 50,
             start_index: int = 1,
             skip_eval: list = [],
-            verbose: bool = True,
-            dataset_text_label: str = 'content',
             stopping_index: int = 1e6,
             ):
+        """
+        dataset: the Datset object to iterate over
+        dataset_text_label: the label for the dataset text. eg: 'text'. 'content'
+        token_limit: the maximum number of tokens to evaluate
+        k: the number of top-k tokens predictions to evaluate
+        count_tokens: whether to also count the most common tokens
+        num_top_tokens: the number of most common tokens to evaluate
+        start_index: the index of the first token to evaluate
+        skip_eval: a list of token ids to skip when evaluating
+
+        """
 
         # Initialize variables
         token_counts = None
@@ -430,13 +448,6 @@ class Model():
 
                     # Save token counts
                     out["token_counts"] = token_counts
-                    
-                    # Get top token counts if verbose
-                    if verbose:
-                        topk = token_counts.argpartition(
-                            -num_top_tokens )[-num_top_tokens:]
-                        topk = topk[np.argsort(token_counts[topk])][::-1]
-                        print( self.batch_decode( topk ) )
 
                 # Print overall average prediction accuracy
                 pred, acc = out["num_skip_predictions"], out["num_skip_accurate"]
@@ -453,6 +464,12 @@ class Model():
                 # Stop if limit is reached
                 if out["num_skip_predictions"] > stopping_index:
                     break
+
+            if count_tokens:
+                topk = token_counts.argpartition(
+                    -num_top_tokens )[-num_top_tokens:]
+                topk = topk[np.argsort(token_counts[topk])][::-1]
+                print( self.batch_decode( topk ) )
             
             return out
     
