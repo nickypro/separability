@@ -41,8 +41,10 @@ class Model():
         model_size : 125m, 350m, 1.3b, 2.7b, 6.7b, 13b, 30b, 66b, 175b
         """
 
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.set_repo( model_size )
         self.init_model()
+        self.to( self.device )
 
         # Indices of outputs for reference
         self.layer_index     = -3
@@ -66,6 +68,11 @@ class Model():
         print(f'- Loaded OPT-{model_size}')
         self.activations = {}
         self.register_activations()
+
+    def to( self, device ):
+        self.device = device
+        self.predictor.to( device )
+        self.model.to( device )
 
     def get_activation_of( self, name : str ):
         # Define hook function which adds output to self.activations
@@ -92,7 +99,7 @@ class Model():
         input_ids = self.tokenizer( text, return_tensors='pt').input_ids
         if not limit is None:
             input_ids = torch.stack([ input_ids[0][:limit] ])
-        return input_ids
+        return input_ids.to( self.device )
     
     def get_inputs_embeds( self,
                 text: Optional[str] = None,
