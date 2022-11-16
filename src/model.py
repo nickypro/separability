@@ -126,7 +126,7 @@ class Model():
             layer.append( key )
             for out in value:
                 if type(out) is Tensor:
-                    layer.append( out )
+                    layer.append( out.detach().cpu() )
                     continue
         
             if out is None:
@@ -158,8 +158,8 @@ class Model():
                               output_hidden_states=True, **kwargs )
 
         # get the hidden states
-        hidden_states = torch.stack( outputs.hidden_states ).squeeze().detach()
-        input = hidden_states[0]
+        hidden_states = torch.stack( outputs.hidden_states ).squeeze().detach().cpu()
+        input = hidden_states[0].detach()
 
         # get attention outputs
         attention_out = torch.stack([ out[1] for out in self.get_recent_activations() ])
@@ -169,7 +169,7 @@ class Model():
         ff_out =  [] 
         for i in range(len(attention_out)):
             ff_out.append( hidden_states[i+1] - attention_out[i] - hidden_states[i] )
-        ff_out = torch.stack( ff_out ).squeeze().detach()
+        ff_out = torch.stack( ff_out ).squeeze().detach().detach()
 
         # get final output
         output: Tensor = outputs.last_hidden_state[0].detach()
@@ -218,7 +218,7 @@ class Model():
                 inputs_embeds, input_ids, verbose, limit, **kwargs )
         
         ff_inputs = residual_stream[1:-2:2]
-        ff_keys = self.calculate_ff_keys( ff_inputs )
+        ff_keys = self.calculate_ff_keys( ff_inputs.to(self.device) )
 
         return ff_keys
     
@@ -318,7 +318,7 @@ class Model():
 
     def unembed( self, embedded_outputs: Tensor ):
         lm_head = self.predictor.get_output_embeddings()
-        return lm_head( embedded_outputs )
+        return lm_head( embedded_outputs.to(self.device) )
  
     def get_all_logits( self, input_ids ):
         outputs = self.model( input_ids, output_hidden_states=False )
