@@ -1,4 +1,5 @@
 from typing_extensions import Self
+from xml.sax.xmlreader import AttributesNSImpl
 import datasets
 from matplotlib.cbook import print_cycles
 from transformers import GPT2Tokenizer, OPTModel, OPTConfig, OPTForCausalLM
@@ -387,6 +388,10 @@ class Model():
                 attn_out[layer], layer, reshape, transpose )
             out.append( pre_out)
         return torch.stack( out )
+
+    def get_indices_of_attn_head( self, index: int ):
+        # Returns [ start, end ] indices of head at index
+        return [ self.d_head * index, self.d_head * (index+1) ]
 
     def delete_attn_pre_out_layer( self,
             layer_index: int,
