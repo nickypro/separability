@@ -38,10 +38,10 @@ def evaluate_all( opt: Model, sample_size: int = 1e5, topk: int = 10 ):
     code_out = evaluate( opt, 'code', sample_size, topk )
 
     percentages = {}
-    percentages.update({ ('pile_'+k): v for (k,v) in pile_out['percent'].items() })
-    percentages.update({ ('code_'+k): v for (k,v) in code_out['percent'].items() })
     percentages["pile_loss"] = pile_out['loss']
+    percentages.update({ ('pile_'+k): v for (k,v) in pile_out['percent'].items() })
     percentages["code_loss"] = code_out['loss']
+    percentages.update({ ('code_'+k): v for (k,v) in code_out['percent'].items() })
     return percentages
 
 ####################################################################################

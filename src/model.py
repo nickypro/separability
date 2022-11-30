@@ -107,6 +107,15 @@ class Model():
         self.register_activations()
         self.register_inverse_out_proj()
 
+    def show_details( self, verbose=True ):
+        if verbose:
+            print( " - n_layers :", self.n_layers )
+            print( " - d_model  :", self.d_model  )
+            print( " - n_heads  :", self.n_heads  )
+            print( " - d_head   :", self.d_head   ) 
+        else:
+            print( f" - n_layers, d_model = {self.n_layers}, {self.d_model}" )
+
     def to( self, device ):
         self.device = device
         self.predictor.to( device )
@@ -742,10 +751,10 @@ class Model():
         pred      = out["num_predictions"]
         skip_pred = out["num_skip_predictions"]
         percent = {
-            "base": (100 * out["num_accurate"] / pred),
-            "topk": (100 * out["num_topk_accurate"] / pred),
-            "skip": (100 * out["num_skip_accurate"] / pred),
-            "topk_skip": (100 * out["num_topk_skip_accurate"] / skip_pred ),
+            "topk"      : (100 * out["num_topk_accurate"] / pred),
+            "topk_skip" : (100 * out["num_topk_skip_accurate"] / skip_pred ),
+            "base"      : (100 * out["num_accurate"] / pred),
+            "skip"      : (100 * out["num_skip_accurate"] / skip_pred),
         }
         if string:
             percent = { k: ('%.2f'%v) for k, v in percent.items() }
