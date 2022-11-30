@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import copy
 from tqdm.notebook import tqdm
+from welford import Welford
 
 # import types for typed python
 from typing import Optional, List, Tuple
@@ -253,10 +254,10 @@ class Model():
                 input_ids, inputs_embeds, verbose, limit, **kwargs )
         inpt, attention_out, ff_out, output = text_activations
 
-        assert len(attention_out) == len(ff_out)
-        L = len(attention_out)
+        assert len(attention_out) == self.n_layers
+        assert len(ff_out) == self.n_layers
 
-        adjustments = [0]*(2*L)
+        adjustments = [0]*(2*self.n_layers)
         adjustments[0::2] = attention_out
         adjustments[1::2] = ff_out
 
@@ -555,8 +556,10 @@ class Model():
         Args:
             files (List[str]): List of ".npy" file paths
         """
-        criteria = None
+        if len( files ) == 0:
+            return
 
+        criteria = None
         for filename in files:
             ff_criterion = np.load(filename)
             if criteria is None:
@@ -615,32 +618,35 @@ class Model():
         return self.top_k_tokens( logits, k=k )
 
     def evaluate_top_k_performance( self,
-                text : str,
-                k: int,
-                start_index: int = 1,
-                skip_strings: List[str] = [],
-                limit: Optional[int] = None
-            ):
+            k: int,
+            text: Optional[str] = None,
+            input_ids: Optional[Tensor] = None,
+            logits: Optional[Tensor] = None,
+            start_index: int = 1,
+            skip_strings: List[str] = [],
+        ):
         """Evaluates performance with top-1 and top-k token predictions.
 
         Args:
-            text (str): The text to evaluat.
+            text (str, optional): The text to evaluat.
+            input_ids (Tensor, optional): The input IDs from text to evaluate.
+            logits (Tensor, optional): The pre-computed logits from text to evaluate.
             k (int): the number of tokens to consider.
             start_index (int, optional): The starting index from which to count.
                 Defaults to 1.
             skip_strings (List[str], optional): Tokens to skip when evaluating.
                 Defaults to [].
-            limit (Optional[int], optional): The maximum number of tokens, such that
-                texts longer than this limit are trimmed. Defaults to None.
 
         Returns:
             output: dict of output information
         """
-        
+        if text is None and input_ids is None:
+            raise ValueError( "Must provide either text or input_ids" ) 
+
         # Generate input token ids and output top k token ids
         with torch.no_grad():
-            input_ids = self.get_ids( text, limit=limit )
-            logits = self.get_all_logits( input_ids )
+            input_ids = self.get_ids( text ) if input_ids is None else input_ids
+            logits = self.get_all_logits( input_ids ) if logits is None else logits
             token_dictionary_size = logits.size()[-1]
             top_tokens  = self.top_k_tokens( logits, 1 )
             topk_tokens = self.top_k_tokens( logits, k ) if k!=1 else top_tokens
@@ -695,6 +701,37 @@ class Model():
         }
 
         return output
+    
+    def evaluate_ce_loss( self, 
+            text: Optional[str] = None,
+            input_ids: Optional[Tensor] = None,
+            logits: Optional[Tensor] = None
+        ):
+        """Cross entropy loss for predicting the next token
+
+        Args:
+            text (str, optional): The text to evaluat.
+            input_ids (Tensor, optional): The input IDs from text to evaluate.
+            logits (Tensor, optional): The pre-computed logits from text to evaluate.
+        
+        Returns:
+            loss: Mean Cross-Entropy loss over tokens
+        """
+        if text is None and input_ids is None:
+            raise ValueError( "Must provide either text or input_ids" ) 
+
+        # Generate input token ids and output top k token ids
+        with torch.no_grad():
+            if input_ids is None:
+                input_ids = self.get_ids( text )
+            if logits is None:
+                logits = self.get_all_logits( input_ids )
+        
+        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+        predicted_log_probs = log_probs[..., :-1, :].gather(
+            dim=-1, index=input_ids[..., 1:, None]
+        )[..., 0]
+        return -predicted_log_probs.mean()
 
     def batch_decode( self, input_ids ):
         output_str = self.tokenizer.batch_decode( input_ids )
@@ -717,11 +754,11 @@ class Model():
     def evaluate_dataset( self,
             dataset: datasets.Dataset,
             dataset_text_label: str = 'content',
-            token_limit: Optional[int] = None,
             k: int = 10,
             start_index: int = 1,
             skip_eval: list = [],
             sample_size: int = 1e5,
+            token_limit: Optional[int] = None,
             count_tokens: bool = False,
             num_top_tokens: int = 50,
             ):
@@ -755,7 +792,7 @@ class Model():
         """
         
         # Initialize variables
-        limit = self.limit if limit is None else token_limit
+        limit = self.limit if token_limit is None else token_limit
         token_counts = None
         out = {
             "num_predictions": 0,
@@ -766,6 +803,7 @@ class Model():
             "num_topk_skip_accurate": 0,
             "token_counts": None,
         }
+        loss_tracker = Welford()
 
         # Set up approx stopping index
         with tqdm(total=sample_size) as pbar:
@@ -774,24 +812,32 @@ class Model():
             for data in dataset:
                 # predict next token from text
                 text = data[ dataset_text_label ]
-                curr =  self.evaluate_top_k_performance( text, k=k,
-                    start_index=start_index, skip_strings=skip_eval, limit=token_limit )
+                with torch.no_grad():
+                    input_ids = self.get_ids( text, token_limit )
+                    logits = self.get_all_logits( input_ids )
+                
+                # perform evaluations
+                topk =  self.evaluate_top_k_performance( k, input_ids=input_ids,
+                    logits=logits, start_index=start_index, skip_strings=skip_eval )
+                loss = self.evaluate_ce_loss( input_ids=input_ids, logits=logits )
 
                 # Record performance
-                out["num_predictions"]    += curr['num_predictions']
-                out["num_accurate"]       += curr['num_accurate']
-                out["num_topk_accurate"]  += curr['num_topk_accurate']
-                out["num_skip_predictions"]   += curr['num_skip_predictions']
-                out["num_skip_accurate"]      += curr['num_skip_accurate']
-                out["num_topk_skip_accurate"] += curr['num_topk_skip_accurate']
-                pbar.update( curr["num_skip_predictions"] )
+                loss_tracker.add( loss.detach().cpu().numpy() )
+                out["num_predictions"]    += topk['num_predictions']
+                out["num_accurate"]       += topk['num_accurate']
+                out["num_topk_accurate"]  += topk['num_topk_accurate']
+                out["num_skip_predictions"]   += topk['num_skip_predictions']
+                out["num_skip_accurate"]      += topk['num_skip_accurate']
+                out["num_topk_skip_accurate"] += topk['num_topk_skip_accurate']
+                out["loss"] = loss_tracker.mean
+                pbar.update( topk["num_skip_predictions"] )
 
                 # Record token counts
                 if count_tokens:
                     # Get current token counts
                     if token_counts is None:
-                        token_counts = np.zeros_like( curr['token_counts'] )
-                    token_counts += curr['token_counts']
+                        token_counts = np.zeros_like( topk['token_counts'] )
+                    token_counts += topk['token_counts']
 
                     # Save token counts
                     out["token_counts"] = token_counts

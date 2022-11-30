@@ -1,12 +1,16 @@
-from model import Model
 import torch
+import numpy as np
+import pandas as pd
+import einops
+import matplotlib.pyplot as plt
 
-opt = Model()
-text = " Hey guys welcome back to another youtube video! Today we are going to be doing some more card pack openings for Magic The Gathering and I hope that we are going to get lucky and finally get the brand new golden legendary card that is all the rage,"
+from model import Model
+from texts import prepare
+from activations import calculate_attn_crossover, \
+    delete_ff_and_evaluate, evaluate_all
 
-outputs = opt.get_text_activations( text )
-input, attn, ff, output = outputs
 
-print( opt.predict( text ) )
+opt = Model("125m", limit=1000)
+print( "layers:", opt.n_layers, "embedding dimension:", opt.d_model )
 
-opt.delete_ff_keys( torch.tensor([[1, 0]], dtype=torch.int64) )
+evaluate_all( opt, 1e4 )

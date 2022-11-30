@@ -17,28 +17,31 @@ import datetime
 
 def evaluate( opt: Model,
         dataset_name: str,
-        topk: int = 10,
-        sample_size: int = 1e5
+        sample_size: int = 1e5,
+        topk: int = 10
     ):
     dataset, label, skip_eval = prepare( dataset_name )
     out = opt.evaluate_dataset( dataset, k=topk, start_index=1,
-        stopping_index=sample_size, skip_eval=skip_eval, dataset_text_label=label,
+        sample_size=sample_size, skip_eval=skip_eval, dataset_text_label=label,
         count_tokens=False )
 
     percent = out['percent']
+    print( f'{dataset_name} loss:', out['loss'] )
     print( f'{dataset_name} no skip:', '%.2f' % percent['base'], '%')
     print( f'{dataset_name} w/ skip:', '%.2f' % percent['skip'], '%')
     print( f'{dataset_name} no skip top{topk}:', '%.2f' % percent['topk'], '%')
     print( f'{dataset_name} w/ skip top{topk}:', '%.2f' % percent['topk_skip'], '%')
     return out
 
-def evaluate_all( opt: Model, limit: int = 1e5, topk: int = 1 ):
-    pile_out = evaluate( opt, 'pile', limit, topk )
-    code_out = evaluate( opt, 'code', limit, topk )
+def evaluate_all( opt: Model, sample_size: int = 1e5, topk: int = 10 ):
+    pile_out = evaluate( opt, 'pile', sample_size, topk )
+    code_out = evaluate( opt, 'code', sample_size, topk )
 
     percentages = {}
     percentages.update({ ('pile_'+k): v for (k,v) in pile_out['percent'].items() })
-    percentages.update({ ('pile_'+k): v for (k,v) in code_out['percent'].items() })
+    percentages.update({ ('code_'+k): v for (k,v) in code_out['percent'].items() })
+    percentages["pile_loss"] = pile_out['loss']
+    percentages["code_loss"] = code_out['loss']
     return percentages
 
 ####################################################################################
@@ -353,6 +356,6 @@ def delete_ff_and_evaluate(
 
     
     # See the effect this has on performance
-    data = evaluate_all( eval_sample_size )
+    data = evaluate_all( opt, eval_sample_size )
     data['removed'] = num_removed
     return data
