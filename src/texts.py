@@ -24,6 +24,12 @@ def prepare_code():
 def prepare_pile():
     return load_pile(), 'text', most_common_pile_tokens
 
+def prepare( dataset_name ):
+    if dataset_name == 'pile':
+        return prepare_pile()
+    if dataset_name == 'code':
+        return prepare_code()
+
 if __name__ == "__main__":
     # syntax: python texts.py model_size dataset
     parser = argparse.ArgumentParser()

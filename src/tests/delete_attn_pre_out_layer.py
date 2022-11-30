@@ -1,9 +1,10 @@
+import argparse
+
 from model import Model
 import torch
 import numpy as np
 import copy
 from torch import Tensor
-import argparse
 
 def test_delete_attn_pre_out_layer( verbose: bool = False ):
   with torch.no_grad():

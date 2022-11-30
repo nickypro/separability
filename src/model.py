@@ -1,16 +1,10 @@
-from typing_extensions import Self
-from xml.sax.xmlreader import AttributesNSImpl
 import datasets
-from matplotlib.cbook import print_cycles
-from transformers import GPT2Tokenizer, OPTModel, OPTConfig, OPTForCausalLM
-from transformers.models.opt.modeling_opt import OPTAttention, OPTDecoderLayer
+from transformers import GPT2Tokenizer, OPTForCausalLM
+from transformers.models.opt.modeling_opt import OPTAttention
 import torch
-import matplotlib.pyplot as plt
-import seaborn as sns
 import numpy as np
-import time
 import copy
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 # import types for typed python
 from typing import Optional, List, Tuple
@@ -70,7 +64,7 @@ class InverseLinear(torch.nn.Module):
 model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b", "175b" ]
 
 class Model():
-    def __init__( self, model_size : str  = "125m" ):
+    def __init__( self, model_size : str  = "125m", limit: int = None ):
         """
         OPT Model with functions for extracting activations.
         model_size : 125m, 350m, 1.3b, 2.7b, 6.7b, 13b, 30b, 66b, 175b
@@ -78,6 +72,7 @@ class Model():
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.init_model( model_size )
+        self.limit = limit
         self.to( self.device )
 
         # Indices of outputs for reference
@@ -106,6 +101,7 @@ class Model():
         self.d_model = attn0.embed_dim
         self.d_head  = attn0.head_dim
         self.n_heads = attn0.num_heads
+        self.n_layers = len(self.model.decoder.layers)
 
         self.register_activations()
         self.register_inverse_out_proj()
@@ -143,6 +139,7 @@ class Model():
             layer.self_attn.inv_out_proj.to(self.device)
 
     def get_ids( self, text:str, limit:Optional[int]=None ):
+        limit = self.limit if (limit is None) else limit
         input_ids = self.tokenizer( text, return_tensors='pt').input_ids
         if not limit is None:
             input_ids = torch.stack([ input_ids[0][:limit] ])
@@ -389,16 +386,12 @@ class Model():
             out.append( pre_out)
         return torch.stack( out )
 
-    def get_indices_of_attn_head( self, index: int ):
-        # Returns [ start, end ] indices of head at index
-        return [ self.d_head * index, self.d_head * (index+1) ]
-
     def delete_attn_pre_out_layer( self,
             layer_index: int,
             remove_indices: Tensor,
             mean_values: Optional[Tensor] = None
             ):
-        """_summary_
+        """
         A function that deletes the impact that the pre_out layer has on the model
 
         Args:
@@ -409,6 +402,11 @@ class Model():
                 by to compensate for the fact it is no longer in service.
                 Defaults to None.
         """
+        if type(remove_indices) is np.ndarray:
+            remove_indices = torch.tensor(remove_indices, dtype=torch.float32)
+        if type(mean_values) is np.ndarray:
+            mean_values = torch.tensor(mean_values, dtype=torch.float32)
+
         with torch.no_grad():
             # check tensor sizes are correct
             size = remove_indices.size()
@@ -446,7 +444,8 @@ class Model():
             remove_indices: Tensor,
             mean_values: Tensor = None,
         ):
-        """_summary_
+        """Delete effect of attn_pre_out for neurons at indices {remove_indices}.
+        Optionally offset the output my some mean activation {mean_values}.
 
         Args:
             remove_indices (Tensor): Tensor of type [n_layer, n_heads, d_head] or
@@ -456,7 +455,7 @@ class Model():
                 for the deletion of the attn_pre_out interactions. Defaults to None.
 
         Returns:
-            _type_: _description_
+            self (Model)
         """
         use_means = not (mean_values is None)
         if use_means:
@@ -468,6 +467,42 @@ class Model():
                 remove_indices[layer_index], mean_values_layer )
         
         return self
+
+    def delete_attn_pre_out_heads( self,
+            remove_heads: Tensor,
+            means: Tensor = None,
+        ):
+        """remove specific attention heads from model, and optionally offset
+        activation by some mean activation
+
+        Args:
+            remove_heads (Tensor): tensor of model heads to remove of size 
+                [n_layers, n_heads], with value True if you want to remove it
+            means (Tensor, optional): tensor of means to offset activations by.
+                Defaults to None.
+        """
+        # Check that the size for remove_heads is correct
+        if remove_heads.size() != torch.Size([ self.n_layers, self.n_heads ]):
+            raise ValueError( "Removals must have dimension [n_layers, n_heads]" )
+
+        # if using means, check sizes are correct
+        means_i = None
+
+        # delete heads in each layer
+        for layer in range(self.n_layers):
+            # if using means, get means for current layer
+            if not means is None:
+                means_i = means[layer]
+                means_i = torch.tensor( means_i.flatten(), dtype=torch.float32 )
+                assert means_i.size() == torch.Size([ self.d_model ])
+
+            # Convert 'heads' tensor into 'individual neurons' tensor 
+            remove_indices = np.ones([ self.n_layers, self.n_heads, self.d_head])
+            for head_index, val in enumerate(remove_heads[layer]):
+                remove_indices[head_index] *= ( val )
+            remove_indices = torch.tensor( remove_indices.flatten(), dtype=torch.float32 )
+
+            self.delete_attn_pre_out_layer( layer, remove_indices, means_i )
 
     # Functions for calculating feed-forward fully connected layer activations
     def calculate_ff_keys_layer( self, ff_in: Tensor, layer: int ):
@@ -499,13 +534,43 @@ class Model():
                 ff_out += ff_in[layer]
             out.append( ff_out )
         return torch.stack( out )
+    
+    # functions for 'deleting' neurons from the MLP mid layers
+    def delete_ff_keys( self, layer_key_map: Tensor ):
+        for layer, key_map in enumerate(layer_key_map):
+            # Get state dict
+            ff_1  = self.model.decoder.layers[ layer ].fc1
+            state_dict = ff_1.state_dict()
+
+            # set biases to -inf to 'delete' the keys (due to ReLU)
+            for index, delete in enumerate(key_map):
+                if delete:
+                    state_dict['bias'][index] = - torch.inf
+            ff_1.load_state_dict( state_dict )
+
+    def delete_ff_keys_from_files( self, files: List[str] ):
+        """Delete ff mid layer neurons from list of numpy files
+        pointing to which neurons to delete.
+
+        Args:
+            files (List[str]): List of ".npy" file paths
+        """
+        criteria = None
+
+        for filename in files:
+            ff_criterion = np.load(filename)
+            if criteria is None:
+                criteria = np.zeros_like( ff_criterion )
+            criteria += ff_criterion
+
+            sums = [ x.sum() for x in ff_criterion ]
+            print( "%5d -"%np.sum(sums), sums )
+
+        self.delete_ff_keys( criteria )
 
     # Next token prediction, show tokens
-    def predict( self,
-                text : str,
-                num : int = 10,
-                limit : Optional[int] = None
-            ):
+    def predict( self, text : str, num: int = 10, limit: Optional[int] = None ):
+        """ Predict the next {num} tokens from an input {text}."""
 
         inputs = self.tokenizer( text, return_tensors="pt" )
         input_ids = inputs.input_ids
@@ -534,6 +599,8 @@ class Model():
         return lm_head( embedded_outputs.to(self.device) )
  
     def get_all_logits( self, input_ids ):
+        """Get output logits from input token ids"""
+
         outputs = self.model( input_ids, output_hidden_states=False )
         logits = self.unembed( outputs.last_hidden_state )
 
@@ -554,13 +621,29 @@ class Model():
                 skip_strings: List[str] = [],
                 limit: Optional[int] = None
             ):
+        """Evaluates performance with top-1 and top-k token predictions.
+
+        Args:
+            text (str): The text to evaluat.
+            k (int): the number of tokens to consider.
+            start_index (int, optional): The starting index from which to count.
+                Defaults to 1.
+            skip_strings (List[str], optional): Tokens to skip when evaluating.
+                Defaults to [].
+            limit (Optional[int], optional): The maximum number of tokens, such that
+                texts longer than this limit are trimmed. Defaults to None.
+
+        Returns:
+            output: dict of output information
+        """
         
         # Generate input token ids and output top k token ids
         with torch.no_grad():
             input_ids = self.get_ids( text, limit=limit )
             logits = self.get_all_logits( input_ids )
             token_dictionary_size = logits.size()[-1]
-            top_k_tokens = self.top_k_tokens( logits, k )
+            top_tokens  = self.top_k_tokens( logits, 1 )
+            topk_tokens = self.top_k_tokens( logits, k ) if k!=1 else top_tokens
         
         # Get the set of token ids to skip when evaluating performance
         skip_ids = set()
@@ -572,21 +655,26 @@ class Model():
         input_ids = input_ids.squeeze()
         num_predictions = 0
         num_accurate = 0
+        num_topk_accurate = 0
         num_skip_predictions = 0
         num_skip_accurate = 0
+        num_topk_skip_accurate = 0
         for i in range( start_index, len(input_ids) ):
             # Check if accurate
-            is_accurate = (input_ids[i] in top_k_tokens[i-1])
+            is_accurate      = (input_ids[i] in top_tokens[i-1])
+            is_topk_accurate = (input_ids[i] in topk_tokens[i-1])
 
             # Count normal prediction ( ignoring skip )
-            num_predictions += 1
-            num_accurate    += is_accurate
+            num_predictions   += 1
+            num_accurate      += is_accurate
+            num_topk_accurate += is_topk_accurate
 
             # Now count only if the token is not supposed to be skipped
             if int(input_ids[i]) in skip_ids:
                 continue
-            num_skip_predictions += 1
-            num_skip_accurate    += is_accurate
+            num_skip_predictions   += 1
+            num_skip_accurate      += is_accurate
+            num_topk_skip_accurate += is_topk_accurate
 
         # Keep track of most used tokens
         token_counts = np.zeros( token_dictionary_size )
@@ -594,13 +682,16 @@ class Model():
             token_counts[id] += 1
 
         output = {
-            'num_predictions': num_predictions,
-            'num_accurate': num_accurate,
-            'num_skip_predictions': num_skip_predictions,
-            'num_skip_accurate': num_skip_accurate,
+            'num_predictions'  : num_predictions,
+            'num_accurate'     : num_accurate,
+            'num_topk_accurate': num_topk_accurate,
+            'num_skip_predictions'  : num_skip_predictions,
+            'num_skip_accurate'     : num_skip_accurate,
+            'num_topk_skip_accurate': num_topk_skip_accurate,
             'token_counts': token_counts,
-            'input_ids': input_ids,
-            'top_k_tokens': top_k_tokens,
+            'input_ids'   : input_ids,
+            'top_tokens'  : top_tokens,
+            'top_k_tokens': topk_tokens,
         }
 
         return output
@@ -609,41 +700,75 @@ class Model():
         output_str = self.tokenizer.batch_decode( input_ids )
         return output_str
 
+    def calculate_evaluation_percentages( self, out: dict, string: bool = False ):
+        # Print top1 prediction accuracy
+        pred      = out["num_predictions"]
+        skip_pred = out["num_skip_predictions"]
+        percent = {
+            "base": (100 * out["num_accurate"] / pred),
+            "topk": (100 * out["num_topk_accurate"] / pred),
+            "skip": (100 * out["num_skip_accurate"] / pred),
+            "topk_skip": (100 * out["num_topk_skip_accurate"] / skip_pred ),
+        }
+        if string:
+            percent = { k: ('%.2f'%v) for k, v in percent.items() }
+        return percent
+
     def evaluate_dataset( self,
             dataset: datasets.Dataset,
             dataset_text_label: str = 'content',
             token_limit: Optional[int] = None,
-            k: int = 1,
-            count_tokens: bool = False,
-            num_top_tokens: int = 50,
+            k: int = 10,
             start_index: int = 1,
             skip_eval: list = [],
-            stopping_index: int = 1e6,
+            sample_size: int = 1e5,
+            count_tokens: bool = False,
+            num_top_tokens: int = 50,
             ):
-        """
-        dataset: the Datset object to iterate over
-        dataset_text_label: the label for the dataset text. eg: 'text'. 'content'
-        token_limit: the maximum number of tokens to evaluate
-        k: the number of top-k tokens predictions to evaluate
-        count_tokens: whether to also count the most common tokens
-        num_top_tokens: the number of most common tokens to evaluate
-        start_index: the index of the first token to evaluate
-        skip_eval: a list of token ids to skip when evaluating
+        """An evaluation of next-token prediction accuracy for an iterable Dataset,
+        which includes options for topk evaluation as well as skipping the most
+        commonly occuring tokens.
 
-        """
+        Args:
+            dataset (datasets.Dataset): the Datset object to iterate over.
+            dataset_text_label (str, optional): The label for the dataset text.
+                eg: 'text'. 'content'. Defaults to 'content'.
+            k (int, optional): Number of topk tokens to look at when asessing
+                the accuracy of the model (in addition to top1). Defaults to 10.
+            start_index (int, optional): The index of the first token to evaluate.
+                Defaults to 1.
+            skip_eval (list, optional): A list of token IDs to skip when evaluating.
+                Defaults to [].
+            sample_size (int, optional): The number of tokens to evaluate.
+                Defaults to 1e5.
+            token_limit (Optional[int], optional): The maximum length of tokens
+                to allow before trimming each text input. Defaults to None.
+            count_tokens (bool, optional): . Defaults to False.
+            num_top_tokens (int, optional): If count_tokens is true, this number
+                determines the number of top most-common accurate token predictions
+                to output when counting tokens. Defaults to 50.
 
+        Returns:
+            dict: A dictionary which contains counts of #predictions and #accurate
+                accross various the various possible combinations of outputs,
+                as well as a sub dict 'percent' which contains percentage accuracy.
+        """
+        
         # Initialize variables
+        limit = self.limit if limit is None else token_limit
         token_counts = None
         out = {
             "num_predictions": 0,
             "num_accurate": 0,
             "num_skip_predictions": 0,
             "num_skip_accurate": 0,
+            "num_topk_accurate": 0,
+            "num_topk_skip_accurate": 0,
             "token_counts": None,
         }
 
         # Set up approx stopping index
-        with tqdm(total=stopping_index) as pbar:
+        with tqdm(total=sample_size) as pbar:
 
             # Loop over the dataset
             for data in dataset:
@@ -653,10 +778,12 @@ class Model():
                     start_index=start_index, skip_strings=skip_eval, limit=token_limit )
 
                 # Record performance
-                out["num_predictions"] += curr['num_predictions']
-                out["num_accurate"]    += curr['num_accurate']
-                out["num_skip_predictions"] += curr['num_skip_predictions']
-                out["num_skip_accurate"]    += curr['num_skip_accurate']
+                out["num_predictions"]    += curr['num_predictions']
+                out["num_accurate"]       += curr['num_accurate']
+                out["num_topk_accurate"]  += curr['num_topk_accurate']
+                out["num_skip_predictions"]   += curr['num_skip_predictions']
+                out["num_skip_accurate"]      += curr['num_skip_accurate']
+                out["num_topk_skip_accurate"] += curr['num_topk_skip_accurate']
                 pbar.update( curr["num_skip_predictions"] )
 
                 # Record token counts
@@ -669,38 +796,20 @@ class Model():
                     # Save token counts
                     out["token_counts"] = token_counts
 
-                # Print overall average prediction accuracy
-                pred, acc = out["num_skip_predictions"], out["num_skip_accurate"]
-                percentage = round( 100 * acc / pred, 1 )
-                out_str = f'accuracy {percentage}% '
-
-                # Print current prediction accuracy
-                pred, acc = curr["num_skip_predictions"], curr["num_skip_accurate"]
-                percentage = round( 100 * acc / (pred+1), 1 )
-                out_str += f'(curr {percentage}%)'
-
+                # Print output string showing current accuracy
+                percent  = self.calculate_evaluation_percentages( out, string=True )
+                out_str  =   f"Acc: {percent['base']}|{percent['topk']} "
+                out_str += f"(Skip: {percent['skip']}|{percent['topk_skip']})"
                 pbar.set_description( out_str )
                 
                 # Stop if limit is reached
-                if out["num_skip_predictions"] > stopping_index:
+                if out["num_skip_predictions"] > sample_size:
                     break
 
             if count_tokens:
-                topk = token_counts.argpartition(
-                    -num_top_tokens )[-num_top_tokens:]
+                topk = token_counts.argpartition(-num_top_tokens )[-num_top_tokens:]
                 topk = topk[np.argsort(token_counts[topk])][::-1]
                 print( self.batch_decode( topk ) )
-            
-            return out
-    
-    def delete_ff_keys( self, layer_key_map: Tensor ):
-        for layer, key_map in enumerate(layer_key_map):
-            # Get state dict
-            ff_1  = self.model.decoder.layers[ layer ].fc1
-            state_dict = ff_1.state_dict()
 
-            # set biases to -inf to 'delete' the keys (due to ReLU)
-            for index, delete in enumerate(key_map):
-                if delete:
-                    state_dict['bias'][index] = - torch.inf
-            ff_1.load_state_dict( state_dict )
+            out['percent'] = self.calculate_evaluation_percentages( out ) 
+            return out
