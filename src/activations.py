@@ -184,17 +184,17 @@ def calculate_attn_crossover( opt: Model,
     pos_code_rel_freq = ( code_pos + eps ) / ( pile_pos + eps )
     neg_code_rel_freq = ( code_neg - eps ) / ( pile_neg - eps )
 
-    for layer in range(12):
-        removals.append([ False for _ in range(12)])
-        crossover_multiple.append([ 1.0 for _ in range(opt.n_heads) ])
+    for layer in range( opt.n_layers ):
+        removals.append([ False for _ in range( opt.n_heads )])
+        crossover_multiple.append([ 1.0 for _ in range( opt.n_heads ) ])
 
-        for head in range(12):
+        for head in range( opt.n_heads ):
             # Relative probability mass in positive and negative directions
             pos_rel = np.sort( pos_code_rel_freq[layer][head] )
             neg_rel = np.sort( neg_code_rel_freq[layer][head] )[::-1]
 
             #cross-over position
-            for i in range(opt.d_head):
+            for i in range( opt.d_head ):
                 if pos_rel[i] > neg_rel[i]:
                     break
             crossover =  ( pos_rel[i-1] + pos_rel[i] + neg_rel[i-1] + neg_rel[i] )/4
