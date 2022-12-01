@@ -61,6 +61,11 @@ class InverseLinear(torch.nn.Module):
         y = x + self.inverse_bias
         y = self.fc( y )
         return y
+        
+    def to( self, device ):
+        self.inverse_bias = self.inverse_bias.to( device )
+        self.fc = self.fc.to( device )
+        return self
 
 model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b", "175b" ]
 
@@ -146,7 +151,8 @@ class Model():
         # Make it possible to get the output right before out_proj
         for layer in self.model.decoder.layers:
             layer.self_attn.inv_out_proj = InverseLinear( layer.self_attn.out_proj )
-            layer.self_attn.inv_out_proj.to(self.device)
+            layer.self_attn.inv_out_proj = \
+                layer.self_attn.inv_out_proj.to(self.device)
 
     def get_ids( self, text:str, limit:Optional[int]=None ):
         limit = self.limit if (limit is None) else limit
@@ -413,7 +419,7 @@ class Model():
                 Defaults to None.
         """
         if type(remove_indices) is np.ndarray:
-            remove_indices = torch.tensor(remove_indices, dtype=torch.float32)
+            remove_indices = torch.tensor(remove_indices, dtype=torch.bool)
         if type(mean_values) is np.ndarray:
             mean_values = torch.tensor(mean_values, dtype=torch.float32)
 
@@ -421,7 +427,7 @@ class Model():
             # check tensor sizes are correct
             size = remove_indices.size()
             if size[-1] == self.d_head:
-                remove_indices = remove_indices.reshape(size[:-2], -1)
+                remove_indices = remove_indices.reshape( (*size[:-2], -1) )
                 size = remove_indices.size()
             assert remove_indices.size() == torch.Size([self.d_model])
 
@@ -494,25 +500,21 @@ class Model():
         # Check that the size for remove_heads is correct
         if remove_heads.size() != torch.Size([ self.n_layers, self.n_heads ]):
             raise ValueError( "Removals must have dimension [n_layers, n_heads]" )
-
-        # if using means, check sizes are correct
-        means_i = None
+            
+        # Convert 'heads' tensor into 'individual neurons' tensor 
+        remove_indices = remove_heads.unsqueeze(-1).expand([
+            self.n_layers, self.n_heads, self.d_head])
 
         # delete heads in each layer
         for layer in range(self.n_layers):
             # if using means, get means for current layer
-            if not means is None:
-                means_i = means[layer]
-                means_i = torch.tensor( means_i.flatten(), dtype=torch.float32 )
+            if means is None:
+                means_i = None
+            else:
+                means_i = means[layer].flatten()
                 assert means_i.size() == torch.Size([ self.d_model ])
 
-            # Convert 'heads' tensor into 'individual neurons' tensor 
-            remove_indices = np.ones([ self.n_layers, self.n_heads, self.d_head])
-            for head_index, val in enumerate(remove_heads[layer]):
-                remove_indices[head_index] *= ( val )
-            remove_indices = torch.tensor( remove_indices.flatten(), dtype=torch.float32 )
-
-            self.delete_attn_pre_out_layer( layer, remove_indices, means_i )
+            self.delete_attn_pre_out_layer( layer, remove_indices[layer], means_i )
 
     # Functions for calculating feed-forward fully connected layer activations
     def calculate_ff_keys_layer( self, ff_in: Tensor, layer: int ):

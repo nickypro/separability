@@ -1,3 +1,5 @@
 __pycache__
 tmp
 src/tests/model.py
+src/tests/activations.py
+src/tests/texts.py

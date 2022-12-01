@@ -26,11 +26,12 @@ def evaluate( opt: Model,
         count_tokens=False )
 
     percent = out['percent']
+    out['loss'] = round(float(out['loss']), 4)
     print( f'{dataset_name} loss:', out['loss'] )
-    print( f'{dataset_name} no skip:', '%.2f' % percent['base'], '%')
-    print( f'{dataset_name} w/ skip:', '%.2f' % percent['skip'], '%')
     print( f'{dataset_name} no skip top{topk}:', '%.2f' % percent['topk'], '%')
     print( f'{dataset_name} w/ skip top{topk}:', '%.2f' % percent['topk_skip'], '%')
+    print( f'{dataset_name} no skip:', '%.2f' % percent['base'], '%')
+    print( f'{dataset_name} w/ skip:', '%.2f' % percent['skip'], '%')
     return out
 
 def evaluate_all( opt: Model, sample_size: int = 1e5, topk: int = 10 ):
@@ -52,7 +53,7 @@ def get_attn_activations( opt: Model,
         dataset_name: str,
         sample_size: int = 10000,
         token_limit: Optional[int] = None,
-        check_accuracy: bool = False,
+        check_accuracy: bool = True,
         k: int = 10,
         check_skips: bool = False
     ):
@@ -146,7 +147,8 @@ def get_attn_activations( opt: Model,
 def calculate_attn_crossover( opt: Model,
         threshold: float = 1.5,
         sample_size: int = 1e5,
-        token_limit: Optional[int] = None
+        token_limit: Optional[int] = None,
+        **kwargs
         ):
     """Gets how much more probability mass the median activation of code has for an
     attention head neuron compared to activations in the pile.
@@ -171,8 +173,8 @@ def calculate_attn_crossover( opt: Model,
                 negative mass from code compared to baseline pile activation
             removals: The heads to be removed based on probability mass threshold
     """
-    pile_out = get_attn_activations( opt, 'pile', sample_size, token_limit )
-    code_out = get_attn_activations( opt, 'code', sample_size, token_limit )
+    pile_out = get_attn_activations(opt, 'pile', sample_size, token_limit, **kwargs)
+    code_out = get_attn_activations(opt, 'code', sample_size, token_limit, **kwargs)
     pile_means, pile_pos, pile_neg = pile_out 
     code_means, code_pos, code_neg = code_out
 
@@ -200,7 +202,8 @@ def calculate_attn_crossover( opt: Model,
 
             if crossover > threshold:
                 removals[-1][head] = True
-    
+
+    # Save data in a dict 
     data = {
         'pile_means' : pile_means,
         'pile_pos'   : pile_pos,
@@ -208,9 +211,11 @@ def calculate_attn_crossover( opt: Model,
         'code_means' : code_means,
         'code_pos'   : code_pos,
         'code_neg'   : code_neg,
-        'crossover_multiple' : crossover_multiple,
-        'removals'   : removals
+        'crossover_multiple' : crossover_multiple
     }
+    # Convert to Tensor objects
+    data = { k: torch.tensor(v, dtype=torch.float32) for k, v in data.items()}
+    data['removals'] = torch.tensor(removals, dtype=torch.bool)
 
     return data
 
