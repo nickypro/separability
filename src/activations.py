@@ -145,7 +145,6 @@ def get_attn_activations( opt: Model,
     return means, pos_mass, neg_mass
 
 def calculate_attn_crossover( opt: Model,
-        threshold: float = 1.5,
         sample_size: int = 1e5,
         token_limit: Optional[int] = None,
         **kwargs
@@ -155,14 +154,13 @@ def calculate_attn_crossover( opt: Model,
 
     Args:
         opt (Model): The model to run
-        threshold (int, optional): crossover threshold for removal. Defaults to 1.5.
         sample_size (int, optional): token sample size to collect data for.
             Defaults to 1e5.
         token_limit (Optional[int], optional): limit to number of tokens in a text,
             mainly for smaller models. Defaults to None.
 
     Returns:
-        data: Dictionaty containing information about activations
+        data: Dictionary containing information about activations
             pile_means: mean activations of each neuron in pre-out on the pile
             pile_pos: positive mass 
             pile_neg: negative mass
@@ -171,23 +169,18 @@ def calculate_attn_crossover( opt: Model,
             code_neg: negative mass
             crossover: The of probability mass on crossover between positive and
                 negative mass from code compared to baseline pile activation
-            removals: The heads to be removed based on probability mass threshold
     """
     pile_out = get_attn_activations(opt, 'pile', sample_size, token_limit, **kwargs)
     code_out = get_attn_activations(opt, 'code', sample_size, token_limit, **kwargs)
     pile_means, pile_pos, pile_neg = pile_out 
     code_means, code_pos, code_neg = code_out
 
-    removals = []
-    crossover_multiple = []
+    crossover_multiple = np.ones((opt.n_layers, opt.n_heads) )
     eps = 1e-5
-    pos_code_rel_freq = ( code_pos + eps ) / ( pile_pos + eps )
-    neg_code_rel_freq = ( code_neg - eps ) / ( pile_neg - eps )
+    pos_code_rel_freq = code_pos / ( pile_pos + eps )
+    neg_code_rel_freq = code_neg / ( pile_neg - eps )
 
     for layer in range( opt.n_layers ):
-        removals.append([ False for _ in range( opt.n_heads )])
-        crossover_multiple.append([ 1.0 for _ in range( opt.n_heads ) ])
-
         for head in range( opt.n_heads ):
             # Relative probability mass in positive and negative directions
             pos_rel = np.sort( pos_code_rel_freq[layer][head] )
@@ -199,9 +192,6 @@ def calculate_attn_crossover( opt: Model,
                     break
             crossover =  ( pos_rel[i-1] + pos_rel[i] + neg_rel[i-1] + neg_rel[i] )/4
             crossover_multiple[layer][head] = crossover
-
-            if crossover > threshold:
-                removals[-1][head] = True
 
     # Save data in a dict 
     data = {
@@ -215,7 +205,6 @@ def calculate_attn_crossover( opt: Model,
     }
     # Convert to Tensor objects
     data = { k: torch.tensor(v, dtype=torch.float32) for k, v in data.items()}
-    data['removals'] = torch.tensor(removals, dtype=torch.bool)
 
     return data
 
