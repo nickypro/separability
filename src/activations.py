@@ -263,6 +263,7 @@ def count_ff_key_activations( opt: Model,
     counter = None
     curr_count = 0
     with tqdm(total=sample_size*num_samples) as pbar:
+      with torch.no_grad():
         for data in dataset:
             text = data[label]
             input_ids = opt.get_ids( text, limit=token_limit )
