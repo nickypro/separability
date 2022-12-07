@@ -1,11 +1,37 @@
 import argparse
 
 from model import Model
+from activations import count_ff_key_activations, delete_ff_and_evaluate
 import torch
 import numpy as np
 import copy
 from torch import Tensor
 
+text1 = "Hello! In this example we will be writing something interesting about" +\
+        " how to write good tests in python."
+text2 = "for ( int i = 0; i < 10; i++ ) { console.log(i); }"
+
+def test_ff_key_counting( verbose = False ):
+  with torch.no_grad():
+    model_size = '125m'
+    n_layers = 12
+    d_model  = 768
+
+    opt = Model(model_size, limit=1000)
+    input_ids1 = opt.get_ids( text1 )
+    input_ids2 = opt.get_ids( text2 )
+
+    ff_keys1 = opt.get_ff_key_activations(input_ids=input_ids1)
+    ff_keys2 = opt.get_ff_key_activations(input_ids=input_ids2)
+
+    assert len(ff_keys1) == n_layers
+    assert len(ff_keys2) == n_layers
+
+    if (verbose):
+        print( "Text 1 size:", ff_keys1.size() )
+        print( "Text 2 size:", ff_keys2.size() )
+
+    return True
 
 def test_delete_ff_keys( verbose: bool = False ):
   with torch.no_grad():
@@ -84,4 +110,5 @@ if __name__ == "__main__":
     parser.add_argument("-v", "--verbose", action='store_true', default=False)
     args = parser.parse_args()
 
+    test_ff_key_counting(args.verbose)
     test_delete_ff_keys(args.verbose)

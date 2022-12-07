@@ -299,7 +299,7 @@ class Model():
             residual_stream = self.get_residual_stream( text, input_ids,
                 inputs_embeds, text_activations, verbose, limit, **kwargs )
         
-        ff_inputs = residual_stream[1:-2:2]
+        ff_inputs = residual_stream[1:-1:2]
         ff_keys = self.calculate_ff_keys( ff_inputs.to(self.device) )
 
         return ff_keys
