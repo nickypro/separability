@@ -1,35 +1,39 @@
 import argparse
 
 from model import Model
-from activations import count_ff_key_activations, delete_ff_and_evaluate
 import torch
 import numpy as np
 import copy
 from torch import Tensor
-
-text1 = "Hello! In this example we will be writing something interesting about" +\
-        " how to write good tests in python."
-text2 = "for ( int i = 0; i < 10; i++ ) { console.log(i); }"
 
 def test_ff_key_counting( verbose = False ):
   with torch.no_grad():
     model_size = '125m'
     n_layers = 12
     d_model  = 768
+    d_ff     = 3072
 
+    # Initialize Model
     opt = Model(model_size, limit=1000)
-    input_ids1 = opt.get_ids( text1 )
-    input_ids2 = opt.get_ids( text2 )
 
-    ff_keys1 = opt.get_ff_key_activations(input_ids=input_ids1)
-    ff_keys2 = opt.get_ff_key_activations(input_ids=input_ids2)
+    # Run text
+    text = "for ( var i = 0; i < 10; i++ ) { console.log(i); }"
+    input_ids = opt.get_ids( text )
+    n_tokens  = input_ids.size()[-1]
 
-    assert len(ff_keys1) == n_layers
-    assert len(ff_keys2) == n_layers
+    # Make a tensor of the expected_size
+    expected_size = torch.Size([ n_layers, n_tokens, d_ff ]) 
+
+    # Run the model
+    ff_keys = opt.get_ff_key_activations(input_ids=input_ids)
+
+    # Test that result is as desired
+    assert len(ff_keys) == n_layers
+    assert ff_keys.size() == expected_size
 
     if (verbose):
-        print( "Text 1 size:", ff_keys1.size() )
-        print( "Text 2 size:", ff_keys2.size() )
+        print( "Text size:", ff_keys.size() )
+        print( "Expected :", expected_size )
 
     return True
 
