@@ -1,4 +1,3 @@
-from model import Model
 from texts import prepare
 import numpy as np
 import torch
@@ -10,6 +9,8 @@ from welford import Welford
 import einops
 import os
 import datetime
+
+from model import Model
 
 ####################################################################################
 # Code for Evaluating Model
@@ -84,11 +85,11 @@ def get_attn_activations( opt: Model,
     pos_mass = None
     curr_count = 0
     with tqdm(total=sample_size) as pbar:
-      with torch.no_grad():
         for data in dataset:
             text = data[label]
             input_ids = opt.get_ids( text, limit=token_limit )
-            text_activations = opt.get_text_activations( input_ids=input_ids )
+            with torch.no_grad():
+                text_activations = opt.get_text_activations( input_ids=input_ids )
             ids = input_ids.squeeze().detach().cpu()
 
             # Criteria for counting the token activation
@@ -223,13 +224,13 @@ def count_ff_key_activations( opt: Model,
         dataset_name: str,
         sample_size: int = 10000,
         token_limit: int = None,
-        num_samples: int = 1, 
+        num_samples: int = 1,
         check_accuracy: bool = False,
         k: int = 10,
         check_skips: bool = False
     ):
     """Gets the number of activations of the midlayer ('key' layer) of MLPs for
-    each layer 
+    each layer.
 
     Args:
         opt (Model): my special sauce opt model
@@ -330,14 +331,14 @@ def delete_ff_and_evaluate(
         sample_size=counter_sample_size, num_samples=1, check_accuracy=True )
     code_counters = count_ff_key_activations( opt, 'code',
         sample_size=counter_sample_size, num_samples=1, check_accuracy=True )
-    
+
     # Delete when the MLP layer activates way more for code than pile
     ff_criterion = ( code_counters[0] > (freq_multiple*pile_counters[0]) )
     sums = [ x.sum() for x in ff_criterion.detach().numpy() ]
     num_removed = np.sum(sums)
     print( "%5d -"%num_removed, sums )
     opt.delete_ff_keys( ff_criterion )
-    
+
     try:
         # Save the indices that were deleted into the timestamped file
         print("saving files...")
@@ -346,9 +347,9 @@ def delete_ff_and_evaluate(
         ff_save_numpy( opt, freq_multiple, pile_counters[0], f'counters-pile_{now}' )
         ff_save_numpy( opt, freq_multiple, code_counters[0], f'counters-code_{now}' )
         
-    except Exception:
+    except Exception as e:
         print("Did not save sadly :(")
-
+        print(e)
     
     # See the effect this has on performance
     data = evaluate_all( opt, eval_sample_size )

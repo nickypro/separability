@@ -1,4 +1,5 @@
 import datasets
+from pyparsing import Opt
 from transformers import GPT2Tokenizer, OPTForCausalLM
 from transformers.models.opt.modeling_opt import OPTAttention
 import torch
@@ -8,23 +9,28 @@ from tqdm.notebook import tqdm
 from welford import Welford
 
 # import types for typed python
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 from torch import Tensor
 
+# Import matplotlib and set dpi to 300
 import matplotlib as mpl
 mpl.rcParams['figure.dpi'] = 300
 
 # Return with the output tensors detached from gpu
 def detached( output ):
-    if type(output) is tuple:
+    """ Recursively detach Tensor or List of Tensors """
+
+    if isinstance(output, tuple):
         return ( detached(out) for out in output )
-    if type(output) is Tensor:
+    if isinstance(output, Tensor):
         return output.detach()
     return None
 
-def pad_zeros( d, n=2 ):
-    s = str(d)
-    k = n - len(s)
+def pad_zeros(number, n_digits=2):
+    """ Pads zeros to integer """
+
+    s = str(number)
+    k = n_digits - len(s)
     k = k if k > 0 else 0
     return "0"*k + s
 
@@ -62,14 +68,18 @@ class InverseLinear(torch.nn.Module):
         y = self.fc( y )
         return y
         
-    def to( self, device ):
-        self.inverse_bias = self.inverse_bias.to( device )
-        self.fc = self.fc.to( device )
+    def to(self, device: Optional[Union[str, torch._device]], **kwargs):
+        super( InverseLinear, self ).to( device, **kwargs )
+        self.inverse_bias = self.inverse_bias.to( device, **kwargs )
+        self.fc = self.fc.to( device, **kwargs )
         return self
 
 model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b", "175b" ]
 
 class Model():
+    """ Wrapper Class for Meta OPT model that allows me to do interpretability
+    work on it's activations and modify it's parameters as needed. """
+
     def __init__( self, model_size : str  = "125m", limit: int = None ):
         """
         OPT Model with functions for extracting activations.
@@ -164,7 +174,6 @@ class Model():
     def get_inputs_embeds( self,
                 text: Optional[str] = None,
                 input_ids: Optional[Tensor] = None,
-                verbose: bool = False,
                 limit: Optional[int] = None
             ):
         if input_ids is None:
@@ -189,11 +198,11 @@ class Model():
                     layer.append( out.detach().cpu() )
                     continue
         
-            if out is None:
-                continue
-        
-            for o in out:
-                layer.append( o )
+                if out is None:
+                    continue
+            
+                for o in out:
+                    layer.append( o )
 
             layers.append(layer)
 
@@ -229,7 +238,7 @@ class Model():
             raise ValueError( "must provide data: inputs_embeds | input_ids | text" )
 
         if text or (not input_ids is None):
-            inputs_embeds = self.get_inputs_embeds( text, input_ids, verbose, limit )
+            inputs_embeds = self.get_inputs_embeds( text, input_ids, limit )
 
         # run the model
         outputs = self.model( inputs_embeds=inputs_embeds,
@@ -245,7 +254,7 @@ class Model():
 
         # get ff outputs
         ff_out =  [] 
-        for i in range(len(attention_out)):
+        for i in range(self.n_layers):
             ff_out.append( hidden_states[i+1] - attention_out[i] - hidden_states[i] )
         ff_out = torch.stack( ff_out ).squeeze().detach().detach()
 
@@ -317,7 +326,7 @@ class Model():
             ) -> Tensor:
         if text_activations is None:
             text_activations = self.get_text_activations( text,
-                inputs_embeds, input_ids, verbose, limit, **kwargs )
+                input_ids, inputs_embeds, verbose, limit, **kwargs )
         
         [ inpt, attn_out, ff_out, output ] = text_activations
         pre_outs = self.calculate_attn_pre_out(
@@ -346,23 +355,23 @@ class Model():
         return attention_mask
 
     def calculate_attn_out_layer( self,
-                input: Tensor,
+                attn_in: Tensor,
                 layer: int,
                 attention_mask: Tensor
             ):
         u = self.model.decoder.layers[ layer ]
-        x = u.self_attn_layer_norm( input )
+        x = u.self_attn_layer_norm( attn_in )
         x = u.self_attn( x, attention_mask=attention_mask )[0]
         return x
 
     def calculate_attn_out( self, attn_in: Tensor, add_residual: bool = False ):
-        attention_mask = self.prepare_attention_mask( input )
+        attention_mask = self.prepare_attention_mask( attn_in )
 
         outs = []
-        for layer, input in enumerate(attn_in):
-            attn_out = self.calculate_attn_out_layer(input, layer, attention_mask)
+        for layer, attn_in_i in enumerate(attn_in):
+            attn_out = self.calculate_attn_out_layer(attn_in_i, layer, attention_mask)
             if add_residual:
-                attn_out += input
+                attn_out += attn_in_i
             outs.append( attn_out )
         return torch.stack( outs )
 
@@ -396,7 +405,8 @@ class Model():
             transpose: bool = False
             ):
         out = []
-        for layer in range(len(attn_out)):
+        assert len(attn_out) == self.n_layers
+        for layer in range(self.n_layers):
             pre_out = self.calculate_attn_pre_out_layer(
                 attn_out[layer], layer, reshape, transpose )
             out.append( pre_out)
@@ -418,9 +428,9 @@ class Model():
                 by to compensate for the fact it is no longer in service.
                 Defaults to None.
         """
-        if type(remove_indices) is np.ndarray:
+        if isinstance(remove_indices, np.ndarray):
             remove_indices = torch.tensor(remove_indices, dtype=torch.bool)
-        if type(mean_values) is np.ndarray:
+        if isinstance(mean_values,    np.ndarray):
             mean_values = torch.tensor(mean_values, dtype=torch.float32)
 
         with torch.no_grad():
@@ -477,7 +487,7 @@ class Model():
         if use_means:
             assert mean_values.size() == remove_indices.size()
         
-        for layer_index in range(len(remove_indices)):
+        for layer_index in range(self.n_layers):
             mean_values_layer = mean_values[layer_index] if use_means else None
             self.delete_attn_pre_out_layer( layer_index,
                 remove_indices[layer_index], mean_values_layer )
