@@ -118,6 +118,8 @@ class Model():
         self.d_head  = attn0.head_dim
         self.n_heads = attn0.num_heads
         self.n_layers = len(self.model.decoder.layers)
+        
+        self.d_ff = 4 * self.d_model
 
         self.register_activations()
         self.register_inverse_out_proj()

@@ -322,7 +322,8 @@ def ff_save_numpy( opt: Model,
 
 def delete_ff_and_evaluate(
         opt: Model,
-        freq_multiple: float,
+        top_frac: float = 0.02,
+        eps: float = 1e-2,
         counter_sample_size: int = 5e4,
         eval_sample_size: int = 1e5,
         ):
@@ -332,11 +333,21 @@ def delete_ff_and_evaluate(
     code_counters = count_ff_key_activations( opt, 'code',
         sample_size=counter_sample_size, num_samples=1, check_accuracy=True )
 
-    # Delete when the MLP layer activates way more for code than pile
-    ff_criterion = ( code_counters[0] > (freq_multiple*pile_counters[0]) )
+    # Get Relative Frequenct of Activations
+    rel_freq = ( code_counters[0] / ( pile_counters[0] + eps ) ).flatten()
+
+    # Delete the top fraction of most frequent activations
+    k = int( top_frac * opt.d_ff )
+    rel_topk = torch.topk( rel_freq, k, dim=-1, largest=True, sorted=False )
+    ff_criterion = torch.nn.functional.one_hot( rel_topk.indices, len(rel_freq) )
+    ff_criterion = ff_criterion.reshape( (opt.n_layers, opt.d_ff) )
+
+    # Give summary of how many will be removed in each layer
     sums = [ x.sum() for x in ff_criterion.detach().numpy() ]
     num_removed = np.sum(sums)
-    print( "%5d -"%num_removed, sums )
+    print( f"%5d - {sums}" % num_removed )
+
+    # Finally, delete the keys
     opt.delete_ff_keys( ff_criterion )
 
     try:
@@ -347,9 +358,9 @@ def delete_ff_and_evaluate(
         ff_save_numpy( opt, freq_multiple, pile_counters[0], f'counters-pile_{now}' )
         ff_save_numpy( opt, freq_multiple, code_counters[0], f'counters-code_{now}' )
         
-    except Exception as e:
+    except Exception as err:
         print("Did not save sadly :(")
-        print(e)
+        print(err)
     
     # See the effect this has on performance
     data = evaluate_all( opt, eval_sample_size )
