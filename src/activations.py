@@ -253,25 +253,25 @@ def count_ff_key_activations( opt: Model,
     counter = None
     curr_count = 0
     with tqdm(total=sample_size*num_samples) as pbar:
-      with torch.no_grad():
         for data in dataset:
             text = data[label]
             input_ids = opt.get_ids( text, limit=token_limit )
+            with torch.no_grad():
+                residual_stream = opt.get_residual_stream( input_ids=input_ids )
             ids = input_ids.squeeze().detach().cpu()
 
             # Criteria for counting the token activation
             criteria = torch.ones_like( ids, dtype=torch.bool )
 
-            # check if prediction is accurate enough to count
+            # (Optional) Check if prediction is accurate enough to count
             if check_accuracy:
-                residual_stream = opt.get_residual_stream( input_ids=input_ids )
                 logits = opt.unembed( residual_stream[-1] ).detach().cpu()
                 top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
 
                 for index in range(len(ids)-1):
                     criteria[index] *= (ids[index+1] in top_k_tokens[index])
 
-            # Choose a set of token ids to skip 
+            # (Optional) Choose a set of token ids to skip
             if check_skips:
                 skip_ids = set()
                 for skip_string in skip_eval:
@@ -280,14 +280,14 @@ def count_ff_key_activations( opt: Model,
 
                 for index in range(len(ids)-1):
                     criteria[index] *= (ids[index+1] in skip_ids)
-                
+
             num_valid_tokens = criteria.sum()
             curr_count += num_valid_tokens
 
-            ff_keys = opt.get_ff_key_activations(input_ids=input_ids)
+            ff_keys = opt.get_ff_key_activations(residual_stream=residual_stream)
             if counter is None:
                 counter = setup_counter(opt, ff_keys)
-            
+
             for layer_index, layer in enumerate(ff_keys):
                 for token_index, key_activation in enumerate(layer):
                     if not criteria[token_index]:
@@ -300,13 +300,13 @@ def count_ff_key_activations( opt: Model,
                 counter = counter / curr_count
                 counters.append( counter.detach().cpu() )
                 print( f'sample {len(counters)}: {curr_count}' )
-                
+
                 counter = setup_counter(opt, ff_keys)
                 curr_count = 0
-            
+
             if len( counters ) >= num_samples:
                 break
-    
+
     return torch.stack( counters )
 
 def ff_save_numpy( opt: Model,
@@ -354,9 +354,9 @@ def delete_ff_and_evaluate(
         # Save the indices that were deleted into the timestamped file
         print("saving files...")
         now = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
-        ff_save_numpy( opt, freq_multiple, ff_criterion,     f'criterion_{now}' )
-        ff_save_numpy( opt, freq_multiple, pile_counters[0], f'counters-pile_{now}' )
-        ff_save_numpy( opt, freq_multiple, code_counters[0], f'counters-code_{now}' )
+        ff_save_numpy( opt, top_frac, ff_criterion,     f'criterion_{now}' )
+        ff_save_numpy( opt, top_frac, pile_counters[0], f'counters-pile_{now}' )
+        ff_save_numpy( opt, top_frac, code_counters[0], f'counters-code_{now}' )
         
     except Exception as err:
         print("Did not save sadly :(")

@@ -558,7 +558,7 @@ class Model():
                 ff_out += ff_in[layer]
             out.append( ff_out )
         return torch.stack( out )
-    
+
     # functions for 'deleting' neurons from the MLP mid layers
     def delete_ff_keys( self, layer_key_map: Tensor ):
         for layer, key_map in enumerate(layer_key_map):
