@@ -67,8 +67,8 @@ class InverseLinear(torch.nn.Module):
         y = x + self.inverse_bias
         y = self.fc( y )
         return y
-        
-    def to(self, device: Optional[Union[str, torch._device]], **kwargs):
+    
+    def to(self, device: Optional[Union[str, torch.device]], **kwargs):
         super( InverseLinear, self ).to( device, **kwargs )
         self.inverse_bias = self.inverse_bias.to( device, **kwargs )
         self.fc = self.fc.to( device, **kwargs )
@@ -199,10 +199,10 @@ class Model():
                 if type(out) is Tensor:
                     layer.append( out.detach().cpu() )
                     continue
-        
+
                 if out is None:
                     continue
-            
+
                 for o in out:
                     layer.append( o )
 
@@ -870,7 +870,7 @@ class Model():
                 out_str  =   f"Acc: {percent['base']}|{percent['topk']} "
                 out_str += f"(Skip: {percent['skip']}|{percent['topk_skip']})"
                 pbar.set_description( out_str )
-                
+
                 # Stop if limit is reached
                 if out["num_skip_predictions"] > sample_size:
                     break

@@ -337,9 +337,10 @@ def delete_ff_and_evaluate(
     rel_freq = ( code_counters[0] / ( pile_counters[0] + eps ) ).flatten()
 
     # Delete the top fraction of most frequent activations
-    k = int( top_frac * opt.d_ff )
+    k = int( top_frac * opt.n_layers * opt.d_ff )
     rel_topk = torch.topk( rel_freq, k, dim=-1, largest=True, sorted=False )
-    ff_criterion = torch.nn.functional.one_hot( rel_topk.indices, len(rel_freq) )
+    ff_criterion = torch.zeros( (opt.n_layers * opt.d_ff) )
+    ff_criterion[ rel_topk.indices ] = 1
     ff_criterion = ff_criterion.reshape( (opt.n_layers, opt.d_ff) )
 
     # Give summary of how many will be removed in each layer
