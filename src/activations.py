@@ -6,7 +6,7 @@ references to functions from texts.py, so is not included in model.py Model.
 import os
 import datetime
 # Import types for typed python
-from typing import Optional
+from typing import Optional, Union
 from torch import Tensor
 
 import torch
@@ -27,9 +27,11 @@ def evaluate( opt: Model,
         dataset_name: str,
         sample_size: int = 1e5,
         topk: int = 10,
-        verbose: bool = False
+        verbose: bool = False,
+        dataset_texts_to_skip: int = 0,
     ):
     dataset, label, skip_eval = prepare( dataset_name )
+    dataset = dataset.skip( dataset_texts_to_skip )
     out = opt.evaluate_dataset( dataset, k=topk, start_index=1,
         sample_size=sample_size, skip_eval=skip_eval, dataset_text_label=label,
         count_tokens=False )
@@ -77,7 +79,7 @@ def get_attn_activations( opt: Model,
         token_limit: Optional[int] = None,
         check_accuracy: bool = True,
         k: int = 10,
-        check_skips: bool = False
+        check_skips: bool = False,
     ):
     """gets the mean activations and the probability mass of positive and negative
     activations for each pre-out neuron in an attention layer.
@@ -245,7 +247,6 @@ def count_ff_key_activations( opt: Model,
         dataset_name: str,
         sample_size: int = 10000,
         token_limit: int = None,
-        num_samples: int = 1,
         check_accuracy: bool = False,
         k: int = 10,
         check_skips: bool = False
@@ -270,10 +271,9 @@ def count_ff_key_activations( opt: Model,
             mid layer activation
     """
     dataset, label, skip_eval = prepare( dataset_name )
-    counters = []
     counter = None
     curr_count = 0
-    with tqdm(total=sample_size*num_samples) as pbar:
+    with tqdm(total=sample_size) as pbar:
         for data in dataset:
             text = data[label]
             input_ids = opt.get_ids( text, limit=token_limit )
@@ -319,16 +319,9 @@ def count_ff_key_activations( opt: Model,
             pbar.update( int(num_valid_tokens) )
             if curr_count > sample_size:
                 counter = counter / curr_count
-                counters.append( counter.detach().cpu() )
-                print( f'sample {len(counters)}: {curr_count}' )
-
-                counter = setup_counter(opt, ff_keys)
-                curr_count = 0
-
-            if len( counters ) >= num_samples:
                 break
 
-    return torch.stack( counters )
+    return counter
 
 def ff_save_numpy( opt: Model,
         freq_multiple: float,
@@ -341,6 +334,7 @@ def ff_save_numpy( opt: Model,
         np.save(f, np.array(array) )
     print("saved successfully")
 
+# pylint: disable=too-many-arguments, too-many-locals
 def delete_ff_and_evaluate(
         opt: Model,
         top_frac: float = 0.02,
