@@ -1,16 +1,23 @@
-from texts import prepare
-import numpy as np
-import torch
-from torch import Tensor
-from typing import Optional
+"""
+Code for getting attention activations and evaluating model. Includes specific
+references to functions from texts.py, so is not included in model.py Model.
+"""
 
-from tqdm.notebook import tqdm
-from welford import Welford
-import einops
 import os
 import datetime
+# Import types for typed python
+from typing import Optional
+from torch import Tensor
 
+import torch
+import numpy as np
+from welford import Welford
+import einops
+from tqdm.notebook import tqdm
+
+# Import from this project
 from model import Model
+from texts import prepare
 
 ####################################################################################
 # Code for Evaluating Model
@@ -19,7 +26,8 @@ from model import Model
 def evaluate( opt: Model,
         dataset_name: str,
         sample_size: int = 1e5,
-        topk: int = 10
+        topk: int = 10,
+        verbose: bool = False
     ):
     dataset, label, skip_eval = prepare( dataset_name )
     out = opt.evaluate_dataset( dataset, k=topk, start_index=1,
@@ -28,21 +36,34 @@ def evaluate( opt: Model,
 
     percent = out['percent']
     out['loss'] = round(float(out['loss']), 4)
-    print( f'{dataset_name} loss:', out['loss'] )
-    print( f'{dataset_name} no skip top{topk}:', '%.2f' % percent['topk'], '%')
-    print( f'{dataset_name} w/ skip top{topk}:', '%.2f' % percent['topk_skip'], '%')
-    print( f'{dataset_name} no skip:', '%.2f' % percent['base'], '%')
-    print( f'{dataset_name} w/ skip:', '%.2f' % percent['skip'], '%')
+    out['log_loss'] = round(float(out['log_loss']), 4)
+
+    if verbose:
+        start = f' - {dataset_name}'
+        print( f'{start} loss:', out['loss'] )
+        print( f'{start} log loss:', out['log_loss'] )
+        print( f'{start} no skip top{topk}:', '%.2f' % percent['topk'], '%')
+        print( f'{start} w/ skip top{topk}:', '%.2f' % percent['topk_skip'], '%')
+        print( f'{start} no skip:', '%.2f' % percent['base'], '%')
+        print( f'{start} w/ skip:', '%.2f' % percent['skip'], '%')
+        print()
+
     return out
 
-def evaluate_all( opt: Model, sample_size: int = 1e5, topk: int = 10 ):
-    pile_out = evaluate( opt, 'pile', sample_size, topk )
-    code_out = evaluate( opt, 'code', sample_size, topk )
+def evaluate_all( opt: Model,
+        sample_size: int = 1e5,
+        topk: int = 10,
+        verbose: bool = False
+    ):
+    pile_out = evaluate( opt, 'pile', sample_size, topk, verbose )
+    code_out = evaluate( opt, 'code', sample_size, topk, verbose )
 
     percentages = {}
     percentages["pile_loss"] = pile_out['loss']
+    percentages["pile_log_loss"] = pile_out['log_loss']
     percentages.update({ ('pile_'+k): v for (k,v) in pile_out['percent'].items() })
     percentages["code_loss"] = code_out['loss']
+    percentages["code_log_loss"] = code_out['log_loss']
     percentages.update({ ('code_'+k): v for (k,v) in code_out['percent'].items() })
     return percentages
 
@@ -105,7 +126,7 @@ def get_attn_activations( opt: Model,
                 for index in range(len(ids)-1):
                     criteria[index] *= (ids[index+1] in top_k_tokens[index])
 
-            # Choose a set of token ids to skip 
+            # Choose a set of token ids to skip
             if check_skips:
                 skip_ids = set()
                 for skip_string in skip_eval:
@@ -114,7 +135,7 @@ def get_attn_activations( opt: Model,
 
                 for index in range(len(ids)-1):
                     criteria[index] *= (ids[index+1] in skip_ids)
-                
+
             num_valid_tokens = criteria.sum()
             curr_count += num_valid_tokens
 
@@ -142,7 +163,7 @@ def get_attn_activations( opt: Model,
                 pos_mass = pos.mean
                 neg_mass = neg.mean
                 break
-    
+
     return means, pos_mass, neg_mass
 
 def calculate_attn_crossover( opt: Model,
@@ -163,17 +184,17 @@ def calculate_attn_crossover( opt: Model,
     Returns:
         data: Dictionary containing information about activations
             pile_means: mean activations of each neuron in pre-out on the pile
-            pile_pos: positive mass 
+            pile_pos: positive mass
             pile_neg: negative mass
             code_means: mean activations of each neuron in pre-out on the pile
-            code_pos: positive mass 
+            code_pos: positive mass
             code_neg: negative mass
             crossover: The of probability mass on crossover between positive and
                 negative mass from code compared to baseline pile activation
     """
     pile_out = get_attn_activations(opt, 'pile', sample_size, token_limit, **kwargs)
     code_out = get_attn_activations(opt, 'code', sample_size, token_limit, **kwargs)
-    pile_means, pile_pos, pile_neg = pile_out 
+    pile_means, pile_pos, pile_neg = pile_out
     code_means, code_pos, code_neg = code_out
 
     crossover_multiple = np.ones((opt.n_layers, opt.n_heads) )
@@ -194,7 +215,7 @@ def calculate_attn_crossover( opt: Model,
             crossover =  ( pos_rel[i-1] + pos_rel[i] + neg_rel[i-1] + neg_rel[i] )/4
             crossover_multiple[layer][head] = crossover
 
-    # Save data in a dict 
+    # Save data in a dict
     data = {
         'pile_means' : pile_means,
         'pile_pos'   : pile_pos,
@@ -245,7 +266,7 @@ def count_ff_key_activations( opt: Model,
             Defaults to False.
 
     Returns:
-        counters (Tensor): Tensor containing activation frequency of every ff 
+        counters (Tensor): Tensor containing activation frequency of every ff
             mid layer activation
     """
     dataset, label, skip_eval = prepare( dataset_name )
@@ -358,11 +379,12 @@ def delete_ff_and_evaluate(
         ff_save_numpy( opt, top_frac, ff_criterion,     f'criterion_{now}' )
         ff_save_numpy( opt, top_frac, pile_counters[0], f'counters-pile_{now}' )
         ff_save_numpy( opt, top_frac, code_counters[0], f'counters-code_{now}' )
-        
+
+    # pylint: disable=broad-except
     except Exception as err:
-        print("Did not save sadly :(")
+        print("# WARNING: Sadly, did not save ff activations :( ")
         print(err)
-    
+
     # See the effect this has on performance
     data = evaluate_all( opt, eval_sample_size )
     data['removed'] = num_removed

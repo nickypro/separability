@@ -1,0 +1,9 @@
+{
+    "python.linting.pylintArgs": [
+        "--generated-members", "numpy.*, torch.*",
+        "--disable", "W0212, C0116, C0103, C0325, C0209",
+        "--max-line-length", "86"
+    ],
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": true
+}

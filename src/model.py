@@ -1,16 +1,19 @@
-import datasets
-from pyparsing import Opt
-from transformers import GPT2Tokenizer, OPTForCausalLM
-from transformers.models.opt.modeling_opt import OPTAttention
-import torch
-import numpy as np
-import copy
-from tqdm.notebook import tqdm
-from welford import Welford
+""" Defines the 'Model' class which wraps the Meta OPT model,
+with additional methods for inspecting the activations of the model.
+"""
 
+import copy
 # import types for typed python
 from typing import Optional, List, Tuple, Union
 from torch import Tensor
+from datasets import Dataset
+from transformers.models.opt.modeling_opt import OPTAttention
+
+from transformers import GPT2Tokenizer, OPTForCausalLM
+import torch
+import numpy as np
+from welford import Welford
+from tqdm.notebook import tqdm
 
 # Import matplotlib and set dpi to 300
 import matplotlib as mpl
@@ -39,7 +42,7 @@ class InverseLinear(torch.nn.Module):
     Produces a torch layer which undoes what the "original" linear layer does.
 
     This was built to get the output right before out_proj, and I thought
-    it would be easier and/or faster than using the values matrix 
+    it would be easier and/or faster than using the values matrix
     (it probably is not actually easier or faster)
 
     Args:
@@ -67,7 +70,8 @@ class InverseLinear(torch.nn.Module):
         y = x + self.inverse_bias
         y = self.fc( y )
         return y
-    
+
+    # pylint: disable=arguments-differ
     def to(self, device: Optional[Union[str, torch.device]], **kwargs):
         super( InverseLinear, self ).to( device, **kwargs )
         self.inverse_bias = self.inverse_bias.to( device, **kwargs )
@@ -95,13 +99,15 @@ class Model():
         self.layer_index     = -3
         self.token_index     = -2
         self.dimension_index = -1
-    
+
     def set_repo( self, model_size: str ):
         if model_size not in model_sizes:
             raise ValueError( "model_size must be one of the following: " +
                               str(model_sizes) )
-        self.model_size = model_size
         repo = f"facebook/opt-{model_size}"
+
+        # pylint: disable=attribute-defined-outside-init
+        self.model_size = model_size
         self.repo = repo
 
     def init_model( self, model_size: Optional[str] = None ):
@@ -118,7 +124,7 @@ class Model():
         self.d_head  = attn0.head_dim
         self.n_heads = attn0.num_heads
         self.n_layers = len(self.model.decoder.layers)
-        
+
         self.d_ff = 4 * self.d_model
 
         self.register_activations()
@@ -129,7 +135,7 @@ class Model():
             print( " - n_layers :", self.n_layers )
             print( " - d_model  :", self.d_model  )
             print( " - n_heads  :", self.n_heads  )
-            print( " - d_head   :", self.d_head   ) 
+            print( " - d_head   :", self.d_head   )
         else:
             print( f" - n_layers, d_model = {self.n_layers}, {self.d_model}" )
 
@@ -140,19 +146,18 @@ class Model():
 
     def get_activation_of( self, name : str ):
         # Define hook function which adds output to self.activations
-        def hook(model, input, output):
-            if not type( output ) is tuple:
+        def hook(_model, _input, output):
+            if not isinstance( output, tuple ):
                 return
             self.activations[name] = detached( output )
         return hook
 
     def register_activations( self ):
         # register the forward hook
-        decoder_index   = 0
         attention_index = 0
-        for module in self.model.decoder.layers.modules(): 
-            if type(module) is OPTAttention:
-                name = pad_zeros( attention_index ) + "-attention" 
+        for module in self.model.decoder.layers.modules():
+            if isinstance(module, OPTAttention):
+                name = pad_zeros( attention_index ) + "-attention"
                 # print( f"registering : ({name}), OPTAttention layer" )
                 module.register_forward_hook( self.get_activation_of( name ) )
                 attention_index += 1
@@ -172,7 +177,7 @@ class Model():
         if not limit is None:
             input_ids = torch.stack([ input_ids[0][:limit] ])
         return input_ids.to( self.device )
-    
+
     def get_inputs_embeds( self,
                 text: Optional[str] = None,
                 input_ids: Optional[Tensor] = None,
@@ -196,7 +201,7 @@ class Model():
             layer = []
             layer.append( key )
             for out in value:
-                if type(out) is Tensor:
+                if isinstance(out, Tensor):
                     layer.append( out.detach().cpu() )
                     continue
 
@@ -214,19 +219,21 @@ class Model():
                 text: Optional[str] = None,
                 input_ids: Optional[Tensor] = None,
                 inputs_embeds: Optional[Tensor] = None,
-                verbose: bool = False,
                 limit: Optional[int] = None,
                 **kwargs
             ):
         """_summary_
-        Gives the output of each major component of the transformer before being added to
-        the residual_stream. i.e: ( input, attention_out, ff_out, output )
+        Gives the output of each major component of the transformer before being
+        added to the residual_stream. i.e: ( input, attention_out, ff_out, output )
 
         Args:
-            text (Optional[str], optional): _description_. Defaults to None.
-            input_ids (Optional[Tensor], optional): _description_. Defaults to None.
-            inputs_embeds (Optional[Tensor], optional): _description_. Defaults to None.
-            verbose (bool, optional): _description_. Defaults to False.
+            text (Optional[str], optional): Input text to be fed to the model.
+                Defaults to None.
+            input_ids (Optional[Tensor], optional): Input tokens.
+                Defaults to None.
+            inputs_embeds (Optional[Tensor]): Input Embedded Tokens.
+                Defaults to None.
+            verbose (bool, optional): Print more information. Defaults to False.
             limit (Optional[int], optional): _description_. Defaults to None.
 
         Returns:
@@ -251,16 +258,16 @@ class Model():
         inpt = hidden_states[0].detach()
 
         # get attention outputs
-        attention_out = torch.stack([ out[1] for out in self.get_recent_activations() ])
+        attention_out = torch.stack([ a[1] for a in self.get_recent_activations() ])
         attention_out = attention_out.squeeze().detach()
 
         # get ff outputs
-        ff_out =  [] 
+        ff_out =  []
         for i in range(self.n_layers):
             ff_out.append( hidden_states[i+1] - attention_out[i] - hidden_states[i] )
         ff_out = torch.stack( ff_out ).squeeze().detach().detach()
 
-        # get final output
+        # get the final output
         output: Tensor = outputs.last_hidden_state[0].detach()
 
         return inpt, attention_out, ff_out, output
@@ -270,15 +277,14 @@ class Model():
                 input_ids: Optional[Tensor] = None,
                 inputs_embeds: Optional[Tensor] = None,
                 text_activations: Optional[List[Tensor]] = None,
-                verbose: bool = False,
                 limit: Optional[int] = None,
                 **kwargs
             ) -> Tensor:
 
         if text_activations is None:
             text_activations = self.get_text_activations( text,
-                input_ids, inputs_embeds, verbose, limit, **kwargs )
-        inpt, attention_out, ff_out, output = text_activations
+                input_ids, inputs_embeds, limit, **kwargs )
+        inpt, attention_out, ff_out, _output = text_activations
 
         assert len(attention_out) == self.n_layers
         assert len(ff_out) == self.n_layers
@@ -293,7 +299,7 @@ class Model():
 
         for delta in adjustments:
             residual_stream.append( residual_stream[-1] + delta )
-        
+
         return torch.stack( residual_stream )
 
     def get_ff_key_activations( self,
@@ -302,25 +308,23 @@ class Model():
                 inputs_embeds: Optional[Tensor] = None,
                 text_activations: Optional[List[Tensor]] = None,
                 residual_stream: Optional[Tensor] = None,
-                verbose: bool = False,
                 limit: Optional[int] = None,
                 **kwargs
             ) -> Tensor:
         if residual_stream is None:
             residual_stream = self.get_residual_stream( text, input_ids,
-                inputs_embeds, text_activations, verbose, limit, **kwargs )
-        
+                inputs_embeds, text_activations, limit, **kwargs )
+
         ff_inputs = residual_stream[1:-1:2]
         ff_keys = self.calculate_ff_keys( ff_inputs.to(self.device) )
 
         return ff_keys
-    
+
     def get_attn_pre_out_activations( self,
                 text: Optional[str] = None,
                 input_ids: Optional[Tensor] = None,
                 inputs_embeds: Optional[Tensor] = None,
                 text_activations: Optional[List[Tensor]] = None,
-                verbose: bool = False,
                 limit: Optional[int] = None,
                 reshape: bool = True,
                 transpose: bool = False,
@@ -328,31 +332,32 @@ class Model():
             ) -> Tensor:
         if text_activations is None:
             text_activations = self.get_text_activations( text,
-                input_ids, inputs_embeds, verbose, limit, **kwargs )
-        
-        [ inpt, attn_out, ff_out, output ] = text_activations
+                input_ids, inputs_embeds, limit, **kwargs )
+
+        [ _inpt, attn_out, _ff_out, _output ] = text_activations
         pre_outs = self.calculate_attn_pre_out(
             attn_out.to(self.device), reshape, transpose )
 
         return pre_outs
-    
+
     # Functions for calculating attention
     # Brief description of attention mechanism with OPTAttention reference:
     # input: x_i
-    # then: x_i -> k_i, q_i, v_i 
+    # then: x_i -> k_i, q_i, v_i
     # then: k_i, q_j            -> attention a_ij  "attn_weights"
     # then: sum_i( a_ij * v_j ) ->                 "attn_pre_out"
     # then: W_o * pre_out       -> output          "attn_out"
     # output: attn_out, attn_weights, (k_i, v_i)
 
-    def prepare_attention_mask( self, input: Tensor ):
+    def prepare_attention_mask( self, inpt: Tensor ):
         decoder = self.model.decoder
         input_shape = input.size()[:-1]
 
         # embed positions
-        attention_mask = torch.ones( input_shape, dtype=torch.bool, device=input.device )
+        attention_mask = torch.ones( input_shape, dtype=torch.bool,
+            device=input.device )
         attention_mask = decoder._prepare_decoder_attention_mask(
-            attention_mask, input_shape, input, past_key_values_length=0
+            attention_mask, input_shape, inpt, past_key_values_length=0
         )
         return attention_mask
 
@@ -367,6 +372,18 @@ class Model():
         return x
 
     def calculate_attn_out( self, attn_in: Tensor, add_residual: bool = False ):
+        """
+        Calculate the output of each attention layer.
+
+        inputs:
+            attn_in: Tensor of shape (n_layers, batch_size, seq_len, hidden_size).
+                The input to each attention layer
+            add_residual (bool): whether to add the input to the output of each
+                attention layer. i.e. whether to add the residual connection
+
+        outputs:
+            Tensor of shape (n_layers, batch_size, seq_len, hidden_size).
+        """
         attention_mask = self.prepare_attention_mask( attn_in )
 
         outs = []
@@ -383,7 +400,6 @@ class Model():
             reshape: bool,
             transpose: bool
             ):
-        # Returns attention activations in the layer right before output
         # ie: turns attn_out into attn_pre_out
         self_attn = self.model.decoder.layers[layer].self_attn
 
@@ -392,7 +408,7 @@ class Model():
 
         # reshape into the shape it was before W_out
         if reshape:
-            [ tgt_len, embed_dim ] = attn_out.size() # see OPTAttention
+            [ tgt_len, _embed_dim ] = attn_out.size() # see OPTAttention
             pre_out = pre_out.view(tgt_len, self.n_heads, self.d_head)
 
         # whether to transpose the output to what it originally looked like
@@ -406,6 +422,17 @@ class Model():
             reshape: bool = True,
             transpose: bool = False
             ):
+        """ Returns attention activations in the sub-layer right before output.
+
+        inputs:
+            attn_out (Tensor): Output of the Attentions (pre_out computed backwards).
+                Tensor of shape (batch_size, seq_len, hidden_size).
+            layer (int): The layer to calculate the pre_out for.
+            reshape (bool): Whether to reshape the output into heads.
+            transpose (bool, optional): Whether to transpose the output to original
+                format used in OPT. Only done if reshape is True.
+        """
+
         out = []
         assert len(attn_out) == self.n_layers
         for layer in range(self.n_layers):
@@ -426,7 +453,7 @@ class Model():
             layer_index (int): Layer of attention in which out_proj is being pruned.
             indices (Tensor): a tensor of size (d_model) or (n_heads, d_head) which
                 has value True at each index which will be pruned.
-            mean_values (Optional[Tensor], optional): The value to offset the output 
+            mean_values (Optional[Tensor], optional): The value to offset the output
                 by to compensate for the fact it is no longer in service.
                 Defaults to None.
         """
@@ -461,8 +488,8 @@ class Model():
             # We change it from "True => Remove" to "True => keep" so we can multiply
             keep_indices = torch.logical_not( remove_indices ).to( self.device )
 
-            for row_index in range(len(weights)):
-                weights[row_index] = weights[row_index] * keep_indices
+            for row_index, weights_row in enumerate(weights):
+                weights[row_index] = weights_row * keep_indices
 
             params.update({'weight': weights, 'bias': biases})
             out_proj.load_state_dict(params)
@@ -479,8 +506,9 @@ class Model():
             remove_indices (Tensor): Tensor of type [n_layer, n_heads, d_head] or
                 [n_layer, d_model] with value True for nodes of attn_pre_out to
                 prune / make inactive.
-            mean_values (Tensor, optional): Mean activation to adjust the bias to compensate
-                for the deletion of the attn_pre_out interactions. Defaults to None.
+            mean_values (Tensor, optional): Mean activation to adjust the bias to
+                compensate for the deletion of the attn_pre_out interactions.
+                Defaults to None.
 
         Returns:
             self (Model)
@@ -488,12 +516,12 @@ class Model():
         use_means = not (mean_values is None)
         if use_means:
             assert mean_values.size() == remove_indices.size()
-        
+
         for layer_index in range(self.n_layers):
             mean_values_layer = mean_values[layer_index] if use_means else None
             self.delete_attn_pre_out_layer( layer_index,
                 remove_indices[layer_index], mean_values_layer )
-        
+
         return self
 
     def delete_attn_pre_out_heads( self,
@@ -504,7 +532,7 @@ class Model():
         activation by some mean activation
 
         Args:
-            remove_heads (Tensor): tensor of model heads to remove of size 
+            remove_heads (Tensor): tensor of model heads to remove of size
                 [n_layers, n_heads], with value True if you want to remove it
             means (Tensor, optional): tensor of means to offset activations by.
                 Defaults to None.
@@ -512,8 +540,8 @@ class Model():
         # Check that the size for remove_heads is correct
         if remove_heads.size() != torch.Size([ self.n_layers, self.n_heads ]):
             raise ValueError( "Removals must have dimension [n_layers, n_heads]" )
-            
-        # Convert 'heads' tensor into 'individual neurons' tensor 
+
+        # Convert 'heads' tensor into 'individual neurons' tensor
         remove_indices = remove_heads.unsqueeze(-1).expand([
             self.n_layers, self.n_heads, self.d_head])
 
@@ -538,8 +566,8 @@ class Model():
 
     def calculate_ff_keys( self, ff_in: Tensor ):
         out = []
-        for layer, input in enumerate(ff_in):
-            out.append( self.calculate_ff_keys_layer( input, layer ) )
+        for layer_index, ff_in_layer in enumerate(ff_in):
+            out.append( self.calculate_ff_keys_layer( ff_in_layer, layer_index ) )
         return torch.stack( out )
 
     def calculate_ff_out_layer( self, ff_in: Tensor, layer: int):
@@ -552,10 +580,10 @@ class Model():
 
     def calculate_ff_out( self, ff_in: Tensor, add_residual: bool = False ):
         out = []
-        for layer in range(len(ff_in)):
-            ff_out = self.calculate_ff_out_layer( ff_in[layer], layer )
+        for layer_index, ff_in_layer in enumerate(ff_in):
+            ff_out = self.calculate_ff_out_layer( ff_in_layer, layer_index )
             if add_residual:
-                ff_out += ff_in[layer]
+                ff_out += ff_in[layer_index]
             out.append( ff_out )
         return torch.stack( out )
 
@@ -590,7 +618,7 @@ class Model():
             criteria += ff_criterion
 
             sums = [ x.sum() for x in ff_criterion ]
-            print( "%5d -"%np.sum(sums), sums )
+            print( f"%5d - {sums}" % np.sum(sums) )
 
         self.delete_ff_keys( criteria )
 
@@ -606,7 +634,7 @@ class Model():
 
         new_len = len(input_ids[0])+num
         generate_ids = self.predictor.generate( input_ids, max_length=new_len )
-        
+
         before = self.tokenizer.batch_decode( input_ids,
             skip_special_tokens=True, clean_up_tokenization_spaces=False )[0]
         after  = self.tokenizer.batch_decode( generate_ids,
@@ -614,16 +642,16 @@ class Model():
         after = after[ len(before): ]
         return before, after
 
-    def get_nth_tokens( self, output: Tensor, n: int = 16 ):
-        L = output.size()[self.token_index]
-        indices = torch.tensor( list(range( n-1, L, n )) )
+    def get_kth_tokens( self, output: Tensor, k: int = 16 ):
+        n_tokens = output.size()[self.token_index]
+        indices = torch.tensor( list(range( k-1, n_tokens, k )) )
 
         return torch.index_select( output, self.token_index, indices )
 
     def unembed( self, embedded_outputs: Tensor ):
         lm_head = self.predictor.get_output_embeddings()
         return lm_head( embedded_outputs.to(self.device) )
- 
+
     def get_all_logits( self, input_ids ):
         """Get output logits from input token ids"""
 
@@ -646,7 +674,7 @@ class Model():
             input_ids: Optional[Tensor] = None,
             logits: Optional[Tensor] = None,
             start_index: int = 1,
-            skip_strings: List[str] = [],
+            skip_strings: Optional[List[str]] = None,
         ):
         """Evaluates performance with top-1 and top-k token predictions.
 
@@ -664,7 +692,7 @@ class Model():
             output: dict of output information
         """
         if text is None and input_ids is None:
-            raise ValueError( "Must provide either text or input_ids" ) 
+            raise ValueError( "Must provide either text or input_ids" )
 
         # Generate input token ids and output top k token ids
         with torch.no_grad():
@@ -673,14 +701,15 @@ class Model():
             token_dictionary_size = logits.size()[-1]
             top_tokens  = self.top_k_tokens( logits, 1 )
             topk_tokens = self.top_k_tokens( logits, k ) if k!=1 else top_tokens
-        
+
         # Get the set of token ids to skip when evaluating performance
         skip_ids = set()
+        skip_strings = [] if (skip_strings is None) else skip_strings
         for skip_string in skip_strings:
             skip_id = int( self.get_ids( skip_string ).squeeze()[-1] )
             skip_ids.add( skip_id )
 
-        # Count top-k prediction accuracy 
+        # Count top-k prediction accuracy
         input_ids = input_ids.squeeze()
         num_predictions = 0
         num_accurate = 0
@@ -707,8 +736,8 @@ class Model():
 
         # Keep track of most used tokens
         token_counts = np.zeros( token_dictionary_size )
-        for id in input_ids:
-            token_counts[id] += 1
+        for input_id in input_ids:
+            token_counts[input_id] += 1
 
         output = {
             'num_predictions'  : num_predictions,
@@ -724,8 +753,8 @@ class Model():
         }
 
         return output
-    
-    def evaluate_ce_loss( self, 
+
+    def evaluate_ce_loss( self,
             text: Optional[str] = None,
             input_ids: Optional[Tensor] = None,
             logits: Optional[Tensor] = None
@@ -736,12 +765,12 @@ class Model():
             text (str, optional): The text to evaluat.
             input_ids (Tensor, optional): The input IDs from text to evaluate.
             logits (Tensor, optional): The pre-computed logits from text to evaluate.
-        
+
         Returns:
             loss: Mean Cross-Entropy loss over tokens
         """
         if text is None and input_ids is None:
-            raise ValueError( "Must provide either text or input_ids" ) 
+            raise ValueError( "Must provide either text or input_ids" )
 
         # Generate input token ids and output top k token ids
         with torch.no_grad():
@@ -749,7 +778,7 @@ class Model():
                 input_ids = self.get_ids( text )
             if logits is None:
                 logits = self.get_all_logits( input_ids )
-        
+
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
         predicted_log_probs = log_probs[..., :-1, :].gather(
             dim=-1, index=input_ids[..., 1:, None]
@@ -771,15 +800,15 @@ class Model():
             "skip"      : (100 * out["num_skip_accurate"] / skip_pred),
         }
         if string:
-            percent = { k: ('%.2f'%v) for k, v in percent.items() }
+            percent = { k: ( "%.2f" % v ) for k, v in percent.items() }
         return percent
 
     def evaluate_dataset( self,
-            dataset: datasets.Dataset,
+            dataset: Dataset,
             dataset_text_label: str = 'content',
             k: int = 10,
             start_index: int = 1,
-            skip_eval: list = [],
+            skip_eval: Optional[List[str]] = None,
             sample_size: int = 1e5,
             token_limit: Optional[int] = None,
             count_tokens: bool = False,
@@ -813,9 +842,8 @@ class Model():
                 accross various the various possible combinations of outputs,
                 as well as a sub dict 'percent' which contains percentage accuracy.
         """
-        
+
         # Initialize variables
-        limit = self.limit if token_limit is None else token_limit
         token_counts = None
         out = {
             "num_predictions": 0,
@@ -838,7 +866,7 @@ class Model():
                 with torch.no_grad():
                     input_ids = self.get_ids( text, token_limit )
                     logits = self.get_all_logits( input_ids )
-                
+
                 # perform evaluations
                 topk =  self.evaluate_top_k_performance( k, input_ids=input_ids,
                     logits=logits, start_index=start_index, skip_strings=skip_eval )
@@ -853,6 +881,7 @@ class Model():
                 out["num_skip_accurate"]      += topk['num_skip_accurate']
                 out["num_topk_skip_accurate"] += topk['num_topk_skip_accurate']
                 out["loss"] = loss_tracker.mean
+                out["log_loss"] = np.log( out["loss"] )
                 pbar.update( topk["num_skip_predictions"] )
 
                 # Record token counts
@@ -880,5 +909,5 @@ class Model():
                 topk = topk[np.argsort(token_counts[topk])][::-1]
                 print( self.batch_decode( topk ) )
 
-            out['percent'] = self.calculate_evaluation_percentages( out ) 
+            out['percent'] = self.calculate_evaluation_percentages( out )
             return out
