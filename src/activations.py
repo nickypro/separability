@@ -322,7 +322,7 @@ def count_ff_key_activations( opt: Model,
                 counter = counter / curr_count
                 break
 
-    return counter
+    return counter.detach()
 
 def ff_save_numpy( opt: Model,
         freq_multiple: float,
@@ -344,12 +344,18 @@ def delete_ff_and_evaluate(
         eval_sample_size: int = 1e5,
         pile_counters: Optional[Union[Tensor, str]] = None,
         code_counters: Optional[Union[Tensor, str]] = None,
+        save_files: bool = True,
         ):
+
     # Get counts of activations of MLP middle layers
+    save_pile = (True and save_files)
+    save_code = (True and save_files)
     if isinstance( pile_counters, str ):
         pile_counters = torch.tensor( np.load( pile_counters ), dtype=torch.float32 )
+        save_pile = False
     if isinstance( code_counters, str ):
         code_counters = torch.tensor( np.load( code_counters ), dtype=torch.float32 )
+        save_code = False
 
     if pile_counters is None:
         pile_counters = count_ff_key_activations( opt, 'pile',
@@ -358,8 +364,11 @@ def delete_ff_and_evaluate(
         code_counters = count_ff_key_activations( opt, 'code',
             sample_size=counter_sample_size, check_accuracy=True )
 
+    pile_counters = pile_counters.squeeze()
+    code_counters = code_counters.squeeze()
+
     # Get Relative Frequenct of Activations
-    rel_freq = ( code_counters[0] / ( pile_counters[0] + eps ) ).flatten()
+    rel_freq = ( code_counters / ( pile_counters + eps ) ).flatten()
 
     # Delete the top fraction of most frequent activations
     k = int( top_frac * opt.n_layers * opt.d_ff )
@@ -381,9 +390,12 @@ def delete_ff_and_evaluate(
         # Save the indices that were deleted into the timestamped file
         print("saving files...")
         now = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
-        ff_save_numpy( opt, top_frac, ff_criterion,     f'criterion_{now}' )
-        ff_save_numpy( opt, top_frac, pile_counters[0], f'counters-pile_{now}' )
-        ff_save_numpy( opt, top_frac, code_counters[0], f'counters-code_{now}' )
+        if save_files:
+            ff_save_numpy( opt, top_frac, ff_criterion,     f'criterion_{now}' )
+        if save_pile:
+            ff_save_numpy( opt, top_frac, pile_counters[0], f'counters-pile_{now}' )
+        if save_code:
+            ff_save_numpy( opt, top_frac, code_counters[0], f'counters-code_{now}' )
 
     # pylint: disable=broad-except
     except Exception as err:
