@@ -347,12 +347,21 @@ def delete_ff_and_evaluate(
         eps: float = 1e-2,
         counter_sample_size: int = 5e4,
         eval_sample_size: int = 1e5,
+        pile_counters: Optional[Union[Tensor, str]] = None,
+        code_counters: Optional[Union[Tensor, str]] = None,
         ):
-    # Count activation of MLP middle layers
-    pile_counters = count_ff_key_activations( opt, 'pile',
-        sample_size=counter_sample_size, num_samples=1, check_accuracy=True )
-    code_counters = count_ff_key_activations( opt, 'code',
-        sample_size=counter_sample_size, num_samples=1, check_accuracy=True )
+    # Get counts of activations of MLP middle layers
+    if isinstance( pile_counters, str ):
+        pile_counters = torch.tensor( np.load( pile_counters ), dtype=torch.float32 )
+    if isinstance( code_counters, str ):
+        code_counters = torch.tensor( np.load( code_counters ), dtype=torch.float32 )
+
+    if pile_counters is None:
+        pile_counters = count_ff_key_activations( opt, 'pile',
+            sample_size=counter_sample_size, check_accuracy=True )
+    if code_counters is None:
+        code_counters = count_ff_key_activations( opt, 'code',
+            sample_size=counter_sample_size, check_accuracy=True )
 
     # Get Relative Frequenct of Activations
     rel_freq = ( code_counters[0] / ( pile_counters[0] + eps ) ).flatten()
@@ -372,6 +381,7 @@ def delete_ff_and_evaluate(
     # Finally, delete the keys
     opt.delete_ff_keys( ff_criterion )
 
+    # Save the indices of the deleted keys, but if unsuccessful, don't crash
     try:
         # Save the indices that were deleted into the timestamped file
         print("saving files...")
@@ -385,7 +395,7 @@ def delete_ff_and_evaluate(
         print("# WARNING: Sadly, did not save ff activations :( ")
         print(err)
 
-    # See the effect this has on performance
+    # See the effect deletion has on performance
     data = evaluate_all( opt, eval_sample_size )
     data['removed'] = num_removed
     return data
