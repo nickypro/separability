@@ -13,7 +13,7 @@ from transformers import GPT2Tokenizer, OPTForCausalLM
 import torch
 import numpy as np
 from welford import Welford
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 # Import matplotlib and set dpi to 300
 import matplotlib as mpl

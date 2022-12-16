@@ -60,12 +60,13 @@ def evaluate_all( opt: Model,
     pile_out = evaluate( opt, 'pile', sample_size, topk, verbose )
     code_out = evaluate( opt, 'code', sample_size, topk, verbose )
 
-    percentages = {}
-    percentages["pile_loss"] = pile_out['loss']
-    percentages["pile_log_loss"] = pile_out['log_loss']
+    percentages = {
+        "pile_loss": pile_out['loss'],
+        "pile_log_loss": pile_out['log_loss'],
+        "code_loss": code_out['loss'],
+        "code_log_loss": code_out['log_loss'],
+    }
     percentages.update({ ('pile_'+k): v for (k,v) in pile_out['percent'].items() })
-    percentages["code_loss"] = code_out['loss']
-    percentages["code_log_loss"] = code_out['log_loss']
     percentages.update({ ('code_'+k): v for (k,v) in code_out['percent'].items() })
     return percentages
 
