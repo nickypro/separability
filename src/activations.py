@@ -233,6 +233,18 @@ def calculate_attn_crossover( opt: Model,
 
     return data
 
+def save_numpy_attn( opt: Model,
+        attn_crossover: np.ndarray,
+        name: Optional[str] = None
+    ):
+    if name is None:
+        name = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
+    filename = f'tmp/{opt.model_size}/{opt.model_size}-attn_crossover-{name}.npy'
+    os.makedirs( 'tmp', exist_ok=True )
+    with open(filename, 'wb') as f:
+        np.save(f, np.array(attn_crossover) )
+    print("saved successfully")
+
 ####################################################################################
 # Look at FF Key activations
 ####################################################################################
@@ -324,12 +336,12 @@ def count_ff_key_activations( opt: Model,
 
     return counter.detach()
 
-def ff_save_numpy( opt: Model,
+def save_numpy_ff( opt: Model,
         freq_multiple: float,
         array: np.ndarray,
         name: str
     ):
-    filename = f'tmp/{opt.model_size}-ff-{freq_multiple}x-{name}.npy'
+    filename = f'tmp/{opt.model_size}/{opt.model_size}-ff-{freq_multiple}x-{name}.npy'
     os.makedirs( 'tmp', exist_ok=True )
     with open(filename, 'wb') as f:
         np.save(f, np.array(array) )
@@ -391,11 +403,11 @@ def delete_ff_and_evaluate(
         print("saving files...")
         now = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
         if save_files:
-            ff_save_numpy( opt, top_frac, ff_criterion,     f'criterion_{now}' )
+            save_numpy_ff( opt, top_frac, ff_criterion,     f'criterion_{now}' )
         if save_pile:
-            ff_save_numpy( opt, top_frac, pile_counters[0], f'counters-pile_{now}' )
+            save_numpy_ff( opt, top_frac, pile_counters[0], f'counters-pile_{now}' )
         if save_code:
-            ff_save_numpy( opt, top_frac, code_counters[0], f'counters-code_{now}' )
+            save_numpy_ff( opt, top_frac, code_counters[0], f'counters-code_{now}' )
 
     # pylint: disable=broad-except
     except Exception as err:
