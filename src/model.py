@@ -12,7 +12,7 @@ from transformers.models.opt.modeling_opt import OPTAttention
 from transformers import GPT2Tokenizer, OPTForCausalLM
 import torch
 import numpy as np
-from welford import Welford
+from welford_torch import Welford
 from tqdm import tqdm
 
 # Import matplotlib and set dpi to 300
@@ -885,14 +885,14 @@ class Model():
                 loss = self.evaluate_ce_loss( input_ids=input_ids, logits=logits )
 
                 # Record performance
-                loss_tracker.add( loss.detach().cpu().numpy() )
+                loss_tracker.add( loss.detach() )
                 out["num_predictions"]    += topk['num_predictions']
                 out["num_accurate"]       += topk['num_accurate']
                 out["num_topk_accurate"]  += topk['num_topk_accurate']
                 out["num_skip_predictions"]   += topk['num_skip_predictions']
                 out["num_skip_accurate"]      += topk['num_skip_accurate']
                 out["num_topk_skip_accurate"] += topk['num_topk_skip_accurate']
-                out["loss"] = loss_tracker.mean
+                out["loss"] = loss_tracker.mean.cpu().numpy()
                 out["log_loss"] = np.log( out["loss"] )
                 pbar.update( topk["num_skip_predictions"] )
 

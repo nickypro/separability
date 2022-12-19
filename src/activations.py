@@ -11,7 +11,7 @@ from torch import Tensor
 
 import torch
 import numpy as np
-from welford import Welford
+from welford_torch import Welford
 import einops
 from tqdm.notebook import tqdm
 
@@ -155,16 +155,16 @@ def get_attn_activations( opt: Model,
             for token_index, activation in enumerate(attn_pre_out):
                 if not criteria[token_index]:
                     continue
-                counter.add( activation.numpy() )
-                pos.add( (activation * ( activation > 0 )).numpy() )
-                neg.add( (activation * ( activation < 0 )).numpy() )
+                counter.add( activation )
+                pos.add( activation * ( activation > 0 ) )
+                neg.add( activation * ( activation < 0 ) )
 
             pbar.update( int(num_valid_tokens) )
 
             if curr_count > sample_size:
-                means = counter.mean
-                pos_mass = pos.mean
-                neg_mass = neg.mean
+                means = counter.mean.cpu()
+                pos_mass = pos.mean.cpu()
+                neg_mass = neg.mean.cpu()
                 break
 
     return means, pos_mass, neg_mass
