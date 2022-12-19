@@ -6,7 +6,7 @@ references to functions from texts.py, so is not included in model.py Model.
 import os
 import datetime
 # Import types for typed python
-from typing import Optional, Union
+from typing import Optional, Union, Dict
 from torch import Tensor
 
 import torch
@@ -233,17 +233,18 @@ def calculate_attn_crossover( opt: Model,
 
     return data
 
-def save_numpy_attn( opt: Model,
-        attn_crossover: np.ndarray,
+attn_data_keys = ["crossover_multiple", "pile_means"]
+
+def save_torch_attn( opt: Model,
+        attn_data: Dict[str, Tensor],
         name: Optional[str] = None
     ):
     if name is None:
         name = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
-    filename = f'tmp/{opt.model_size}/{opt.model_size}-attn_crossover-{name}.npy'
     os.makedirs( f'tmp/{opt.model_size}', exist_ok=True )
-    with open(filename, 'wb') as f:
-        np.save(f, np.array(attn_crossover) )
-    print("saved successfully")
+    filename = f'tmp/{opt.model_size}/{opt.model_size}-attn_data.pt'
+    torch.save( attn_data, filename )
+    return filename
 
 ####################################################################################
 # Look at FF Key activations
