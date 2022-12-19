@@ -403,11 +403,11 @@ def delete_ff_and_evaluate(
         print("saving files...")
         now = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
         if save_files:
-            save_numpy_ff( opt, top_frac, ff_criterion,     f'criterion_{now}' )
+            save_numpy_ff( opt, top_frac, ff_criterion.cpu(),     f'criterion_{now}' )
         if save_pile:
-            save_numpy_ff( opt, top_frac, pile_counters[0], f'counters-pile_{now}' )
+            save_numpy_ff( opt, top_frac, pile_counters.cpu(), f'counters-pile_{now}')
         if save_code:
-            save_numpy_ff( opt, top_frac, code_counters[0], f'counters-code_{now}' )
+            save_numpy_ff( opt, top_frac, code_counters.cpu(), f'counters-code_{now}')
 
     # pylint: disable=broad-except
     except Exception as err:
