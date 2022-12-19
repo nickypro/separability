@@ -219,6 +219,7 @@ class Model():
                 text: Optional[str] = None,
                 input_ids: Optional[Tensor] = None,
                 inputs_embeds: Optional[Tensor] = None,
+                residual_stream: Optional[Tensor] = None,
                 limit: Optional[int] = None,
                 **kwargs
             ):
@@ -234,6 +235,8 @@ class Model():
             inputs_embeds (Optional[Tensor]): Input Embedded Tokens.
                 Defaults to None.
             verbose (bool, optional): Print more information. Defaults to False.
+            residual_stream (Optional[Tensor], optional): The output of the attention
+                and feed forward layers, with residual connection. Defaults to None.
             limit (Optional[int], optional): _description_. Defaults to None.
 
         Returns:
@@ -243,6 +246,15 @@ class Model():
                 ff_out: The intermedate ff output activations.
                 output: The final output tensor.
         """
+        if not residual_stream is None:
+            # input attn_0 ff_0 attn_1 ff_1 ... attn_n ff_n output
+            # 0     1      2    3      4        -3     -2   -1
+            inpt = residual_stream[0]
+            attention_out = residual_stream[1:-2:2] - residual_stream[0:-3:2]
+            ff_out = residual_stream[2:-1:2] - residual_stream[1:-2:2]
+            output = residual_stream[-1]
+            return inpt, attention_out, ff_out, output
+
         if inputs_embeds is None and input_ids is None and text is None:
             raise ValueError( "must provide data: inputs_embeds | input_ids | text" )
 
