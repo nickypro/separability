@@ -240,7 +240,7 @@ def save_numpy_attn( opt: Model,
     if name is None:
         name = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
     filename = f'tmp/{opt.model_size}/{opt.model_size}-attn_crossover-{name}.npy'
-    os.makedirs( 'tmp', exist_ok=True )
+    os.makedirs( f'tmp/{opt.model_size}', exist_ok=True )
     with open(filename, 'wb') as f:
         np.save(f, np.array(attn_crossover) )
     print("saved successfully")
@@ -342,7 +342,7 @@ def save_numpy_ff( opt: Model,
         name: str
     ):
     filename = f'tmp/{opt.model_size}/{opt.model_size}-ff-{freq_multiple}x-{name}.npy'
-    os.makedirs( 'tmp', exist_ok=True )
+    os.makedirs( f'tmp/{opt.model_size}', exist_ok=True )
     with open(filename, 'wb') as f:
         np.save(f, np.array(array) )
     print("saved successfully")
