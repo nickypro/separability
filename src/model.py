@@ -908,8 +908,8 @@ class Model():
 
                 # Print output string showing current accuracy
                 percent  = self.calculate_evaluation_percentages( out, string=True )
-                out_str  =   f"Acc: {percent['base']}|{percent['topk']} "
-                out_str += f"(Skip: {percent['skip']}|{percent['topk_skip']})"
+                out_str  =   f"Acc: {percent['topk']}|{percent['base']} "
+                out_str += f"(Skip: {percent['topk_skip']}|{percent['skip']})"
                 pbar.set_description( out_str )
 
                 # Stop if limit is reached
