@@ -70,6 +70,143 @@ def evaluate_all( opt: Model,
     percentages.update({ ('code_'+k): v for (k,v) in code_out['percent'].items() })
     return percentages
 
+######################################################################################
+# Code for counting both FF and Self-Attention activations
+######################################################################################
+
+def get_midlayer_activations( opt: Model,
+        dataset_name: str,
+        sample_size: int = 10000,
+        check_accuracy: bool = False,
+        k: int = 10,
+        check_skips: bool = False,
+        calculate_ff: bool = True,
+        calculate_attn: bool = True,
+    ):
+    """Gets the number of activations of the midlayer ('key' layer) of MLPs for
+    each layer, as well as for the pre_out layer of attention for each layer.
+
+    Args:
+        opt (Model): my special sauce opt model
+        dataset_name (str): 'code' or 'pile'
+        sample_size (int, optional): number of tokens to sample. Defaults to 10000.
+        num_samples (int, optional): number of times to run. Defaults to 1.
+        check_accuracy (bool, optional): whether to only look at accurate outputs.
+            Defaults to False.
+        k (int, optional): top k to check when looking at accuracy. Defaults to 10.
+        check_skips (bool, optional): whether to skip most frequent tokens.
+            Defaults to False.
+        calculate_ff (bool, optional): whether to calculate the number of activations
+            of the midlayer of MLPs. Defaults to True.
+        calculate_attn (bool, optional): whether to calculate self-attention
+            activation means and masses. Defaults to True.
+
+    Returns:
+        counters (Tensor): Tensor containing activation frequency of every ff
+            mid layer activation
+    """
+    dataset, label, skip_eval = prepare( dataset_name )
+
+    # ff counter
+    if calculate_ff:
+        counter = torch.zeros( (opt.n_layers, opt.d_ff) ).to( opt.device )
+
+    # self-attention counter. See: Welford's Online Algorithm
+    if calculate_attn:
+        all_activations = Welford().detach() # to get mean & variance of activations
+        neg = Welford().detach() # to get mean ("negative mass") of -ive activations
+        pos = Welford().detach() # to get mean ("positive mass") of +ive activations
+
+    if (not calculate_ff) and (not calculate_attn):
+        raise ValueError("Must calculate either ff or attn")
+
+    if check_skips:
+        skip_ids = set()
+        for skip_string in skip_eval:
+            skip_id = int( opt.get_ids( skip_string ).squeeze()[-1] )
+            skip_ids.add( skip_id )
+
+    # Number of tokens viewed counter (that meet criteria)
+    curr_count = 0
+
+    with tqdm(total=sample_size) as pbar:
+        for data in dataset:
+            text = data[label]
+            # Get all necessary activations
+            with torch.no_grad():
+                input_ids = opt.get_ids( text ).detach()
+                ids = input_ids.squeeze().detach()
+                text_activations = opt.get_text_activations( input_ids=input_ids )
+                residual_stream = opt.get_residual_stream(
+                    text_activations=text_activations ).detach()
+
+                # Get activations of self attention pre_out layer
+                if calculate_attn:
+                    attn_pre_out = opt.get_attn_pre_out_activations(
+                        text_activations=text_activations, reshape=True ).detach()
+                    attn_pre_out = einops.rearrange(attn_pre_out,
+                        'layer token head pos -> token layer head pos')
+
+                # Get activations of FF mid layer
+                if calculate_ff:
+                    ff_keys = opt.get_ff_key_activations(
+                        residual_stream=residual_stream ).detach()
+                    ff_keys = einops.rearrange( ff_keys,
+                        'layer token pos -> token layer pos')
+
+            # Initialize criteria for counting the token activation
+            criteria = torch.ones_like( ids, dtype=torch.bool ).detach()
+
+            # (Optional) Check if prediction is accurate enough to count
+            if check_accuracy:
+                logits = opt.unembed( residual_stream[-1] ).detach()
+                top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
+
+                for index in range(len(ids)-1):
+                    criteria[index] *= (ids[index+1] in top_k_tokens[index])
+
+            # (Optional) Choose a set of token ids to skip
+            if check_skips:
+                for index in range(len(ids)-1):
+                    criteria[index] *= (ids[index+1] in skip_ids)
+
+            # Count the number of activations in FF
+            if calculate_ff:
+                for token_index, ff_activation in enumerate(ff_keys):
+                    if not criteria[token_index]:
+                        continue
+                    counter += ( ff_activation != 0 )
+
+            # Count the number of activations in Self-Attention
+            if calculate_attn:
+                for token_index, activation in enumerate(attn_pre_out):
+                    if not criteria[token_index]:
+                        continue
+                    all_activations.add( activation )
+                    pos.add( activation * ( activation > 0 ) )
+                    neg.add( activation * ( activation < 0 ) )
+
+            # Keep track of number of tokens looked at
+            num_valid_tokens = criteria.sum()
+            curr_count += num_valid_tokens
+            pbar.update( int(num_valid_tokens) )
+
+            if curr_count > sample_size:
+                break
+
+    output = {}
+    if calculate_ff:
+        output["ff"] = counter.detach() / curr_count
+    if calculate_attn:
+        output["attn"] = {
+            "means": all_activations.mean,
+            "stds": all_activations.var_s,
+            "pos": pos.mean,
+            "neg": neg.mean
+        }
+
+    return output
+
 ####################################################################################
 # Code for getting attention activations
 ####################################################################################
@@ -77,7 +214,6 @@ def evaluate_all( opt: Model,
 def get_attn_activations( opt: Model,
         dataset_name: str,
         sample_size: int = 10000,
-        token_limit: Optional[int] = None,
         check_accuracy: bool = True,
         k: int = 10,
         check_skips: bool = False,
@@ -89,8 +225,6 @@ def get_attn_activations( opt: Model,
         opt (Model): OPT model with my special sauce modifications
         dataset_name (str): 'pile' or 'code'
         sample_size (int, optional): Number of tokens to sample. Defaults to 10000.
-        token_limit (Optional[int], optional): Maximum text size limit,
-            mainly for small models. Defaults to None.
         check_accuracy (int, optional): Whether to filter activations to the
             cases where it is accurate. Defaults to False.
         k (int, optional): Top-k accuracy check if check_accuracy is True.
@@ -103,81 +237,24 @@ def get_attn_activations( opt: Model,
         pos_mass: Probability mass of positive activations
         neg_mass: Probability mass of negative activations
     """
-    dataset, label, skip_eval = prepare( dataset_name )
 
-    # See: Welford's Online Algorithm
-    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
-    all_activations = Welford().detach() # to get mean & variance of all activations
-    neg = Welford().detach() # to get mean ("negative mass") of negative activations
-    pos = Welford().detach() # to get mean ("positive mass") of positive activations
+    output = get_midlayer_activations( opt,
+        dataset_name=dataset_name,
+        sample_size=sample_size,
+        check_accuracy=check_accuracy,
+        k=k,
+        check_skips=check_skips,
+        calculate_ff=False,
+        calculate_attn=True
+    )
 
-    curr_count = 0
-
-    # Get the ids of the tokens to skip
-    if check_skips:
-        skip_ids = set()
-        for skip_string in skip_eval:
-            skip_id = int( opt.get_ids( skip_string ).squeeze()[-1] )
-            skip_ids.add( skip_id )
-
-    with tqdm(total=sample_size) as pbar:
-        for data in dataset:
-            # Get the text and its ids, and run it into the model
-            text = data[label]
-            with torch.no_grad():
-                input_ids = opt.get_ids( text, limit=token_limit ).detach()
-                text_activations = opt.get_text_activations( input_ids=input_ids )
-                attn_pre_out = opt.get_attn_pre_out_activations(
-                    text_activations=text_activations, reshape=True ).detach()
-                # Keep track of criteria for counting the token activation
-                ids = input_ids.squeeze()
-                criteria = torch.ones_like( ids, dtype=torch.bool ).detach()
-
-            # check if prediction is accurate enough to count (top-k accuracy)
-            if check_accuracy:
-                residual_stream = opt.get_residual_stream(
-                    text_activations=text_activations )
-                logits = opt.unembed( residual_stream[-1] )
-                top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
-
-                for index in range(len(ids)-1):
-                    criteria[index] *= (ids[index+1] in top_k_tokens[index])
-
-            # check for tokens is in skip list
-            if check_skips:
-                for index in range(len(ids)-1):
-                    criteria[index] *= (ids[index+1] in skip_ids)
-
-            # Rearrange so we can add all activations for each token
-            # to the Welford accumulator in form [layer head pos]
-            attn_pre_out = einops.rearrange(attn_pre_out,
-                'layer token head pos -> token layer head pos')
-
-            for token_index, activation in enumerate(attn_pre_out):
-                if not criteria[token_index]:
-                    continue
-                all_activations.add( activation )
-                pos.add( activation * ( activation > 0 ) )
-                neg.add( activation * ( activation < 0 ) )
-
-            # Keep track of number of tokens looked at
-            num_valid_tokens = criteria.sum().cpu()
-            pbar.update( int(num_valid_tokens) )
-            curr_count += num_valid_tokens
-
-            if curr_count > sample_size:
-                break
-
-    means = all_activations.mean.cpu()
-    pos_mass = pos.mean.cpu()
-    neg_mass = neg.mean.cpu()
-
-    return means, pos_mass, neg_mass
+    return output['attn']
 
 def calculate_attn_crossover( opt: Model,
         sample_size: int = 1e5,
-        token_limit: Optional[int] = None,
         eps: float = 1e-6,
+        pile_out: Optional[Dict[str, Tensor]] = None,
+        code_out: Optional[Dict[str, Tensor]] = None,
         **kwargs
         ):
     """Gets how much more probability mass the median activation of code has for an
@@ -187,8 +264,6 @@ def calculate_attn_crossover( opt: Model,
         opt (Model): The model to run
         sample_size (int, optional): token sample size to collect data for.
             Defaults to 1e5.
-        token_limit (Optional[int], optional): limit to number of tokens in a text,
-            mainly for smaller models. Defaults to None.
 
     Returns:
         data: Dictionary containing information about activations
@@ -201,10 +276,14 @@ def calculate_attn_crossover( opt: Model,
             crossover: The of probability mass on crossover between positive and
                 negative mass from code compared to baseline pile activation
     """
-    pile_out = get_attn_activations(opt, 'pile', sample_size, token_limit, **kwargs)
-    code_out = get_attn_activations(opt, 'code', sample_size, token_limit, **kwargs)
-    pile_means, pile_pos, pile_neg = pile_out
-    code_means, code_pos, code_neg = code_out
+    if pile_out is None:
+        pile_out = get_attn_activations(opt, 'pile', sample_size, **kwargs)
+    if code_out is None:
+        code_out = get_attn_activations(opt, 'code', sample_size, **kwargs)
+    pile_means, _pile_stds, pile_pos, pile_neg = \
+        pile_out["means"], pile_out["stds"], pile_out["pos"], pile_out["neg"]
+    code_means, _code_stds, code_pos, code_neg = \
+        code_out["means"], code_out["stds"], code_out["pos"], code_out["neg"]
 
     crossover_multiple = torch.ones((opt.n_layers, opt.n_heads))
     pos_code_rel_freq = code_pos / ( pile_pos + eps )
@@ -256,7 +335,6 @@ def save_torch_attn( opt: Model,
 def count_ff_key_activations( opt: Model,
         dataset_name: str,
         sample_size: int = 10000,
-        token_limit: int = None,
         check_accuracy: bool = False,
         k: int = 10,
         check_skips: bool = False
@@ -268,7 +346,6 @@ def count_ff_key_activations( opt: Model,
         opt (Model): my special sauce opt model
         dataset_name (str): 'code' or 'pile'
         sample_size (int, optional): number of tokens to sample. Defaults to 10000.
-        token_limit (int, optional): limit to text token length. Defaults to None.
         num_samples (int, optional): number of times to run. Defaults to 1.
         check_accuracy (bool, optional): whether to only look at accurate outputs.
             Defaults to False.
@@ -280,61 +357,17 @@ def count_ff_key_activations( opt: Model,
         counters (Tensor): Tensor containing activation frequency of every ff
             mid layer activation
     """
-    dataset, label, skip_eval = prepare( dataset_name )
-    counter = torch.zeros( (opt.n_layers, opt.d_ff) ).to( opt.device )
-    curr_count = 0
+    output = get_midlayer_activations( opt,
+        dataset_name=dataset_name,
+        sample_size=sample_size,
+        check_accuracy=check_accuracy,
+        k=k,
+        check_skips=check_skips,
+        calculate_ff=True,
+        calculate_attn=False
+    )
 
-    if check_skips:
-        skip_ids = set()
-        for skip_string in skip_eval:
-            skip_id = int( opt.get_ids( skip_string ).squeeze()[-1] )
-            skip_ids.add( skip_id )
-
-    with tqdm(total=sample_size) as pbar:
-        for data in dataset:
-            text = data[label]
-            with torch.no_grad():
-                input_ids = opt.get_ids( text, limit=token_limit ).detach()
-                residual_stream = opt.get_residual_stream( input_ids=input_ids )
-                ids = input_ids.squeeze().detach()
-                ff_keys = opt.get_ff_key_activations(
-                    residual_stream=residual_stream ).detach()
-                # Criteria for counting the token activation
-                criteria = torch.ones_like( ids, dtype=torch.bool ).detach()
-
-            # (Optional) Check if prediction is accurate enough to count
-            if check_accuracy:
-                logits = opt.unembed( residual_stream[-1] ).detach()
-                top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
-
-                for index in range(len(ids)-1):
-                    criteria[index] *= (ids[index+1] in top_k_tokens[index])
-
-            # (Optional) Choose a set of token ids to skip
-            if check_skips:
-                for index in range(len(ids)-1):
-                    criteria[index] *= (ids[index+1] in skip_ids)
-
-            # Rearrange ff_keys to be [layer, token, activation]
-            ff_keys = einops.rearrange( ff_keys,
-                'layer token pos -> token layer pos')
-
-            # Count the number of activations
-            for token_index, ff_activation in enumerate(ff_keys):
-                if not criteria[token_index]:
-                    continue
-                counter += ( ff_activation != 0 )
-
-            # Keep track of number of tokens looked at
-            num_valid_tokens = criteria.sum()
-            curr_count += num_valid_tokens
-            pbar.update( int(num_valid_tokens) )
-
-            if curr_count > sample_size:
-                counter = counter / curr_count
-                break
-
-    return counter.detach()
+    return output['ff']
 
 def save_numpy_ff( opt: Model,
         freq_multiple: float,
