@@ -202,14 +202,15 @@ class Model():
             layer.append( key )
             for out in value:
                 if isinstance(out, Tensor):
-                    layer.append( out.detach().cpu() )
+                    layer.append( out )
                     continue
 
                 if out is None:
                     continue
 
-                for o in out:
-                    layer.append( o )
+                if isinstance(out, (tuple, list)):
+                    for o in out:
+                        layer.append( o )
 
             layers.append(layer)
 
