@@ -246,7 +246,7 @@ class Model():
                 ff_out: The intermedate ff output activations.
                 output: The final output tensor.
         """
-        if not residual_stream is None:
+        if not (residual_stream is None):
             # input attn_0 ff_0 attn_1 ff_1 ... attn_n ff_n output
             # 0     1      2    3      4        -3     -2   -1
             inpt = residual_stream[0]
@@ -266,7 +266,7 @@ class Model():
                               output_hidden_states=True, **kwargs )
 
         # get the hidden states
-        hidden_states = torch.stack( outputs.hidden_states ).squeeze().detach().cpu()
+        hidden_states = torch.stack( outputs.hidden_states ).squeeze().detach()
         inpt = hidden_states[0].detach()
 
         # get attention outputs
@@ -491,7 +491,7 @@ class Model():
             # adjust bias of out_proj by mean activations
             if not mean_values is None:
                 assert mean_values.size() == torch.Size([self.d_model])
-                mean_values  = copy.deepcopy(mean_values)
+                mean_values  = mean_values.detach().clone()
                 mean_values *= remove_indices
                 bias_adjustement = torch.matmul( weights, mean_values )
                 biases += bias_adjustement

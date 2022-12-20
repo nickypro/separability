@@ -13,7 +13,7 @@ import torch
 import numpy as np
 from welford_torch import Welford
 import einops
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 # Import from this project
 from model import Model
@@ -104,74 +104,80 @@ def get_attn_activations( opt: Model,
         neg_mass: Probability mass of negative activations
     """
     dataset, label, skip_eval = prepare( dataset_name )
-    counter  = None
-    neg_mass = None
-    pos_mass = None
+
+    # See: Welford's Online Algorithm
+    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+    all_activations = Welford().detach() # to get mean & variance of all activations
+    neg = Welford().detach() # to get mean ("negative mass") of negative activations
+    pos = Welford().detach() # to get mean ("positive mass") of positive activations
+
     curr_count = 0
+
+    # Get the ids of the tokens to skip
+    if check_skips:
+        skip_ids = set()
+        for skip_string in skip_eval:
+            skip_id = int( opt.get_ids( skip_string ).squeeze()[-1] )
+            skip_ids.add( skip_id )
+
     with tqdm(total=sample_size) as pbar:
         for data in dataset:
+            # Get the text and its ids, and run it into the model
             text = data[label]
-            input_ids = opt.get_ids( text, limit=token_limit )
             with torch.no_grad():
+                input_ids = opt.get_ids( text, limit=token_limit ).detach()
                 text_activations = opt.get_text_activations( input_ids=input_ids )
-            ids = input_ids.squeeze().detach().cpu()
+                attn_pre_out = opt.get_attn_pre_out_activations(
+                    text_activations=text_activations, reshape=True ).detach()
+                # Keep track of criteria for counting the token activation
+                ids = input_ids.squeeze()
+                criteria = torch.ones_like( ids, dtype=torch.bool ).detach()
 
-            # Criteria for counting the token activation
-            criteria = torch.ones_like( ids, dtype=torch.bool )
-
-            # check if prediction is accurate enough to count
+            # check if prediction is accurate enough to count (top-k accuracy)
             if check_accuracy:
                 residual_stream = opt.get_residual_stream(
                     text_activations=text_activations )
-                logits = opt.unembed( residual_stream[-1] ).detach().cpu()
+                logits = opt.unembed( residual_stream[-1] )
                 top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
 
                 for index in range(len(ids)-1):
                     criteria[index] *= (ids[index+1] in top_k_tokens[index])
 
-            # Choose a set of token ids to skip
+            # check for tokens is in skip list
             if check_skips:
-                skip_ids = set()
-                for skip_string in skip_eval:
-                    skip_id = int( opt.get_ids( skip_string ).squeeze()[-1] )
-                    skip_ids.add( skip_id )
-
                 for index in range(len(ids)-1):
                     criteria[index] *= (ids[index+1] in skip_ids)
 
-            num_valid_tokens = criteria.sum()
-            curr_count += num_valid_tokens
-
-            attn_pre_out = opt.get_attn_pre_out_activations(
-                text_activations=text_activations, reshape=True )
-            attn_pre_out = attn_pre_out.detach().cpu()
+            # Rearrange so we can add all activations for each token
+            # to the Welford accumulator in form [layer head pos]
             attn_pre_out = einops.rearrange(attn_pre_out,
                 'layer token head pos -> token layer head pos')
-
-            if counter is None:
-                # Use welford because it is more accurate than summing and dividing
-                counter, pos, neg  = Welford(), Welford(), Welford()
 
             for token_index, activation in enumerate(attn_pre_out):
                 if not criteria[token_index]:
                     continue
-                counter.add( activation )
+                all_activations.add( activation )
                 pos.add( activation * ( activation > 0 ) )
                 neg.add( activation * ( activation < 0 ) )
 
+            # Keep track of number of tokens looked at
+            num_valid_tokens = criteria.sum().cpu()
             pbar.update( int(num_valid_tokens) )
+            curr_count += num_valid_tokens
 
             if curr_count > sample_size:
-                means = counter.mean.cpu()
-                pos_mass = pos.mean.cpu()
-                neg_mass = neg.mean.cpu()
                 break
+
+    means = all_activations.mean.cpu()
+    pos_mass = pos.mean.cpu()
+    neg_mass = neg.mean.cpu()
 
     return means, pos_mass, neg_mass
 
 def calculate_attn_crossover( opt: Model,
         sample_size: int = 1e5,
         token_limit: Optional[int] = None,
+        eps: float = 1e-6,
         **kwargs
         ):
     """Gets how much more probability mass the median activation of code has for an
@@ -200,21 +206,20 @@ def calculate_attn_crossover( opt: Model,
     pile_means, pile_pos, pile_neg = pile_out
     code_means, code_pos, code_neg = code_out
 
-    crossover_multiple = np.ones((opt.n_layers, opt.n_heads) )
-    eps = 1e-5
+    crossover_multiple = torch.ones((opt.n_layers, opt.n_heads))
     pos_code_rel_freq = code_pos / ( pile_pos + eps )
     neg_code_rel_freq = code_neg / ( pile_neg - eps )
 
     for layer in range( opt.n_layers ):
         for head in range( opt.n_heads ):
             # Relative probability mass in positive and negative directions
-            pos_rel = np.sort( pos_code_rel_freq[layer][head] )
-            neg_rel = np.sort( neg_code_rel_freq[layer][head] )[::-1]
+            __pos_index, pos_rel = torch.sort( pos_code_rel_freq[layer][head] )
+            __neg_index, neg_rel = \
+                torch.sort( neg_code_rel_freq[layer][head], descending=True )
 
             #cross-over position
-            for i in range( opt.d_head ):
-                if pos_rel[i] > neg_rel[i]:
-                    break
+            i = ( neg_rel > pos_rel ).sum()
+
             crossover =  ( pos_rel[i-1] + pos_rel[i] + neg_rel[i-1] + neg_rel[i] )/4
             crossover_multiple[layer][head] = crossover
 
@@ -228,9 +233,6 @@ def calculate_attn_crossover( opt: Model,
         'code_neg'   : code_neg,
         'crossover_multiple' : crossover_multiple
     }
-    # Convert to Tensor objects
-    data = { k: torch.tensor(v, dtype=torch.float32) for k, v in data.items()}
-
     return data
 
 attn_data_keys = ["crossover_multiple", "pile_means"]
