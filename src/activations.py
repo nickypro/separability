@@ -246,6 +246,7 @@ def save_torch_attn( opt: Model,
     os.makedirs( f'tmp/{opt.model_size}', exist_ok=True )
     filename = f'tmp/{opt.model_size}/{opt.model_size}-attn_data-{name}.pt'
     torch.save( attn_data, filename )
+    print( f'Saved {filename} to {opt.model_size}' )
     return filename
 
 ####################################################################################
