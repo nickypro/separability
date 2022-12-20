@@ -51,7 +51,7 @@ def test_evaluate_all( verbose: bool = False ):
     if verbose:
         opt.show_details()
 
-    data = evaluate_all( opt, 1e4, verbose=verbose )
+    data = evaluate_all( opt, 1e3, verbose=verbose )
 
     if verbose:
         #print( data )
