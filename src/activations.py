@@ -213,8 +213,8 @@ def calculate_attn_crossover( opt: Model,
     for layer in range( opt.n_layers ):
         for head in range( opt.n_heads ):
             # Relative probability mass in positive and negative directions
-            __pos_index, pos_rel = torch.sort( pos_code_rel_freq[layer][head] )
-            __neg_index, neg_rel = \
+            pos_rel, _pos_index = torch.sort( pos_code_rel_freq[layer][head] )
+            neg_rel, _neg_index = \
                 torch.sort( neg_code_rel_freq[layer][head], descending=True )
 
             #cross-over position
