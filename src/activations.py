@@ -253,13 +253,6 @@ def save_torch_attn( opt: Model,
 # Look at FF Key activations
 ####################################################################################
 
-def setup_counter( opt: Model, ff_keys: Tensor ):
-    shape = ff_keys.size()
-    counter = []
-    for _ in range(shape[0]):
-        counter.append( torch.zeros( shape[-1], dtype=torch.int64 ))
-    return torch.stack(counter).to( opt.device )
-
 def count_ff_key_activations( opt: Model,
         dataset_name: str,
         sample_size: int = 10000,
@@ -288,22 +281,30 @@ def count_ff_key_activations( opt: Model,
             mid layer activation
     """
     dataset, label, skip_eval = prepare( dataset_name )
-    counter = None
+    counter = torch.zeros( (opt.n_layers, opt.d_ff) ).to( opt.device )
     curr_count = 0
+
+    if check_skips:
+        skip_ids = set()
+        for skip_string in skip_eval:
+            skip_id = int( opt.get_ids( skip_string ).squeeze()[-1] )
+            skip_ids.add( skip_id )
+
     with tqdm(total=sample_size) as pbar:
         for data in dataset:
             text = data[label]
-            input_ids = opt.get_ids( text, limit=token_limit )
             with torch.no_grad():
+                input_ids = opt.get_ids( text, limit=token_limit ).detach()
                 residual_stream = opt.get_residual_stream( input_ids=input_ids )
-            ids = input_ids.squeeze().detach().cpu()
-
-            # Criteria for counting the token activation
-            criteria = torch.ones_like( ids, dtype=torch.bool )
+                ids = input_ids.squeeze().detach()
+                ff_keys = opt.get_ff_key_activations(
+                    residual_stream=residual_stream ).detach()
+                # Criteria for counting the token activation
+                criteria = torch.ones_like( ids, dtype=torch.bool ).detach()
 
             # (Optional) Check if prediction is accurate enough to count
             if check_accuracy:
-                logits = opt.unembed( residual_stream[-1] ).detach().cpu()
+                logits = opt.unembed( residual_stream[-1] ).detach()
                 top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
 
                 for index in range(len(ids)-1):
@@ -311,29 +312,24 @@ def count_ff_key_activations( opt: Model,
 
             # (Optional) Choose a set of token ids to skip
             if check_skips:
-                skip_ids = set()
-                for skip_string in skip_eval:
-                    skip_id = int( opt.get_ids( skip_string ).squeeze()[-1] )
-                    skip_ids.add( skip_id )
-
                 for index in range(len(ids)-1):
                     criteria[index] *= (ids[index+1] in skip_ids)
 
+            # Rearrange ff_keys to be [layer, token, activation]
+            ff_keys = einops.rearrange( ff_keys,
+                'layer token pos -> token layer pos')
+
+            # Count the number of activations
+            for token_index, ff_activation in enumerate(ff_keys):
+                if not criteria[token_index]:
+                    continue
+                counter += ( ff_activation != 0 )
+
+            # Keep track of number of tokens looked at
             num_valid_tokens = criteria.sum()
             curr_count += num_valid_tokens
-
-            ff_keys = opt.get_ff_key_activations(residual_stream=residual_stream)
-            if counter is None:
-                counter = setup_counter(opt, ff_keys)
-
-            for layer_index, layer in enumerate(ff_keys):
-                for token_index, key_activation in enumerate(layer):
-                    if not criteria[token_index]:
-                        continue
-                    counter[layer_index] += ( key_activation != 0 )
-
-
             pbar.update( int(num_valid_tokens) )
+
             if curr_count > sample_size:
                 counter = counter / curr_count
                 break
@@ -380,8 +376,8 @@ def delete_ff_and_evaluate(
         code_counters = count_ff_key_activations( opt, 'code',
             sample_size=counter_sample_size, check_accuracy=True )
 
-    pile_counters = pile_counters.squeeze()
-    code_counters = code_counters.squeeze()
+    pile_counters = pile_counters.squeeze().cpu()
+    code_counters = code_counters.squeeze().cpu()
 
     # Get Relative Frequenct of Activations
     rel_freq = ( code_counters / ( pile_counters + eps ) ).flatten()
