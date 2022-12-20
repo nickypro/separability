@@ -242,7 +242,7 @@ def save_torch_attn( opt: Model,
     if name is None:
         name = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
     os.makedirs( f'tmp/{opt.model_size}', exist_ok=True )
-    filename = f'tmp/{opt.model_size}/{opt.model_size}-attn_data.pt'
+    filename = f'tmp/{opt.model_size}/{opt.model_size}-attn_data-{name}.pt'
     torch.save( attn_data, filename )
     return filename
 
