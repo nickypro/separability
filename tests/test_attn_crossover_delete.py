@@ -1,6 +1,6 @@
 """ Test the calculate_attn_crossover function. """
 import argparse
-from activations import calculate_attn_crossover, evaluate_all
+from activations import get_attn_activations, get_attn_crossover, evaluate_all
 from model import Model
 
 def test_calculate_attn_crossover_and_delete( verbose: bool = False ):
@@ -14,9 +14,12 @@ def test_calculate_attn_crossover_and_delete( verbose: bool = False ):
     # Get crossover data
     if verbose:
         print(" - Initial Evaluation...")
-    attn_data = calculate_attn_crossover(opt, sample_size=1e3)
 
-    # Remove attention heads over crossover threshold
+    pile_out = get_attn_activations(opt, 'pile', sample_size=1e3)
+    code_out = get_attn_activations(opt, 'code', sample_size=1e3)
+    attn_data = get_attn_crossover(opt, pile_out, code_out)
+
+    # Remove attention heads over crossover threshold (very low threshold)
     removals = attn_data['crossover_multiple'] > 1.0
     if verbose:
         print("# Deleting Attention Heads...")
