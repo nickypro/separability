@@ -322,6 +322,7 @@ class Model():
                 text_activations: Optional[List[Tensor]] = None,
                 residual_stream: Optional[Tensor] = None,
                 limit: Optional[int] = None,
+                use_activation_function: bool = True,
                 **kwargs
             ) -> Tensor:
         if residual_stream is None:
@@ -329,7 +330,8 @@ class Model():
                 inputs_embeds, text_activations, limit, **kwargs )
 
         ff_inputs = residual_stream[1:-1:2]
-        ff_keys = self.calculate_ff_keys( ff_inputs.to(self.device) )
+        ff_keys = self.calculate_ff_keys( ff_inputs.to(self.device),
+            use_activation_function )
 
         return ff_keys
 
@@ -570,17 +572,28 @@ class Model():
             self.delete_attn_pre_out_layer( layer, remove_indices[layer], means_i )
 
     # Functions for calculating feed-forward fully connected layer activations
-    def calculate_ff_keys_layer( self, ff_in: Tensor, layer: int ):
+    def calculate_ff_keys_layer( self,
+            ff_in: Tensor,
+            layer: int,
+            use_activation_function: bool = True,
+        ):
         u = self.model.decoder.layers[ layer ]
         x = u.final_layer_norm( ff_in )
         x = u.fc1( x )
-        x = u.activation_fn( x )
+        if use_activation_function:
+            x = u.activation_fn( x )
         return x
 
-    def calculate_ff_keys( self, ff_in: Tensor ):
+    def calculate_ff_keys( self,
+            ff_in: Tensor,
+            use_activation_function: bool = True
+        ):
         out = []
         for layer_index, ff_in_layer in enumerate(ff_in):
-            out.append( self.calculate_ff_keys_layer( ff_in_layer, layer_index ) )
+            out.append(
+                self.calculate_ff_keys_layer( ff_in_layer, layer_index,
+                    use_activation_function=use_activation_function )
+            )
         return torch.stack( out )
 
     def calculate_ff_out_layer( self, ff_in: Tensor, layer: int):

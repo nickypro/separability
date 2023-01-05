@@ -95,7 +95,7 @@ def get_midlayer_activations( opt: Model,
         calculate_attn: bool = True,
         collect_ff: bool = False,
         collect_attn: bool = False,
-        ff_relu: bool = True,
+        use_ff_activation_function: bool = True,
     ):
     """Gets the number of activations of the midlayer ('key' layer) of MLPs for
     each layer, as well as for the pre_out layer of attention for each layer.
@@ -115,7 +115,11 @@ def get_midlayer_activations( opt: Model,
         calculate_attn (bool, optional): whether to calculate self-attention
             activation means and masses. Defaults to True.
         collect_ff (bool, optional): whether to collect all ff activations.
-        collect_attn (bool, optional): whether to collect all attn pre out activations
+            Defaults to False.
+        collect_attn (bool, optional): whether to collect all attn pre out
+            activations. Defaults to False.
+        use_ff_activation_function (bool, optional): whether to use the activation
+            function on the ff activations. Defaults to True.
 
     Returns:
         Dict:
@@ -130,6 +134,7 @@ def get_midlayer_activations( opt: Model,
             "raw":
                 "ff": Tensor[n_tokens, n_layers, d_ff]]
                 "attn": Tensor[n_tokens, n_layers, n_head, d_head]
+                "criteria": Tensor[n_tokens]
     """
     dataset, label, skip_eval = prepare( dataset_name )
 
@@ -187,7 +192,8 @@ def get_midlayer_activations( opt: Model,
                 # Get activations of FF mid layer
                 if calculate_ff or collect_ff:
                     ff_keys = opt.get_ff_key_activations(
-                        residual_stream=residual_stream ).detach()
+                        residual_stream=residual_stream,
+                        use_activation_function=use_ff_activation_function ).detach()
                     ff_keys = einops.rearrange( ff_keys,
                         'layer token pos -> token layer pos')
 
