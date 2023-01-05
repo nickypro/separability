@@ -1,14 +1,17 @@
 """ Runs all tests in the tests folder. """
 
 import argparse
-from test_attn_crossover_delete import test_calculate_attn_crossover_and_delete
+#from test_attn_crossover_delete import test_calculate_attn_crossover_and_delete
+from test_collection import test_ff_collections, test_attn_collections
 from test_delete_attn_pre_out_layer import test_delete_attn_pre_out_layer
 from test_delete_ff_keys import test_ff_key_counting, test_delete_ff_keys
 from test_evaluate_all import test_evaluate_all
 
 tests = [
     test_evaluate_all,
-    test_calculate_attn_crossover_and_delete,
+    #test_calculate_attn_crossover_and_delete,
+    test_ff_collections,
+    test_attn_collections,
     test_delete_attn_pre_out_layer,
     test_ff_key_counting,
     test_delete_ff_keys,
