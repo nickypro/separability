@@ -653,7 +653,7 @@ class Model():
         """ Predict the next {num} tokens from an input {text}."""
 
         inputs = self.tokenizer( text, return_tensors="pt" )
-        input_ids = inputs.input_ids
+        input_ids = inputs.input_ids.to( self.device )
 
         if limit:
             input_ids = input_ids[0][:limit].reshape(1, -1)
