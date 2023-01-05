@@ -6,7 +6,7 @@ references to functions from texts.py, so is not included in model.py Model.
 import os
 import datetime
 # Import types for typed python
-from typing import Optional, Union, Dict
+from typing import Optional, Union, Dict, Tuple
 from torch import Tensor
 
 import torch
@@ -14,6 +14,7 @@ import numpy as np
 from welford_torch import Welford
 import einops
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 # Import from this project
 from model import Model
@@ -22,6 +23,15 @@ from texts import prepare
 ####################################################################################
 # Code for Evaluating Model
 ####################################################################################
+
+def init_data_dict():
+    keys = [
+        'pile_loss', 'code_loss', 'pile_log_loss',  'code_log_loss',  # CE Loss
+        'pile_topk', 'code_topk', 'pile_topk_skip', 'code_topk_skip', # Acc Top K
+        'pile_base', 'code_base', 'pile_skip',      'code_skip',      # Acc Base
+        'ff_del', 'ff_threshold', 'attn_del',       'attn_threshold', # Deletions
+    ]
+    return { k: 0 for k in keys }
 
 def evaluate( opt: Model,
         dataset_name: str,
@@ -55,10 +65,11 @@ def evaluate( opt: Model,
 def evaluate_all( opt: Model,
         sample_size: int = 1e5,
         topk: int = 10,
-        verbose: bool = False
+        verbose: bool = False,
+        texts_to_skip: int = 0,
     ):
-    pile_out = evaluate( opt, 'pile', sample_size, topk, verbose )
-    code_out = evaluate( opt, 'code', sample_size, topk, verbose )
+    pile_out = evaluate( opt, 'pile', sample_size, topk, verbose, texts_to_skip )
+    code_out = evaluate( opt, 'code', sample_size, topk, verbose, texts_to_skip )
 
     percentages = {
         "pile_loss": pile_out['loss'],
@@ -82,6 +93,9 @@ def get_midlayer_activations( opt: Model,
         check_skips: bool = False,
         calculate_ff: bool = True,
         calculate_attn: bool = True,
+        collect_ff: bool = False,
+        collect_attn: bool = False,
+        ff_relu: bool = True,
     ):
     """Gets the number of activations of the midlayer ('key' layer) of MLPs for
     each layer, as well as for the pre_out layer of attention for each layer.
@@ -100,10 +114,22 @@ def get_midlayer_activations( opt: Model,
             of the midlayer of MLPs. Defaults to True.
         calculate_attn (bool, optional): whether to calculate self-attention
             activation means and masses. Defaults to True.
+        collect_ff (bool, optional): whether to collect all ff activations.
+        collect_attn (bool, optional): whether to collect all attn pre out activations
 
     Returns:
-        counters (Tensor): Tensor containing activation frequency of every ff
-            mid layer activation
+        Dict:
+            "ff" (Tensor): The activation frequency of the midlayer of MLPs
+                for each layer of the transformer. Shape: (n_layers, d_ff)
+            "attn" (Dict[str, Tensor[n_layers, d_attn, d_ff]]):
+                "means": The mean activation of the pre_out layer of
+                    attention for each layer.
+                "stds": The standard deviation of the pre_out layer of attention
+                "pos": The positive mass of the pre_out layer of attention
+                "neg": The negative mass of the pre_out layer of attention
+            "raw":
+                "ff": Tensor[n_tokens, n_layers, d_ff]]
+                "attn": Tensor[n_tokens, n_layers, n_head, d_head]
     """
     dataset, label, skip_eval = prepare( dataset_name )
 
@@ -117,9 +143,20 @@ def get_midlayer_activations( opt: Model,
         neg = Welford().detach() # to get mean ("negative mass") of -ive activations
         pos = Welford().detach() # to get mean ("positive mass") of +ive activations
 
-    if (not calculate_ff) and (not calculate_attn):
-        raise ValueError("Must calculate either ff or attn")
+    if collect_ff:
+        ff_raw = []
 
+    if collect_attn:
+        attn_raw = []
+
+    if collect_ff or collect_attn:
+        criteria_raw = []
+
+    if (not calculate_ff) and (not calculate_attn) and \
+       (not collect_ff) and (not collect_attn):
+        raise ValueError("Must calculate or collect either ff or attn")
+
+    # Prepare skip ids if they are being used
     if check_skips:
         skip_ids = set()
         for skip_string in skip_eval:
@@ -141,14 +178,14 @@ def get_midlayer_activations( opt: Model,
                     text_activations=text_activations ).detach()
 
                 # Get activations of self attention pre_out layer
-                if calculate_attn:
+                if calculate_attn or collect_attn:
                     attn_pre_out = opt.get_attn_pre_out_activations(
                         text_activations=text_activations, reshape=True ).detach()
                     attn_pre_out = einops.rearrange(attn_pre_out,
                         'layer token head pos -> token layer head pos')
 
                 # Get activations of FF mid layer
-                if calculate_ff:
+                if calculate_ff or collect_ff:
                     ff_keys = opt.get_ff_key_activations(
                         residual_stream=residual_stream ).detach()
                     ff_keys = einops.rearrange( ff_keys,
@@ -186,6 +223,20 @@ def get_midlayer_activations( opt: Model,
                     pos.add( activation * ( activation > 0 ) )
                     neg.add( activation * ( activation < 0 ) )
 
+            # Collect the individual activations of every token for both
+            # self-attention and ff-attention
+            if collect_ff:
+                for token_index, ff_activation in enumerate(ff_keys):
+                    ff_raw.append( ff_activation.cpu() )
+
+            if collect_attn:
+                for token_index, attn_activation in enumerate(attn_pre_out):
+                    attn_raw.append( attn_activation.cpu() )
+
+            if collect_ff or collect_attn:
+                for criterion in criteria:
+                    criteria_raw.append( criterion.cpu() )
+
             # Keep track of number of tokens looked at
             num_valid_tokens = criteria.sum()
             curr_count += num_valid_tokens
@@ -195,6 +246,7 @@ def get_midlayer_activations( opt: Model,
                 break
 
     output = {}
+    # Summary information about activations
     if calculate_ff:
         output["ff"] = counter.detach() / curr_count
     if calculate_attn:
@@ -205,7 +257,100 @@ def get_midlayer_activations( opt: Model,
             "neg": neg.mean
         }
 
+    # Raw activations of data
+    if collect_ff or collect_attn:
+        output["raw"] = { "criteria": torch.stack(criteria_raw) }
+    if collect_ff:
+        output["raw"]["ff"] = torch.stack(ff_raw)
+    if collect_attn:
+        output["raw"]["attn"] = torch.stack(attn_raw)
+
     return output
+
+def get_top_frac( values_tensor: Tensor, top_frac: float ) -> Tuple[Tensor, float]:
+    """
+    Return top-k values and their fraction
+
+    Args:
+        values_tensor (Tensor): tensor of values
+        top_frac (float): fraction of top-k values to return
+
+    Returns:
+        criteria (Tensor): tensor with 1s for top-k values, 0s otherwise
+        threshold (float): minimum value to be in the top-k values
+    """
+    # Get the number of entries in the tensor, and the number of entries to get
+    shape = values_tensor.shape
+    n_entries = np.prod(shape)
+    k = int( top_frac * n_entries )
+
+    # Get the top k values
+    topk_values = torch.topk( values_tensor, k, dim=-1, largest=True, sorted=False )
+
+    # Create a criteria tensor with value 1 for all values in topk_values
+    criteria = torch.zeros( n_entries, dtype=torch.bool )
+    criteria[ topk_values.indices ] = True
+    criteria = criteria.reshape( shape )
+
+    # Get the threshold value, the value above which all values are in topk_values
+    threshold = float( topk_values.values.min() )
+
+    return criteria, threshold
+
+def prune_and_evaluate( opt: Model,
+        ff_prune_frac: float,
+        attn_prune_frac: float,
+        ff_eps: float,
+        sample_size: int = 1e5,
+        eval_size: int = 1e5,
+        texts_to_skip: int = 200,
+        **kwargs
+    ):
+    """
+    Prune and evaluate the model
+
+    Args:
+        opt (Model): model to prune and evaluate
+        ff_prune_frac (float): fraction of FF to prune
+        attn_prune_frac (float): fraction of Attention to prune
+        ff_eps (float): epsilon for FF pruning (to avoid division by 0).
+        sample_size (int): number of samples to use for evaluation
+        eval_size (int): number of samples to use for evaluation
+        dataset_texts_to_skip (int): number of texts to skip for evaluation
+
+    Returns:
+        output (dict): dictionary to be added to pandas DataFrame.
+    """
+
+    # Get midlayer activations of FF and ATTN
+    pile_out = get_midlayer_activations( opt, "pile", sample_size, **kwargs )
+    code_out = get_midlayer_activations( opt, "code", sample_size, **kwargs )
+
+    # Get the top fraction FF activations
+    rel_freq = ( code_out["ff"] / ( pile_out["ff"] + ff_eps ) ).flatten().cpu()
+    ff_criteria, ff_threshold = get_top_frac( rel_freq, ff_prune_frac )
+
+    # Get the top fraction of Attention activations
+    attn_data = get_attn_crossover( opt, pile_out, code_out )
+    attn_criteria, attn_threshold = \
+        get_top_frac( attn_data["crossover_multiple"], attn_prune_frac )
+
+    # Prune the model
+    opt.delete_attn_pre_out_heads( attn_criteria. attn_data["pile_means"] )
+    opt.delete_ff_keys( ff_criteria )
+
+    # Evaluate the model
+    data = init_data_dict()
+    data.update( evaluate_all( opt, eval_size, texts_to_skip=texts_to_skip ) )
+    data.update({
+        "ff_threshold": ff_threshold,
+        "attn_threshold": attn_threshold,
+        "ff_del": float( torch.sum(ff_criteria) ),
+        "attn_del": float( torch.sum(attn_criteria) ),
+    })
+
+    return data
+
 
 ####################################################################################
 # Code for getting attention activations
@@ -233,9 +378,11 @@ def get_attn_activations( opt: Model,
             tokens. Defaults to False.
 
     Returns:
-        means: Mean activation of each pre-out neuron
-        pos_mass: Probability mass of positive activations
-        neg_mass: Probability mass of negative activations
+        Dict:
+            means: Mean activation of each pre-out neuron
+            stds: Standard deviation of each pre-out neuron
+            pos: Probability mass of positive activations
+            neg: Probability mass of negative activations
     """
 
     output = get_midlayer_activations( opt,
@@ -250,23 +397,21 @@ def get_attn_activations( opt: Model,
 
     return output['attn']
 
-def calculate_attn_crossover( opt: Model,
-        sample_size: int = 1e5,
+def get_attn_crossover( opt: Model,
+        pile_out: Dict[str, Tensor],
+        code_out: Dict[str, Tensor],
         eps: float = 1e-6,
-        pile_out: Optional[Dict[str, Tensor]] = None,
-        code_out: Optional[Dict[str, Tensor]] = None,
-        **kwargs
-        ):
-    """Gets how much more probability mass the median activation of code has for an
-    attention head neuron compared to activations in the pile.
+    ):
+    """
+    Calculates the attention crossover between the pile and code activations.
 
     Args:
-        opt (Model): The model to run
-        sample_size (int, optional): token sample size to collect data for.
-            Defaults to 1e5.
+        opt (Model): OPT model with my special sauce modifications
+        pile_out (Dict[str, Tensor]): pile activations
+        code_out (Dict[str, Tensor]): code activations
 
     Returns:
-        data: Dictionary containing information about activations
+        Dict[str, Tensor]:
             pile_means: mean activations of each neuron in pre-out on the pile
             pile_pos: positive mass
             pile_neg: negative mass
@@ -276,10 +421,7 @@ def calculate_attn_crossover( opt: Model,
             crossover: The of probability mass on crossover between positive and
                 negative mass from code compared to baseline pile activation
     """
-    if pile_out is None:
-        pile_out = get_attn_activations(opt, 'pile', sample_size, **kwargs)
-    if code_out is None:
-        code_out = get_attn_activations(opt, 'code', sample_size, **kwargs)
+
     pile_means, _pile_stds, pile_pos, pile_neg = \
         pile_out["means"], pile_out["stds"], pile_out["pos"], pile_out["neg"]
     code_means, _code_stds, code_pos, code_neg = \
@@ -314,7 +456,71 @@ def calculate_attn_crossover( opt: Model,
     }
     return data
 
+
+def delete_attn_and_evaluate( opt: Model,
+        frac_removed: float,
+        sample_size: int = 1e5,
+        eval_size: int = 1e5,
+        eps: float = 1e-6,
+        pile_out: Optional[Dict[str, Tensor]] = None,
+        code_out: Optional[Dict[str, Tensor]] = None,
+        make_plots: bool = False,
+        **kwargs
+        ):
+    """Gets how much more probability mass the median activation of code has for an
+    attention head neuron compared to activations in the pile.
+
+    Args:
+        opt (Model): The model to run
+        frac_removed (float): The fraction of attention heads removed from the model
+        sample_size (int, optional): token sample size to collect data for.
+            Defaults to 1e5.
+        eval_size (int, optional): token sample size to use for evaluating the model.
+        eps (float, optional): epsilon for numerical stability. Defaults to 1e-6.
+        pile_out (Dict[str, Tensor], optional): pile activations output from
+            running get_attn_activations. Defaults to None (i.e: compute here).
+        code_out (Dict[str, Tensor], optional): code activations output from
+            running get_attn_activations. Defaults to None (i.e: compute here).
+
+    Returns:
+        data: Dict of data from the evaluation after removing attention heads.
+
+    """
+    if pile_out is None:
+        pile_out = get_attn_activations(opt, 'pile', sample_size, **kwargs)
+    if code_out is None:
+        code_out = get_attn_activations(opt, 'code', sample_size, **kwargs)
+
+    # extract data on attention crossover from activations
+    attn_data = get_attn_crossover(opt, pile_out, code_out, eps=eps)
+
+    # Choose and delete attention heads
+    removals, threshold = get_top_frac(attn_data["crossover_multiple"], frac_removed)
+    opt.delete_attn_pre_out_heads( removals, attn_data["pile_means"] )
+
+    if make_plots:
+        # Choose Attn Heads to Remove
+        print( "min: %.2f" % float(attn_data['crossover_multiple'].min()) )
+        print( "max: %.2f" % float(attn_data['crossover_multiple'].max()) )
+        log_crossover = ( torch.log2(attn_data['crossover_multiple']) )
+
+        # Plot Attn Heads
+        fig, ax = plt.subplots(1, 2)
+        ax[0].imshow( removals )
+        ax[1].imshow( log_crossover )
+        plt.show()
+
+    # Evaluate
+    data = init_data_dict()
+    data.update( evaluate_all(opt, eval_size) )
+    data['attn_del'] = int( removals.sum().item() )
+    data['attn_threshold'] = threshold
+
+    return data
+
+
 attn_data_keys = ["crossover_multiple", "pile_means"]
+
 
 def save_torch_attn( opt: Model,
         attn_data: Dict[str, Tensor],
@@ -416,19 +622,15 @@ def delete_ff_and_evaluate(
     rel_freq = ( code_counters / ( pile_counters + eps ) ).flatten()
 
     # Delete the top fraction of most frequent activations
-    k = int( top_frac * opt.n_layers * opt.d_ff )
-    rel_topk = torch.topk( rel_freq, k, dim=-1, largest=True, sorted=False )
-    ff_criterion = torch.zeros( (opt.n_layers * opt.d_ff) )
-    ff_criterion[ rel_topk.indices ] = 1
-    ff_criterion = ff_criterion.reshape( (opt.n_layers, opt.d_ff) )
+    ff_criteria, ff_threshold = get_top_frac( rel_freq, top_frac )
 
     # Give summary of how many will be removed in each layer
-    sums = [ x.sum() for x in ff_criterion.detach().numpy() ]
+    sums = [ x.sum() for x in ff_criteria.detach().numpy() ]
     num_removed = np.sum(sums)
     print( f"%5d - {sums}" % num_removed )
 
     # Finally, delete the keys
-    opt.delete_ff_keys( ff_criterion )
+    opt.delete_ff_keys( ff_criteria )
 
     # Save the indices of the deleted keys, but if unsuccessful, don't crash
     try:
@@ -436,7 +638,7 @@ def delete_ff_and_evaluate(
         print("saving files...")
         now = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
         if save_files:
-            save_numpy_ff( opt, top_frac, ff_criterion.cpu(),     f'criterion_{now}' )
+            save_numpy_ff( opt, top_frac, ff_criteria.cpu(),     f'criteria_{now}' )
         if save_pile:
             save_numpy_ff( opt, top_frac, pile_counters.cpu(), f'counters-pile_{now}')
         if save_code:
@@ -448,6 +650,8 @@ def delete_ff_and_evaluate(
         print(err)
 
     # See the effect deletion has on performance
-    data = evaluate_all( opt, eval_sample_size )
-    data['removed'] = num_removed
+    data = init_data_dict()
+    data.update( evaluate_all( opt, eval_sample_size ) )
+    data['ff_threshold'] = ff_threshold
+    data['ff_del']    = num_removed
     return data
