@@ -310,6 +310,7 @@ def prune_and_evaluate( opt: Model,
         sample_size: int = 1e5,
         eval_size: int = 1e5,
         texts_to_skip: int = 200,
+        save: bool = False,
         **kwargs
     ):
     """
@@ -333,8 +334,8 @@ def prune_and_evaluate( opt: Model,
     code_out = get_midlayer_activations( opt, "code", sample_size, **kwargs )
 
     # Get the top fraction FF activations
-    rel_freq = ( code_out["ff"] / ( pile_out["ff"] + ff_eps ) ).flatten().cpu()
-    ff_criteria, ff_threshold = get_top_frac( rel_freq, ff_prune_frac )
+    ff_rel_freq = ( code_out["ff"] / ( pile_out["ff"] + ff_eps ) ).flatten().cpu()
+    ff_criteria, ff_threshold = get_top_frac( ff_rel_freq, ff_prune_frac )
 
     # Get the top fraction of Attention activations
     attn_data = get_attn_crossover( opt, pile_out, code_out )
@@ -344,6 +345,16 @@ def prune_and_evaluate( opt: Model,
     # Prune the model
     opt.delete_attn_pre_out_heads( attn_criteria. attn_data["pile_means"] )
     opt.delete_ff_keys( ff_criteria )
+
+    # Save the removals to file
+    if save:
+        tensor_data = {
+            "ff_rel_freq": ff_rel_freq,
+            "attn_crossover": attn_data["crossover_multiple"],
+            "ff_frac": torch.tensor( ff_prune_frac ),
+            "attn_frac": torch.tensor( attn_prune_frac ),
+        }
+        save_timestamped_tensor_dict( opt, tensor_data, "activation_metrics" )
 
     # Evaluate the model
     data = init_data_dict()
@@ -525,19 +536,15 @@ def delete_attn_and_evaluate( opt: Model,
 
     return data
 
-
 attn_data_keys = ["crossover_multiple", "pile_means"]
 
-
-def save_torch_attn( opt: Model,
-        attn_data: Dict[str, Tensor],
-        name: Optional[str] = None
-    ):
-    if name is None:
-        name = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
+def save_timestamped_tensor_dict( opt: Model,
+        data: Dict[str, Tensor],
+        name: str ):
+    now = datetime.datetime.now().strftime( "%Y-%m-%d_%H:%M:%S" )
     os.makedirs( f'tmp/{opt.model_size}', exist_ok=True )
-    filename = f'tmp/{opt.model_size}/{opt.model_size}-attn_data-{name}.pt'
-    torch.save( attn_data, filename )
+    filename = f'tmp/{opt.model_size}/{opt.model_size}-{name}-{now}.pt'
+    torch.save( data, filename )
     print( f'Saved {filename} to {opt.model_size}' )
     return filename
 
