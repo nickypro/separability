@@ -371,6 +371,7 @@ def get_attn_activations( opt: Model,
     ):
     """gets the mean activations and the probability mass of positive and negative
     activations for each pre-out neuron in an attention layer.
+    Shorthand for get_midlayer_activations for attention only.
 
     Args:
         opt (Model): OPT model with my special sauce modifications
@@ -553,6 +554,7 @@ def count_ff_key_activations( opt: Model,
     ):
     """Gets the number of activations of the midlayer ('key' layer) of MLPs for
     each layer.
+    Shorthand for get_midlayer_activations with the 'key' layer only.
 
     Args:
         opt (Model): my special sauce opt model
