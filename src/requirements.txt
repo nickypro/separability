@@ -1,0 +1,6 @@
+transformers
+datasets
+evaluate
+zstandard
+welford-torch
+einops
