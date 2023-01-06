@@ -291,7 +291,8 @@ def get_top_frac( values_tensor: Tensor, top_frac: float ) -> Tuple[Tensor, floa
     k = int( top_frac * n_entries )
 
     # Get the top k values
-    topk_values = torch.topk( values_tensor, k, dim=-1, largest=True, sorted=False )
+    topk_values = torch.topk( values_tensor.flatten(), k,
+        dim=-1, largest=True, sorted=False )
 
     # Create a criteria tensor with value 1 for all values in topk_values
     criteria = torch.zeros( n_entries, dtype=torch.bool )
@@ -334,16 +335,16 @@ def prune_and_evaluate( opt: Model,
     code_out = get_midlayer_activations( opt, "code", sample_size, **kwargs )
 
     # Get the top fraction FF activations
-    ff_rel_freq = ( code_out["ff"] / ( pile_out["ff"] + ff_eps ) ).flatten().cpu()
+    ff_rel_freq = ( code_out["ff"] / ( pile_out["ff"] + ff_eps ) ).cpu()
     ff_criteria, ff_threshold = get_top_frac( ff_rel_freq, ff_prune_frac )
 
     # Get the top fraction of Attention activations
-    attn_data = get_attn_crossover( opt, pile_out, code_out )
+    attn_data = get_attn_crossover( opt, pile_out["attn"], code_out["attn"] )
     attn_criteria, attn_threshold = \
         get_top_frac( attn_data["crossover_multiple"], attn_prune_frac )
 
     # Prune the model
-    opt.delete_attn_pre_out_heads( attn_criteria. attn_data["pile_means"] )
+    opt.delete_attn_pre_out_heads( attn_criteria, attn_data["pile_means"] )
     opt.delete_ff_keys( ff_criteria )
 
     # Save the removals to file
