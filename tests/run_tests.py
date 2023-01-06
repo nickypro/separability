@@ -7,6 +7,7 @@ from test_delete_attn_pre_out_layer import test_delete_attn_pre_out_layer
 from test_delete_ff_keys import test_ff_key_counting, test_delete_ff_keys
 from test_delete_ff_and_evaluate import test_delete_ff_and_evaluate
 from test_evaluate_all import test_evaluate_all
+from test_prune_and_evaluate import test_prune_and_evaluate
 
 tests = [
     test_evaluate_all,
@@ -17,6 +18,7 @@ tests = [
     test_ff_key_counting,
     test_delete_ff_keys,
     test_delete_ff_and_evaluate,
+    test_prune_and_evaluate,
 ]
 
 def test_all(verbose: bool = False):
