@@ -135,6 +135,7 @@ def get_midlayer_activations( opt: Model,
                 "ff": Tensor[n_tokens, n_layers, d_ff]]
                 "attn": Tensor[n_tokens, n_layers, n_head, d_head]
                 "criteria": Tensor[n_tokens]
+            "texts_viewed" (int): number of texts viewed in the dataset
     """
     dataset, label, skip_eval = prepare( dataset_name )
 
@@ -170,9 +171,11 @@ def get_midlayer_activations( opt: Model,
 
     # Number of tokens viewed counter (that meet criteria)
     curr_count = 0
+    texts_viewed = 0
 
     with tqdm(total=sample_size) as pbar:
         for data in dataset:
+            texts_viewed += 1
             text = data[label]
             # Get all necessary activations
             with torch.no_grad():
@@ -251,7 +254,10 @@ def get_midlayer_activations( opt: Model,
             if curr_count > sample_size:
                 break
 
-    output = {}
+    output = {
+        "texts_viewed": texts_viewed,
+    }
+
     # Summary information about activations
     if calculate_ff:
         output["ff"] = counter.detach() / curr_count
@@ -310,7 +316,6 @@ def prune_and_evaluate( opt: Model,
         ff_eps: float,
         sample_size: int = 1e5,
         eval_size: int = 1e5,
-        texts_to_skip: int = 200,
         save: bool = False,
         **kwargs
     ):
@@ -324,7 +329,7 @@ def prune_and_evaluate( opt: Model,
         ff_eps (float): epsilon for FF pruning (to avoid division by 0).
         sample_size (int): number of samples to use for evaluation
         eval_size (int): number of samples to use for evaluation
-        dataset_texts_to_skip (int): number of texts to skip for evaluation
+        save (bool): whether to save the results to a file
 
     Returns:
         output (dict): dictionary to be added to pandas DataFrame.
@@ -357,9 +362,13 @@ def prune_and_evaluate( opt: Model,
         }
         save_timestamped_tensor_dict( opt, tensor_data, "activation_metrics" )
 
-    # Evaluate the model
+    # Initialize the output dictionary
     data = init_data_dict()
+
+    # Evaluate the model
+    texts_to_skip = max( pile_out["texts_viewed"], code_out["texts_viewed"] )
     data.update( evaluate_all( opt, eval_size, texts_to_skip=texts_to_skip ) )
+
     data.update({
         "ff_threshold": ff_threshold,
         "attn_threshold": attn_threshold,
