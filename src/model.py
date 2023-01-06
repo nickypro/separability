@@ -494,8 +494,8 @@ class Model():
             # adjust bias of out_proj by mean activations
             if not mean_values is None:
                 assert mean_values.size() == torch.Size([self.d_model])
-                mean_values  = mean_values.detach().clone()
-                mean_values *= remove_indices
+                mean_values  = mean_values.detach().clone().to( self.device )
+                mean_values *= remove_indices.to( self.device )
                 bias_adjustement = torch.matmul( weights, mean_values )
                 biases += bias_adjustement
 
