@@ -13,8 +13,8 @@ def load_code():
     return _dataset['train']
 
 def load_pile():
-    _dataset = load_dataset("the_pile", split="validation", streaming=True )
-    return _dataset
+    _dataset = load_dataset("EleutherAI/the_pile_deduplicated", streaming=True )
+    return _dataset['train']
 
 # Hard load the most common tokens from the datasets from previous runs.
 # pylint: disable=line-too-long
