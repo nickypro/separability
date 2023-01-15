@@ -317,6 +317,8 @@ def prune_and_evaluate( opt: Model,
         sample_size: int = 1e5,
         eval_size: int = 1e5,
         save: bool = False,
+        cripple: str = "code",
+        focus: str = "pile"
         **kwargs
     ):
     """
@@ -330,21 +332,23 @@ def prune_and_evaluate( opt: Model,
         sample_size (int): number of samples to use for evaluation
         eval_size (int): number of samples to use for evaluation
         save (bool): whether to save the results to a file
+        cripple (str): Which dataset to cripple. ("code", "pile")
+        focus (str): Which dataset to focus. ("pile", "code")
 
     Returns:
         output (dict): dictionary to be added to pandas DataFrame.
     """
 
     # Get midlayer activations of FF and ATTN
-    pile_out = get_midlayer_activations( opt, "pile", sample_size, **kwargs )
-    code_out = get_midlayer_activations( opt, "code", sample_size, **kwargs )
+    focus_out = get_midlayer_activations( opt, focus, sample_size, **kwargs )
+    cripple_out = get_midlayer_activations( opt, cripple, sample_size, **kwargs )
 
     # Get the top fraction FF activations
-    ff_rel_freq = ( code_out["ff"] / ( pile_out["ff"] + ff_eps ) ).cpu()
+    ff_rel_freq = ( cripple_out["ff"] / ( focus_out["ff"] + ff_eps ) ).cpu()
     ff_criteria, ff_threshold = get_top_frac( ff_rel_freq, ff_prune_frac )
 
     # Get the top fraction of Attention activations
-    attn_data = get_attn_crossover( opt, pile_out["attn"], code_out["attn"] )
+    attn_data = get_attn_crossover( opt, focus_out["attn"], cripple_out["attn"] )
     attn_criteria, attn_threshold = \
         get_top_frac( attn_data["crossover_multiple"], attn_prune_frac )
 
@@ -366,7 +370,7 @@ def prune_and_evaluate( opt: Model,
     data = init_data_dict()
 
     # Evaluate the model
-    texts_to_skip = max( pile_out["texts_viewed"], code_out["texts_viewed"] )
+    texts_to_skip = max( focus_out["texts_viewed"], cripple_out["texts_viewed"] )
     data.update( evaluate_all( opt, eval_size, texts_to_skip=texts_to_skip ) )
 
     data.update({
