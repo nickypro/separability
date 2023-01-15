@@ -318,7 +318,7 @@ def prune_and_evaluate( opt: Model,
         eval_size: int = 1e5,
         save: bool = False,
         cripple: str = "code",
-        focus: str = "pile"
+        focus: str = "pile",
         **kwargs
     ):
     """
