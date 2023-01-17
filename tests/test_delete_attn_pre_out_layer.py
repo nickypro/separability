@@ -24,15 +24,20 @@ def test_delete_attn_pre_out_layer( verbose: bool = False ):
         removed_indices   = [0, 10, 100]
         unremoved_indices = [1, 3, 69]
 
-        removal_tensor = torch.zeros_like(vec_plus_1)
+        removal_tensor = torch.zeros_like(vec_plus_1, dtype=torch.bool)
+        keep_tensor    = torch.ones_like(vec_plus_1, dtype=torch.bool)
         for index in removed_indices:
             vec_plus_1[index] = 100
             removal_tensor[index] = True
+            keep_tensor[index] = False
 
         for i in unremoved_indices:
             vec_plus_2[i] = 100
 
+        # Start tests
         for add_mean in [True, False]:
+            if verbose:
+                print(f"## Testing outward weight removals - add_mean={add_mean}")
             opt = Model(model_size)
             LAYER = 0
 
@@ -46,6 +51,7 @@ def test_delete_attn_pre_out_layer( verbose: bool = False ):
                 print( '- vec+ (1) :', old_vec_plus_out[:5] )
             assert not torch.equal( old_vec_out, old_vec_plus_out )
 
+            # Run the deletion
             if verbose:
                 print('deleting indices:', removed_indices,
                     '' if add_mean else 'NOT', 'adding mean activation')
@@ -67,6 +73,31 @@ def test_delete_attn_pre_out_layer( verbose: bool = False ):
                 print( '- vec+ (2) :', new_vec_plus_out_2[:5] )
             assert torch.equal( new_vec_out, new_vec_plus_out_1 )
             assert not torch.equal( new_vec_plus_out_1, new_vec_plus_out_2 )
+
+        # Also test inward weight removals
+        if verbose:
+            print("## Testing inward weight removals")
+        opt = Model(model_size)
+        v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
+
+        # Get output vector before deletion
+        old_vec_out = v_proj(vec)
+        if verbose:
+            print( '- old vec  :', old_vec_out[:5] )
+
+        # Run the deletion
+        if verbose:
+            print('deleting indices:', removed_indices)
+        opt.delete_attn_pre_out_layer( LAYER, removal_tensor )
+
+        v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
+
+        # Test that the new outputs do not care about changes to deleted indices
+        new_vec_out = v_proj(vec)
+        if verbose:
+            print( '- new vec  :', new_vec_out[:5] )
+
+        assert torch.equal( old_vec_out*keep_tensor, new_vec_out )
 
         print("Test Passed")
         return True

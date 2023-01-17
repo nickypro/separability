@@ -477,6 +477,10 @@ class Model():
         if isinstance(mean_values,    np.ndarray):
             mean_values = torch.tensor(mean_values, dtype=torch.float32)
 
+        # NOTE: in this case, we need to delete both the input and the output
+        #       of the attention pre_out (ie: v_proj and out_proj) layers
+        #       since we have the option of offset by the mean value
+
         with torch.no_grad():
             # check tensor sizes are correct
             size = remove_indices.size()
@@ -487,27 +491,41 @@ class Model():
 
             # get the attention that we are changing
             out_proj = self.model.decoder.layers[layer_index].self_attn.out_proj
-            params   = out_proj.state_dict()
-            weights : Tensor = params['weight']
-            biases  : Tensor = params['bias']
+            v_proj    = self.model.decoder.layers[layer_index].self_attn.v_proj
+
+            out_params   = out_proj.state_dict()
+            v_params     = v_proj.state_dict()
+            out_weights : Tensor = out_params['weight']
+            out_biases  : Tensor = out_params['bias']
+            v_weights   : Tensor = v_params['weight']
+            v_biases    : Tensor = v_params['bias']
 
             # adjust bias of out_proj by mean activations
             if not mean_values is None:
                 assert mean_values.size() == torch.Size([self.d_model])
                 mean_values  = mean_values.detach().clone().to( self.device )
                 mean_values *= remove_indices.to( self.device )
-                bias_adjustement = torch.matmul( weights, mean_values )
-                biases += bias_adjustement
+                bias_adjustement = torch.matmul( out_weights, mean_values )
+                out_biases += bias_adjustement
 
-            # change weights of out_proj
             # We change it from "True => Remove" to "True => keep" so we can multiply
             keep_indices = torch.logical_not( remove_indices ).to( self.device )
 
-            for row_index, weights_row in enumerate(weights):
-                weights[row_index] = weights_row * keep_indices
+            # Delete the weights going out of the neuron (out_proj)
+            for row_index, weights_row in enumerate(out_weights):
+                out_weights[row_index] = weights_row * keep_indices
 
-            params.update({'weight': weights, 'bias': biases})
-            out_proj.load_state_dict(params)
+            out_params.update({'weight': out_weights, 'bias': out_biases})
+            out_proj.load_state_dict(out_params)
+
+            # Delete the weights going into the neuron (v_proj)
+            for row_index, weights_row in enumerate(v_params['weight']):
+                v_weights[row_index] = weights_row         * keep_indices[row_index]
+                v_biases[row_index]  = v_biases[row_index] * keep_indices[row_index]
+
+            v_params.update({'weight': v_weights, 'bias': v_biases})
+            v_proj.load_state_dict(v_params)
+
             return
 
     def delete_attn_pre_out( self,
