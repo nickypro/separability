@@ -1,6 +1,10 @@
+numpy
+torch
+pandas
 transformers
 datasets
 evaluate
 zstandard
 welford-torch
 einops
+matplotlib
