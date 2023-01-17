@@ -338,31 +338,36 @@ def prune_and_evaluate( opt: Model,
     Returns:
         output (dict): dictionary to be added to pandas DataFrame.
     """
+    # Find out what we are doing
+    do_ff   = ff_prune_frac > 0
+    do_attn = attn_prune_frac > 0
+    if not do_ff and not do_attn:
+        raise ValueError("Must prune at least one of FF or Attention")
 
     # Get midlayer activations of FF and ATTN
     focus_out = get_midlayer_activations( opt, focus, sample_size, **kwargs )
     cripple_out = get_midlayer_activations( opt, cripple, sample_size, **kwargs )
 
-    # Get the top fraction FF activations
-    ff_rel_freq = ( cripple_out["ff"] / ( focus_out["ff"] + ff_eps ) ).cpu()
-    ff_criteria, ff_threshold = get_top_frac( ff_rel_freq, ff_prune_frac )
+    # Get the top fraction FF activations and prune
+    if do_ff > 0:
+        ff_rel_freq = ( cripple_out["ff"] / ( focus_out["ff"] + ff_eps ) ).cpu()
+        ff_criteria, ff_threshold = get_top_frac( ff_rel_freq, ff_prune_frac )
+        opt.delete_ff_keys( ff_criteria )
 
-    # Get the top fraction of Attention activations
-    attn_data = get_attn_crossover( opt, focus_out["attn"], cripple_out["attn"] )
-    attn_criteria, attn_threshold = \
-        get_top_frac( attn_data["crossover_multiple"], attn_prune_frac )
-
-    # Prune the model
-    opt.delete_attn_pre_out_heads( attn_criteria, attn_data["pile_means"] )
-    opt.delete_ff_keys( ff_criteria )
+    # Get the top fraction of Attention activations and prune
+    if do_attn > 0:
+        attn_data = get_attn_crossover( opt, focus_out["attn"], cripple_out["attn"] )
+        attn_criteria, attn_threshold = \
+            get_top_frac( attn_data["crossover_multiple"], attn_prune_frac )
+        opt.delete_attn_pre_out_heads( attn_criteria, attn_data["pile_means"] )
 
     # Save the removals to file
     if save:
         tensor_data = {
-            "ff_rel_freq": ff_rel_freq,
-            "attn_crossover": attn_data["crossover_multiple"],
-            "ff_frac": torch.tensor( ff_prune_frac ),
-            "attn_frac": torch.tensor( attn_prune_frac ),
+            "ff_rel_freq": ff_rel_freq if do_ff else None,
+            "attn_crossover": attn_data["crossover_multiple"] if do_attn else None,
+            "ff_frac": torch.tensor( ff_prune_frac ) if do_ff else None,
+            "attn_frac": torch.tensor( attn_prune_frac ) if do_attn else None,
         }
         save_timestamped_tensor_dict( opt, tensor_data, "activation_metrics" )
 
@@ -374,10 +379,10 @@ def prune_and_evaluate( opt: Model,
     data.update( evaluate_all( opt, eval_size, texts_to_skip=texts_to_skip ) )
 
     data.update({
-        "ff_threshold": ff_threshold,
-        "attn_threshold": attn_threshold,
-        "ff_del": float( torch.sum(ff_criteria) ),
-        "attn_del": float( torch.sum(attn_criteria) ),
+        "ff_threshold": ff_threshold if do_ff else 0,
+        "attn_threshold": attn_threshold if do_attn else 0,
+        "ff_del": float( torch.sum(ff_criteria) ) if do_ff else 0,
+        "attn_del": float( torch.sum(attn_criteria) ) if do_attn else 0,
     })
 
     return data
