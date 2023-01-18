@@ -1,9 +1,9 @@
-# opt-tools
-My basic library for studying the Meta OPT models.
+# Seperability
+
+My basic library for studying LLMs (currently, only the Meta OPT models).
 This includes functions for analysing the activations of the models for different inputs, and for pruning different parts of the model based on those activations.
 
-
-## Pruning based on Capabilities.
+## Pruning based on Capabilities
 
 For a full example, see `src/seperability.ipynb`. 
 
