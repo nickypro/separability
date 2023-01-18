@@ -4,6 +4,7 @@ This includes functions for analysing the activations of the models for differen
 
 
 ## Pruning based on Capabilities.
+
 For a full example, see `src/seperability.ipynb`. 
 
 The simple example is:
