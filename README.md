@@ -12,11 +12,13 @@ from model import Model
 from activations import prune_and_evaluate, evaluate_all
 
 # Load and Evaluate Model on Pile and Code
+
 opt = Model('125m', limit=1000)
 eval_data = evaluate_all(opt, 1e5)
 print(eval_data)
 
 # Prune Model, Removing coding capabilities (compared to pile), and evaluate
+
 eval_data = prune_and_evaluate(opt, ff_prune_frac=0.05, attn_prune_frac=0.05,
     ff_eps=1e-3, sample_size=1e5, eval_size=1e5, cripple='code', focus='pile')
 print(eval_data)
