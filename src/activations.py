@@ -387,6 +387,49 @@ def prune_and_evaluate( opt: Model,
 
     return data
 
+def prune_random( opt: Model,
+        ff_frac: float,
+        attn_frac: float,
+        ff_pruned: Optional[np.ndarray] = None,
+        attn_pruned: Optional[np.ndarray] = None
+        ):
+    """Prune a random fraction of FF and Attention weights
+    Args:
+        opt (Model): model to prune and evaluate
+        ff_frac (float): fraction of FF to prune
+        attn_frac (float): fraction of Attention to prune
+
+    """
+    if ff_pruned is None:
+        ff_pruned = np.zeros( (opt.n_layers, opt.d_model), dtype=np.bool_ )
+    if attn_pruned is None:
+        attn_pruned = np.zeros( (opt.n_layers, opt.n_heads ), dtype=np.bool_ )
+
+    n_ff_to_prune   = int( ff_frac   * opt.d_model )
+    n_attn_to_prune = int( attn_frac * opt.n_heads )
+
+    # First prune the FF
+    if not ff_frac == 0:
+        for layer in range( opt.n_layers ):
+            # choose new ff neurons to prune
+            indices = np.where(ff_pruned == 0)[0]
+            random_indices = np.random.choice(indices, n_ff_to_prune, replace=False)
+            ff_pruned[layer][random_indices] = 1
+
+        # Prune the model
+        opt.delete_ff_keys( ff_pruned )
+
+    if not attn_frac == 0:
+        for layer in range( opt.n_layers ):
+            # choose new attention heads to prune
+            indices = np.where(attn_pruned == 0)[0]
+            random_indices = np.random.choice(indices, n_attn_to_prune, replace=False)
+            attn_pruned[layer][random_indices] = 1
+
+        # Prune the model
+        opt.delete_ff_keys( attn_pruned )
+
+    return ff_pruned, attn_pruned
 
 ####################################################################################
 # Code for getting attention activations
@@ -652,7 +695,7 @@ def delete_ff_and_evaluate(
     pile_counters = pile_counters.squeeze().cpu()
     code_counters = code_counters.squeeze().cpu()
 
-    # Get Relative Frequenct of Activations
+    # Get Relative Frequency of Activations
     rel_freq = ( code_counters / ( pile_counters + eps ) ).flatten()
 
     # Delete the top fraction of most frequent activations
