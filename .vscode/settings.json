@@ -5,5 +5,23 @@
         "--max-line-length", "86"
     ],
     "python.linting.pylintEnabled": true,
-    "python.linting.enabled": true
+    "python.linting.enabled": true,
+    "cSpell.words": [
+        "dtype",
+        "einops",
+        "imshow",
+        "logits",
+        "matplotlib",
+        "midlayer",
+        "ndarray",
+        "pbar",
+        "pyplot",
+        "stds",
+        "topk",
+        "tqdm",
+        "unembed",
+        "welford",
+        "Welford",
+        "Welford's"
+    ]
 }
