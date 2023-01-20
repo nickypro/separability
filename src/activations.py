@@ -429,7 +429,11 @@ def prune_random( opt: Model,
         # Prune the model
         opt.delete_ff_keys( attn_pruned )
 
-    return ff_pruned, attn_pruned
+    data_out = {
+        "ff_del": n_ff_to_prune*opt.n_layers,
+        "attn_del": n_attn_to_prune*opt.n_layers
+    }
+    return ff_pruned, attn_pruned, data_out
 
 ####################################################################################
 # Code for getting attention activations
