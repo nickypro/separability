@@ -7,6 +7,7 @@
     "python.linting.pylintEnabled": true,
     "python.linting.enabled": true,
     "cSpell.words": [
+        "colab",
         "dtype",
         "einops",
         "imshow",
@@ -16,6 +17,7 @@
         "ndarray",
         "pbar",
         "pyplot",
+        "seperability",
         "stds",
         "topk",
         "tqdm",
