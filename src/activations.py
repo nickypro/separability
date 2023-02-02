@@ -306,7 +306,7 @@ def get_top_frac( values_tensor: Tensor, top_frac: float ) -> Tuple[Tensor, floa
     criteria = criteria.reshape( shape )
 
     # Get the threshold value, the value above which all values are in topk_values
-    threshold = float( topk_values.values.min() )
+    threshold = float( topk_values.values.flatten().min() )
 
     return criteria, threshold
 
