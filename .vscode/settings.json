@@ -20,6 +20,7 @@
         "topk",
         "tqdm",
         "unembed",
+        "wandb",
         "welford",
         "Welford",
         "Welford's"
