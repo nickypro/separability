@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "soft_optim"
+name = "seperability"
 version = "0.1.0"
-description = "Soft Optimization Research"
+description = "Seperability of LLM Capabilities"
 authors = ["Nicky Pochinkov"]
 readme = "README.md"
 
