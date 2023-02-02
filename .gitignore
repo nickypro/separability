@@ -3,3 +3,4 @@ tmp
 tests/model.py
 tests/activations.py
 tests/texts.py
+src/wandb
