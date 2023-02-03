@@ -40,12 +40,15 @@ class TestDeleteFFKeys:
 
     def test_delete_ff_keys(self):
         print("# Running Test: test_delete_ff_keys")
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         model_size = '125m'
         n_layers = 12
         d_model = 768
 
         # Define vectors for testing
-        vec : Tensor = torch.tensor( np.random.random(d_model), dtype=torch.float32 )
+        vec : Tensor = torch.tensor(
+            np.random.random(d_model), dtype=torch.float32
+        ).to( device )
 
         # Define a vector that is changed at certain indices
         vec_plus_1 : Tensor = copy.deepcopy( vec )
@@ -67,7 +70,7 @@ class TestDeleteFFKeys:
         removal_indices = torch.stack(removal_indices)
         print( removal_indices.size() )
 
-        opt = Model(model_size)
+        opt = Model(model_size, device=device)
 
         # Pre-test to make sure that outputs are different on each layer
         for layer in range(opt.n_layers):
