@@ -57,7 +57,7 @@ class InverseLinear(torch.nn.Module):
         if original_size[0] != original_size[1]:
             raise ValueError("Original Linear Layer must be square")
 
-        # Define the Inverese Bias vector
+        # Define the Inverse Bias vector
         self.inverse_bias = -bias
 
         # Define the Inverse Linear Layer
@@ -84,13 +84,18 @@ class Model():
     """ Wrapper Class for Meta OPT model that allows me to do interpretability
     work on it's activations and modify it's parameters as needed. """
 
-    def __init__( self, model_size : str  = "125m", limit: int = None ):
+    def __init__( self,
+            model_size : str  = "125m",
+            limit: int = None,
+            device: str = None,
+        ):
         """
         OPT Model with functions for extracting activations.
         model_size : 125m, 350m, 1.3b, 2.7b, 6.7b, 13b, 30b, 66b, 175b
         """
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = device if device else self.device
         self.init_model( model_size )
         self.limit = limit
         self.to( self.device )
