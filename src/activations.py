@@ -6,7 +6,7 @@ references to functions from texts.py, so is not included in model.py Model.
 import os
 import datetime
 # Import types for typed python
-from typing import Optional, Union, Dict, Tuple
+from typing import Optional, Union, Dict, Tuple, List
 from torch import Tensor
 
 import torch
@@ -24,15 +24,6 @@ from texts import prepare
 # Code for Evaluating Model
 ####################################################################################
 
-def init_data_dict():
-    keys = [
-        'pile_loss', 'code_loss', 'pile_log_loss',  'code_log_loss',  # CE Loss
-        'pile_topk', 'code_topk', 'pile_topk_skip', 'code_topk_skip', # Acc Top K
-        'pile_base', 'code_base', 'pile_skip',      'code_skip',      # Acc Base
-        'ff_del', 'ff_threshold', 'attn_del',       'attn_threshold', # Deletions
-    ]
-    return { k: 0 for k in keys }
-
 def evaluate( opt: Model,
         dataset_name: str,
         sample_size: int = 1e5,
@@ -46,9 +37,13 @@ def evaluate( opt: Model,
         sample_size=sample_size, skip_eval=skip_eval, dataset_text_label=label,
         count_tokens=False )
 
-    percent = out['percent']
-    out['loss'] = round(float(out['loss']), 4)
-    out['log_loss'] = round(float(out['log_loss']), 4)
+    percent  = out['percent']
+    loss     = round(float(out['loss']), 4)
+    log_loss = round(float(out['log_loss']), 4)
+    out['loss_data'] = {
+        'loss': loss,
+        'log_loss': log_loss,
+    }
 
     if verbose:
         start = f' - {dataset_name}'
@@ -71,15 +66,159 @@ def evaluate_all( opt: Model,
     pile_out = evaluate( opt, 'pile', sample_size, topk, verbose, texts_to_skip )
     code_out = evaluate( opt, 'code', sample_size, topk, verbose, texts_to_skip )
 
-    percentages = {
-        "pile_loss": pile_out['loss'],
-        "pile_log_loss": pile_out['log_loss'],
-        "code_loss": code_out['loss'],
-        "code_log_loss": code_out['log_loss'],
+    out = {
+        'loss_data': {
+            'pile': pile_out['loss_data'],
+            'code': code_out['loss_data'],
+        },
+        'accuracy': {
+            'pile': pile_out['percent'],
+            'code': code_out['percent'],
+        },
     }
-    percentages.update({ ('pile_'+k): v for (k,v) in pile_out['percent'].items() })
-    percentages.update({ ('code_'+k): v for (k,v) in code_out['percent'].items() })
-    return percentages
+
+    return out
+
+######################################################################################
+# Data Store Classes
+######################################################################################
+
+class DataItem:
+    def __init__(self, datasets: List[str] = None):
+        if datasets is None:
+            datasets = ['pile', 'code']
+        self.datasets = datasets
+
+        # Cross Entropy Loss
+        keys_loss_data = ['loss', 'log_loss']
+        self.loss_data = {
+            dataset: {key: 0 for key in keys_loss_data} for dataset in datasets
+        }
+
+        # Prediction Accuracy percentage
+        keys_accuracy = ['topk', 'topk_skip', 'base', 'skip']
+        self.accuracy = {
+            dataset: {key: 0 for key in keys_accuracy} for dataset in datasets
+        }
+
+        # Deletions Summary
+        keys_deletions = ['ff_del', 'ff_threshold', 'attn_del', 'attn_threshold']
+        self.deletions = {key: 0 for key in keys_deletions}
+
+        # Raw Activations
+        keys_raw = ['ff_raw', 'attn_raw']
+        self.raw = {key: [] for key in keys_raw}
+
+        # Deletions Per Layer
+        keys_deletions_per_layer = ['ff', 'attn']
+        self.deletions_per_layer = {key: [] for key in keys_deletions_per_layer}
+
+        self.keys = {
+            'loss_data': keys_loss_data,
+            'accuracy': keys_accuracy,
+            'deletions': keys_deletions,
+            'raw': keys_raw,
+            'deletions_per_layer': keys_deletions_per_layer,
+        }
+
+    def update(self, data):
+        """ Update data in DataItem.
+        Possible Keys: loss_data, accuracy, deletions, raw, deletions_per_layer
+        """
+        for key, value in data.items():
+            getattr(self, key).update(value)
+
+    def summary(self):
+        return {
+            'loss': self.loss_data,
+            'accuracy': self.accuracy,
+            'deletions': self.deletions,
+            'deletions_per_layer': self.deletions_per_layer,
+        }
+
+    def flat_summary(self):
+        dataset_loss = {}
+        dataset_accuracy = {}
+        for dataset in self.datasets:
+            for key in self.keys['loss_data']:
+                dataset_loss[dataset+'_'+key] = self.loss_data[dataset][key]
+            for key in self.keys['accuracy']:
+                dataset_accuracy[dataset+'_'+key] = self.accuracy[dataset][key]
+
+        return { **dataset_loss, **dataset_accuracy, **self.deletions }
+
+class ActivationCollector:
+    """ Class for collecting data from model.
+
+    Collects data on activations:
+    - count of positive activations
+    - mean and variance of activations
+    - positive and negative mass / variance
+    """
+    def __init__(self,
+            shape: Tuple[int],
+            device: str,
+            collect_raw: bool = False
+        ):
+        self.shape       = shape
+        self.collect_raw = collect_raw
+        self.device      = device
+        self.n_points    = 0
+
+        # Welford for calculating mean and variance
+        self.all : Welford = Welford().detach()
+        self.pos = Welford().detach()
+        self.neg = Welford().detach()
+
+        # Count number of times each activation is positive
+        self.pos_counter = \
+            torch.zeros(shape, device=device, dtype=torch.int32).detach()
+
+        # Optional: collect raw activations
+        self.raw = None
+        if self.collect_raw:
+            self.raw = []
+
+    def add(self, data_point):
+        # Add mean and variance of data_point to all_activation
+        self.n_points += 1
+        self.all.add(data_point)
+
+        # Get information about positive and negative activations
+        pos_points = (data_point>0)
+        self.pos.add(data_point * pos_points )
+        self.neg.add(data_point * pos_points.logical_not() )
+
+        # Add number of positive activations to pos_counter
+        self.pos_counter += pos_points
+
+        # Add raw activations to raw if collect_raw
+        if self.collect_raw:
+            self.raw.append(data_point.detach().cpu())
+
+    def get_raw(self):
+        if not self.collect_raw:
+            raise ValueError('Raw activations not collected'
+                           + ' ActivationCollector.collect_raw=False' )
+        if self.n_points == 0:
+            raise ValueError('No data points added to ActivationCollector')
+        return torch.stack(self.raw)
+
+    def summary(self):
+        if self.n_points == 0:
+            raise ValueError('No data points added to ActivationCollector')
+
+        return {
+            'mean': self.all.mean,
+            'std': self.all.var_s,
+            'pos_mass': self.pos.mean,
+            'pos_var': self.pos.var_s,
+            'neg_mass': self.neg.mean,
+            'neg_var': self.neg.var_s,
+            'pos_count': self.pos_counter / self.n_points,
+        }
+
+
 
 ######################################################################################
 # Code for counting both FF and Self-Attention activations
@@ -123,44 +262,45 @@ def get_midlayer_activations( opt: Model,
 
     Returns:
         Dict:
-            "ff" (Tensor): The activation frequency of the midlayer of MLPs
-                for each layer of the transformer. Shape: (n_layers, d_ff)
-            "attn" (Dict[str, Tensor[n_layers, d_attn, d_ff]]):
-                "means": The mean activation of the pre_out layer of
-                    attention for each layer.
-                "stds": The standard deviation of the pre_out layer of attention
-                "pos": The positive mass of the pre_out layer of attention
-                "neg": The negative mass of the pre_out layer of attention
+            "ff" (dict: ActivationCollector.summary):
+                tensor shapes (n_layers, d_ff)
+            "attn" (dict: ActivationCollector.summary):
+                tensor shapes: (n_layers, d_attn, d_ff):
             "raw":
                 "ff": Tensor[n_tokens, n_layers, d_ff]]
                 "attn": Tensor[n_tokens, n_layers, n_head, d_head]
                 "criteria": Tensor[n_tokens]
             "texts_viewed" (int): number of texts viewed in the dataset
+
+    ActivationCollector.summary:
+        "mean": Tensor[shape]
+        "std": Tensor[shape]
+        "pos_mass": Tensor[shape]
+        "pos_var": Tensor[shape]
+        "neg_mass": Tensor[shape]
+        "neg_var": Tensor[shape]
+        "pos_count": Tensor[shape]
     """
     dataset, label, skip_eval = prepare( dataset_name )
+    do_ff   = calculate_ff   or collect_ff
+    do_attn = calculate_attn or collect_attn
 
-    # ff counter
-    if calculate_ff:
-        counter = torch.zeros( (opt.n_layers, opt.d_ff) ).to( opt.device )
+    # ff activation collector
+    if do_ff:
+        ff_shape = (opt.n_layers, opt.d_ff)
+        ff_data = ActivationCollector( ff_shape, opt.device, collect_ff )
 
-    # self-attention counter. See: Welford's Online Algorithm
-    if calculate_attn:
-        all_activations = Welford().detach() # to get mean & variance of activations
-        neg = Welford().detach() # to get mean ("negative mass") of -ive activations
-        pos = Welford().detach() # to get mean ("positive mass") of +ive activations
-
-    if collect_ff:
-        ff_raw = []
-
-    if collect_attn:
-        attn_raw = []
+    # self-attention activation collector
+    if do_attn:
+        attn_shape = (opt.n_layers, opt.n_heads, opt.d_head)
+        attn_data = ActivationCollector( attn_shape, opt.device, collect_attn )
 
     if collect_ff or collect_attn:
         criteria_raw = []
 
-    if (not calculate_ff) and (not calculate_attn) and \
-       (not collect_ff) and (not collect_attn):
-        raise ValueError("Must calculate or collect either ff or attn")
+    if not (calculate_ff or calculate_attn or collect_ff or collect_attn):
+        raise ValueError("Must calculate or collect either ff or attn."
+                        + "Otherwise, use evaluate_all() instead")
 
     # Prepare skip ids if they are being used
     if check_skips:
@@ -186,14 +326,14 @@ def get_midlayer_activations( opt: Model,
                     text_activations=text_activations ).detach()
 
                 # Get activations of self attention pre_out layer
-                if calculate_attn or collect_attn:
+                if do_attn:
                     attn_pre_out = opt.get_attn_pre_out_activations(
                         text_activations=text_activations, reshape=True ).detach()
                     attn_pre_out = einops.rearrange(attn_pre_out,
                         'layer token head pos -> token layer head pos')
 
                 # Get activations of FF mid layer
-                if calculate_ff or collect_ff:
+                if do_ff:
                     ff_keys = opt.get_ff_key_activations(
                         residual_stream=residual_stream,
                         use_activation_function=use_ff_activation_function ).detach()
@@ -217,30 +357,18 @@ def get_midlayer_activations( opt: Model,
                     criteria[index] *= (ids[index+1] in skip_ids)
 
             # Count the number of activations in FF
-            if calculate_ff:
+            if do_ff:
                 for token_index, ff_activation in enumerate(ff_keys):
                     if not criteria[token_index]:
                         continue
-                    counter += ( ff_activation != 0 )
+                    ff_data.add( ff_activation )
 
             # Count the number of activations in Self-Attention
-            if calculate_attn:
-                for token_index, activation in enumerate(attn_pre_out):
+            if do_attn:
+                for token_index, attn_activation in enumerate(attn_pre_out):
                     if not criteria[token_index]:
                         continue
-                    all_activations.add( activation )
-                    pos.add( activation * ( activation > 0 ) )
-                    neg.add( activation * ( activation < 0 ) )
-
-            # Collect the individual activations of every token for both
-            # self-attention and ff-attention
-            if collect_ff:
-                for token_index, ff_activation in enumerate(ff_keys):
-                    ff_raw.append( ff_activation.cpu() )
-
-            if collect_attn:
-                for token_index, attn_activation in enumerate(attn_pre_out):
-                    attn_raw.append( attn_activation.cpu() )
+                    attn_data.add( attn_activation )
 
             if collect_ff or collect_attn:
                 for criterion in criteria:
@@ -260,22 +388,18 @@ def get_midlayer_activations( opt: Model,
 
     # Summary information about activations
     if calculate_ff:
-        output["ff"] = counter.detach() / curr_count
+        output["ff"]   = ff_data.summary()
     if calculate_attn:
-        output["attn"] = {
-            "means": all_activations.mean,
-            "stds": all_activations.var_s,
-            "pos": pos.mean,
-            "neg": neg.mean
-        }
+        output["attn"] = attn_data.summary()
+
 
     # Raw activations of data
     if collect_ff or collect_attn:
         output["raw"] = { "criteria": torch.stack(criteria_raw) }
     if collect_ff:
-        output["raw"]["ff"] = torch.stack(ff_raw)
+        output["raw"]["ff"] = ff_data.get_raw()
     if collect_attn:
-        output["raw"]["attn"] = torch.stack(attn_raw)
+        output["raw"]["attn"] = attn_data.get_raw()
 
     return output
 
@@ -345,12 +469,14 @@ def prune_and_evaluate( opt: Model,
         raise ValueError("Must prune at least one of FF or Attention")
 
     # Get midlayer activations of FF and ATTN
-    focus_out = get_midlayer_activations( opt, focus, sample_size, **kwargs )
+    focus_out   = get_midlayer_activations( opt, focus, sample_size, **kwargs )
     cripple_out = get_midlayer_activations( opt, cripple, sample_size, **kwargs )
 
     # Get the top fraction FF activations and prune
     if do_ff > 0:
-        ff_rel_freq = ( cripple_out["ff"] / ( focus_out["ff"] + ff_eps ) ).cpu()
+        cripple_ff_count = cripple_out["ff"]["pos_count"]
+        focus_ff_count = focus_out["ff"]["pos_count"]
+        ff_rel_freq = ( cripple_ff_count / ( focus_ff_count + ff_eps ) ).cpu()
         ff_criteria, ff_threshold = get_top_frac( ff_rel_freq, ff_prune_frac )
         opt.delete_ff_keys( ff_criteria )
 
@@ -372,18 +498,23 @@ def prune_and_evaluate( opt: Model,
         save_timestamped_tensor_dict( opt, tensor_data, "activation_metrics" )
 
     # Initialize the output dictionary
-    data = init_data_dict()
+    data = DataItem()
 
     # Evaluate the model
     texts_to_skip = max( focus_out["texts_viewed"], cripple_out["texts_viewed"] )
     data.update( evaluate_all( opt, eval_size, texts_to_skip=texts_to_skip ) )
 
-    data.update({
+    data.update({'deletions': {
         "ff_threshold": ff_threshold if do_ff else 0,
         "attn_threshold": attn_threshold if do_attn else 0,
         "ff_del": float( torch.sum(ff_criteria) ) if do_ff else 0,
         "attn_del": float( torch.sum(attn_criteria) ) if do_attn else 0,
-    })
+    }})
+
+    data.update({'deletions_per_layer': {
+        'ff': ff_criteria.sum(dim=-1).tolist() if do_ff else [],
+        'attn': attn_criteria.sum(dim=-1).tolist() if do_attn else [],
+    }})
 
     return data
 
@@ -506,10 +637,10 @@ def get_attn_crossover( opt: Model,
                 negative mass from code compared to baseline pile activation
     """
 
-    pile_means, _pile_stds, pile_pos, pile_neg = \
-        pile_out["means"], pile_out["stds"], pile_out["pos"], pile_out["neg"]
-    code_means, _code_stds, code_pos, code_neg = \
-        code_out["means"], code_out["stds"], code_out["pos"], code_out["neg"]
+    pile_means, pile_pos, pile_neg = \
+        pile_out["mean"], pile_out["pos_mass"], pile_out["neg_mass"]
+    code_means, code_pos, code_neg = \
+        code_out["mean"], code_out["pos_mass"], code_out["neg_mass"]
 
     crossover_multiple = torch.ones((opt.n_layers, opt.n_heads))
     pos_code_rel_freq = code_pos / ( pile_pos + eps )
@@ -589,16 +720,18 @@ def delete_attn_and_evaluate( opt: Model,
         log_crossover = ( torch.log2(attn_data['crossover_multiple']) )
 
         # Plot Attn Heads
-        fig, ax = plt.subplots(1, 2)
+        _fig, ax = plt.subplots(1, 2)
         ax[0].imshow( removals )
         ax[1].imshow( log_crossover )
         plt.show()
 
     # Evaluate
-    data = init_data_dict()
+    data = DataItem()
     data.update( evaluate_all(opt, eval_size) )
-    data['attn_del'] = int( removals.sum().item() )
-    data['attn_threshold'] = threshold
+    data.update({'deletions': {
+        'attn_del': int( removals.sum().item() ),
+        'attn_threshold': threshold,
+    }})
 
     return data
 
@@ -731,8 +864,10 @@ def delete_ff_and_evaluate(
         print(err)
 
     # See the effect deletion has on performance
-    data = init_data_dict()
+    data = DataItem()
     data.update( evaluate_all( opt, eval_sample_size ) )
-    data['ff_threshold'] = ff_threshold
-    data['ff_del']    = num_removed
+    data.update({'deletions': {
+        'ff_del': num_removed,
+        'ff_threshold': ff_threshold,
+    }})
     return data

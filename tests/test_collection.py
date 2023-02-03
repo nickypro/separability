@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import pytest
 
 from model import Model
 from activations import get_midlayer_activations
@@ -29,6 +30,11 @@ class TestCollection:
         assert ff_pile.size()[-1] >= n_samples
         assert ff_code.size()[-1] >= n_samples
 
+        # assert only ff was collected
+        with pytest.raises(KeyError):
+            data_pile["raw"]["attn"]
+        with pytest.raises(KeyError):
+            data_code["raw"]["attn"]
 
         if verbose:
             plt.figure()
@@ -67,6 +73,12 @@ class TestCollection:
         assert attn_pile.size()[-1] >= n_samples
         assert attn_code.size()[-1] >= n_samples
 
+        # assert only attention was collected
+        with pytest.raises(KeyError):
+            data_pile["raw"]["ff"]
+        with pytest.raises(KeyError):
+            data_code["raw"]["ff"]
+
         if verbose:
             plt.figure()
 
@@ -83,3 +95,11 @@ class TestCollection:
 
         # TODO: Add more tests here to make sure the data is correct
 
+    def test_does_not_collect(self):
+        print( "# Running Test: test_does_not_collection" )
+        opt = Model("125m", limit=1000)
+        n_samples = 1e3
+
+        with pytest.raises(ValueError):
+            _data_pile = get_midlayer_activations(opt, "pile", n_samples,
+                calculate_ff=False, calculate_attn=False)
