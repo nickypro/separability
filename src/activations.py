@@ -6,12 +6,11 @@ references to functions from texts.py, so is not included in model.py Model.
 import os
 import datetime
 # Import types for typed python
-from typing import Optional, Union, Dict, Tuple, List
+from typing import Optional, Union, Dict, Tuple
 from torch import Tensor
 
 import torch
 import numpy as np
-from welford_torch import Welford
 import einops
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -19,6 +18,7 @@ import matplotlib.pyplot as plt
 # Import from this project
 from model import Model
 from texts import prepare
+from data_classes import RunDataItem, ActivationCollector
 
 ####################################################################################
 # Code for Evaluating Model
@@ -78,147 +78,6 @@ def evaluate_all( opt: Model,
     }
 
     return out
-
-######################################################################################
-# Data Store Classes
-######################################################################################
-
-class DataItem:
-    def __init__(self, datasets: List[str] = None):
-        if datasets is None:
-            datasets = ['pile', 'code']
-        self.datasets = datasets
-
-        # Cross Entropy Loss
-        keys_loss_data = ['loss', 'log_loss']
-        self.loss_data = {
-            dataset: {key: 0 for key in keys_loss_data} for dataset in datasets
-        }
-
-        # Prediction Accuracy percentage
-        keys_accuracy = ['topk', 'topk_skip', 'base', 'skip']
-        self.accuracy = {
-            dataset: {key: 0 for key in keys_accuracy} for dataset in datasets
-        }
-
-        # Deletions Summary
-        keys_deletions = ['ff_del', 'ff_threshold', 'attn_del', 'attn_threshold']
-        self.deletions = {key: 0 for key in keys_deletions}
-
-        # Raw Activations
-        keys_raw = ['ff_raw', 'attn_raw']
-        self.raw = {key: [] for key in keys_raw}
-
-        # Deletions Per Layer
-        keys_deletions_per_layer = ['ff', 'attn']
-        self.deletions_per_layer = {key: [] for key in keys_deletions_per_layer}
-
-        self.keys = {
-            'loss_data': keys_loss_data,
-            'accuracy': keys_accuracy,
-            'deletions': keys_deletions,
-            'raw': keys_raw,
-            'deletions_per_layer': keys_deletions_per_layer,
-        }
-
-    def update(self, data):
-        """ Update data in DataItem.
-        Possible Keys: loss_data, accuracy, deletions, raw, deletions_per_layer
-        """
-        for key, value in data.items():
-            getattr(self, key).update(value)
-
-    def summary(self):
-        return {
-            'loss': self.loss_data,
-            'accuracy': self.accuracy,
-            'deletions': self.deletions,
-            'deletions_per_layer': self.deletions_per_layer,
-        }
-
-    def flat_summary(self):
-        dataset_loss = {}
-        dataset_accuracy = {}
-        for dataset in self.datasets:
-            for key in self.keys['loss_data']:
-                dataset_loss[dataset+'_'+key] = self.loss_data[dataset][key]
-            for key in self.keys['accuracy']:
-                dataset_accuracy[dataset+'_'+key] = self.accuracy[dataset][key]
-
-        return { **dataset_loss, **dataset_accuracy, **self.deletions }
-
-class ActivationCollector:
-    """ Class for collecting data from model.
-
-    Collects data on activations:
-    - count of positive activations
-    - mean and variance of activations
-    - positive and negative mass / variance
-    """
-    def __init__(self,
-            shape: Tuple[int],
-            device: str,
-            collect_raw: bool = False
-        ):
-        self.shape       = shape
-        self.collect_raw = collect_raw
-        self.device      = device
-        self.n_points    = 0
-
-        # Welford for calculating mean and variance
-        self.all : Welford = Welford().detach()
-        self.pos = Welford().detach()
-        self.neg = Welford().detach()
-
-        # Count number of times each activation is positive
-        self.pos_counter = \
-            torch.zeros(shape, device=device, dtype=torch.int32).detach()
-
-        # Optional: collect raw activations
-        self.raw = None
-        if self.collect_raw:
-            self.raw = []
-
-    def add(self, data_point):
-        # Add mean and variance of data_point to all_activation
-        self.n_points += 1
-        self.all.add(data_point)
-
-        # Get information about positive and negative activations
-        pos_points = (data_point>0)
-        self.pos.add(data_point * pos_points )
-        self.neg.add(data_point * pos_points.logical_not() )
-
-        # Add number of positive activations to pos_counter
-        self.pos_counter += pos_points
-
-        # Add raw activations to raw if collect_raw
-        if self.collect_raw:
-            self.raw.append(data_point.detach().cpu())
-
-    def get_raw(self):
-        if not self.collect_raw:
-            raise ValueError('Raw activations not collected'
-                           + ' ActivationCollector.collect_raw=False' )
-        if self.n_points == 0:
-            raise ValueError('No data points added to ActivationCollector')
-        return torch.stack(self.raw)
-
-    def summary(self):
-        if self.n_points == 0:
-            raise ValueError('No data points added to ActivationCollector')
-
-        return {
-            'mean': self.all.mean,
-            'std': self.all.var_s,
-            'pos_mass': self.pos.mean,
-            'pos_var': self.pos.var_s,
-            'neg_mass': self.neg.mean,
-            'neg_var': self.neg.var_s,
-            'pos_count': self.pos_counter / self.n_points,
-        }
-
-
 
 ######################################################################################
 # Code for counting both FF and Self-Attention activations
@@ -498,7 +357,7 @@ def prune_and_evaluate( opt: Model,
         save_timestamped_tensor_dict( opt, tensor_data, "activation_metrics" )
 
     # Initialize the output dictionary
-    data = DataItem()
+    data = RunDataItem()
 
     # Evaluate the model
     texts_to_skip = max( focus_out["texts_viewed"], cripple_out["texts_viewed"] )
@@ -726,7 +585,7 @@ def delete_attn_and_evaluate( opt: Model,
         plt.show()
 
     # Evaluate
-    data = DataItem()
+    data = RunDataItem()
     data.update( evaluate_all(opt, eval_size) )
     data.update({'deletions': {
         'attn_del': int( removals.sum().item() ),
@@ -864,7 +723,7 @@ def delete_ff_and_evaluate(
         print(err)
 
     # See the effect deletion has on performance
-    data = DataItem()
+    data = RunDataItem()
     data.update( evaluate_all( opt, eval_sample_size ) )
     data.update({'deletions': {
         'ff_del': num_removed,
