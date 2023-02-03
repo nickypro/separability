@@ -1,6 +1,8 @@
 from typing import List, Tuple, Union
+from copy import deepcopy
 
 import torch
+import numpy as np
 import pandas as pd
 import wandb
 from welford_torch import Welford
@@ -104,7 +106,7 @@ class RunDataHistory:
 
         # Log to wandb
         if self.use_wandb:
-            wandb.log(self.history[-1].summary())
+            wandb.log( self.history[-1].summary() )
 
         # save to pandas DataFrame
         self.df_append(item)
