@@ -23,6 +23,7 @@ then
   fi
 fi
 # Dependencies (using Poetry rather than pip)
-curl -sSL https://install.python-poetry.org | python3 -
+apt install python3.8 python3-pip vim -y
+curl -sSL https://install.python-poetry.org | python3.8 -
 poetry config virtualenvs.in-project true
 poetry install
