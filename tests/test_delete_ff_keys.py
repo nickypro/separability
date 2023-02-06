@@ -70,7 +70,7 @@ class TestDeleteFFKeys:
         removal_indices = torch.stack(removal_indices)
         print( removal_indices.size() )
 
-        opt = Model(model_size, device=device)
+        opt = Model(model_size, model_device=device, use_accelerator=False)
 
         # Pre-test to make sure that outputs are different on each layer
         for layer in range(opt.n_layers):
