@@ -1,5 +1,6 @@
 """ Test the evaluate_all function. """
 
+# pylint: disable=import-error
 from seperability import Model
 from seperability.activations import evaluate, evaluate_all
 

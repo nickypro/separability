@@ -1,5 +1,6 @@
 import torch
 
+# pylint: disable=import-error
 from seperability import Model
 from seperability.data_classes import RunDataHistory
 from seperability.activations import evaluate_all

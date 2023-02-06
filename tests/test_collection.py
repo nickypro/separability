@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pytest
 
+# pylint: disable=import-error
 from seperability import Model
 from seperability.activations import get_midlayer_activations
 

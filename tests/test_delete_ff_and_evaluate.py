@@ -1,4 +1,5 @@
 
+# pylint: disable=import-error
 from seperability import Model
 from seperability.activations import count_ff_key_activations, evaluate_all
 

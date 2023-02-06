@@ -1,6 +1,7 @@
 import warnings
 import torch
 
+# pylint: disable=import-error
 from seperability import Model
 from seperability.activations import prune_and_evaluate
 

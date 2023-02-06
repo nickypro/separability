@@ -6,6 +6,7 @@ from torch import Tensor
 import torch
 import numpy as np
 
+# pylint: disable=import-error
 from seperability import Model
 
 class TestDeleteAttnPreOutLayer:

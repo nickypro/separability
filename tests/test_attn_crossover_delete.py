@@ -1,4 +1,6 @@
 """ Test the calculate_attn_crossover function. """
+
+# pylint: disable=import-error
 from seperability import Model
 from seperability.activations import get_attn_activations, \
     get_attn_crossover, evaluate_all
