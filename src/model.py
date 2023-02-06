@@ -2,7 +2,6 @@
 with additional methods for inspecting the activations of the model.
 """
 
-import copy
 # import types for typed python
 from typing import Optional, List, Tuple, Union
 from torch import Tensor
@@ -146,13 +145,10 @@ class Model():
         self.tokenizer = GPT2Tokenizer.from_pretrained( self.repo )
 
         # Initialize model (with or without accelerator)
-        if self.use_accelerator:
-            self.predictor = AutoModelForCausalLM.from_pretrained(
-                self.repo, torch_dtype=self.dtype, device_map="auto")
-        else:
-            self.predictor = AutoModelForCausalLM.from_pretrained(
-                self.repo, torch_dtype=self.dtype)
-            #   OPTForCausalLM.from_pretrained( self.repo, dtype=self.dtype )
+        device_map = "auto" if self.use_accelerator else None
+        #self.predictor = OPTForCausalLM.from_pretrained(self.repo, dtype=self.dtype)
+        self.predictor = AutoModelForCausalLM.from_pretrained(
+            self.repo, torch_dtype=self.dtype, device_map=device_map)
         self.model = self.predictor.model
 
         print(f'- Loaded OPT-{self.model_size}')
@@ -327,7 +323,7 @@ class Model():
         inpt = hidden_states[0].detach()
 
         # get attention outputs
-        attention_out = self.out_stack([ a[1] for a in self.get_recent_activations() ])
+        attention_out = self.out_stack([a[1] for a in self.get_recent_activations()])
         attention_out = attention_out.squeeze().detach()
 
         # get ff outputs
