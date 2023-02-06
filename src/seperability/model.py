@@ -4,12 +4,13 @@ with additional methods for inspecting the activations of the model.
 
 # import types for typed python
 from typing import Optional, List, Tuple, Union
+import warnings
 from torch import Tensor
 from accelerate import Accelerator
 from datasets import Dataset
 from transformers.models.opt.modeling_opt import OPTAttention
 
-from transformers import GPT2Tokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import numpy as np
 from welford_torch import Welford
@@ -88,14 +89,19 @@ class InverseLinear(torch.nn.Module):
             self.fc = self.fc.to( dtype=dtype, **kwargs )
         return self
 
-model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b", "175b" ]
+opt_model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b" ]
+galactica_model_sizes = [ "125m", "1.3b", "6.7b", "30b", "120b" ]
+tested_models = [
+    *[ f"facebook/opt-{s}"       for s in opt_model_sizes ],
+    *[ f"facebook/galactica-{s}" for s in galactica_model_sizes ],
+]
 
 class Model():
     """ Wrapper Class for Meta OPT model that allows me to do interpretability
     work on it's activations and modify it's parameters as needed. """
 
     def __init__( self,
-            model_size : str  = "125m",
+            model_name : str  = "facebook/opt-125m",
             limit: int = None,
             model_device: str = None,
             output_device: str = None,
@@ -104,7 +110,11 @@ class Model():
         ):
         """
         OPT Model with functions for extracting activations.
+        facebook/opt-{model_size}
         model_size : 125m, 350m, 1.3b, 2.7b, 6.7b, 13b, 30b, 66b, 175b
+
+        facebook/galactica-{model_size}
+        model_size : 125m, 1.3b, 6.7b, 30b, 120b
         """
 
         # Initialize model differently depending on accelerator use
@@ -121,7 +131,7 @@ class Model():
             self.device = model_device if model_device else self.device
             self.output_device = output_device if output_device else self.device
 
-        self.init_model( model_size ).to( self.device )
+        self.init_model( model_name ).to( self.device )
         self.limit = limit
 
         # Indices of outputs for reference
@@ -129,26 +139,25 @@ class Model():
         self.token_index     = -2
         self.dimension_index = -1
 
-    def set_repo( self, model_size: str ):
-        if model_size not in model_sizes:
-            raise ValueError( "model_size must be one of the following: " +
-                              str(model_sizes) )
-        repo = f"facebook/opt-{model_size}"
+    # pylint: disable=attribute-defined-outside-init
+    def set_repo( self, model_name: str ):
+        if model_name not in tested_models:
+            warnings.warn( f"Model {model_name} not tested." )
 
-        # pylint: disable=attribute-defined-outside-init
-        self.model_size = model_size
-        self.repo = repo
+        self.model_size = model_name.split('-')[-1]
+        self.model_repo = model_name
 
-    def init_model( self, model_size: Optional[str] = None ):
-        if not model_size is None:
-            self.set_repo( model_size )
-        self.tokenizer = GPT2Tokenizer.from_pretrained( self.repo )
+    # pylint: disable=attribute-defined-outside-init
+    def init_model( self, model_name: Optional[str] = None ):
+        if not model_name is None:
+            self.set_repo( model_name )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_repo)
 
         # Initialize model (with or without accelerator)
         device_map = "auto" if self.use_accelerator else None
         #self.predictor = OPTForCausalLM.from_pretrained(self.repo, dtype=self.dtype)
         self.predictor = AutoModelForCausalLM.from_pretrained(
-            self.repo, torch_dtype=self.dtype, device_map=device_map)
+            self.model_repo, torch_dtype=self.dtype, device_map=device_map)
         self.model = self.predictor.model
 
         print(f'- Loaded OPT-{self.model_size}')
@@ -815,7 +824,7 @@ class Model():
         skip_ids = set()
         skip_strings = [] if (skip_strings is None) else skip_strings
         for skip_string in skip_strings:
-            skip_id = int( self.get_ids( skip_string ).squeeze()[-1] )
+            skip_id = int( self.get_ids( skip_string ).squeeze(dim=0)[-1] )
             skip_ids.add( skip_id )
 
         # Count top-k prediction accuracy

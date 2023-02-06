@@ -4,10 +4,11 @@ from seperability.activations import get_attn_activations, \
     get_attn_crossover, evaluate_all
 
 class TestAttnCrossoverDelete:
+    model_name = "facebook/opt-125m"
     def test_calculate_attn_crossover_and_delete(self):
         print("# Running test: test_calculate_attn_crossover_and_delete")
         # Load model and evaluate
-        opt = Model( "125m", limit=1000 )
+        opt = Model( self.model_name, limit=1000 )
         print(" - Initial Evaluation...")
         eval_before = evaluate_all( opt, 1e3 )
 

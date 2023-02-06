@@ -4,9 +4,10 @@ from seperability import Model
 from seperability.activations import evaluate, evaluate_all
 
 class TestEvaluate:
+    model_name = "facebook/opt-125m"
     def test_evaluate(self):
         print("# Running test: test_evaluate")
-        opt = Model("125m", limit=1000)
+        opt = Model(self.model_name, limit=1000)
         opt.show_details()
 
         # We run the a first time, with a small subset of data
@@ -72,7 +73,7 @@ class TestEvaluate:
 
     def test_evaluate_all(self, verbose: bool = False ):
         print("# Running test: test_evaluate_all")
-        opt = Model("125m", limit=1000)
+        opt = Model(self.model_name, limit=1000)
         if verbose:
             opt.show_details()
 

@@ -9,14 +9,14 @@ import numpy as np
 from seperability import Model
 
 class TestDeleteFFKeys:
+    model_name = "facebook/opt-125m"
     def test_ff_key_counting(self):
         print("# Running Test: test_ff_key_counting")
-        model_size = '125m'
         n_layers = 12
         d_ff     = 3072 # This is the value for 125m, 4*768
 
-        # Initialize Model
-        opt = Model(model_size, limit=1000)
+        # Initialize model
+        opt = Model(self.model_name, limit=1000)
 
         # Run text
         text = "for ( var i = 0; i < 10; i++ ) { console.log(i); }"
@@ -40,7 +40,6 @@ class TestDeleteFFKeys:
     def test_delete_ff_keys(self):
         print("# Running Test: test_delete_ff_keys")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        model_size = '125m'
         n_layers = 12
         d_model = 768
 
@@ -69,7 +68,7 @@ class TestDeleteFFKeys:
         removal_indices = torch.stack(removal_indices)
         print( removal_indices.size() )
 
-        opt = Model(model_size, model_device=device, use_accelerator=False)
+        opt = Model(self.model_name, model_device=device, use_accelerator=False)
 
         # Pre-test to make sure that outputs are different on each layer
         for layer in range(opt.n_layers):

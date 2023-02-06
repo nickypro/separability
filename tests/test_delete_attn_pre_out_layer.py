@@ -9,12 +9,12 @@ import numpy as np
 from seperability import Model
 
 class TestDeleteAttnPreOutLayer:
+    model_name = "facebook/opt-125m"
     def test_delete_attn_pre_out_layer(self):
         print("# Running Test: test_delete_attn_pre_out_layer")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         with torch.no_grad():
             d_model = 768
-            model_size = '125m'
 
             # Define vectors for testing
             vec : Tensor = torch.tensor(
@@ -40,7 +40,7 @@ class TestDeleteAttnPreOutLayer:
             # Start tests
             for add_mean in [True, False]:
                 print(f"## Testing outward weight removals - add_mean={add_mean}")
-                opt = Model(model_size, model_device=device, use_accelerator=False)
+                opt = Model(self.model_name, model_device=device, use_accelerator=False)
                 LAYER = 0
 
                 out_proj = opt.model.decoder.layers[LAYER].self_attn.out_proj
@@ -75,7 +75,7 @@ class TestDeleteAttnPreOutLayer:
 
             # Also test inward weight removals
             print("## Testing inward weight removals")
-            opt = Model(model_size, model_device=device, use_accelerator=False)
+            opt = Model(self.model_name, model_device=device, use_accelerator=False)
             v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
 
             # Get output vector before deletion

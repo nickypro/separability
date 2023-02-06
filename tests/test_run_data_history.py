@@ -5,8 +5,10 @@ from seperability.data_classes import RunDataHistory
 from seperability.activations import evaluate_all
 
 class TestRunDataHistory:
+    model_name = "facebook/opt-125m"
+
     def test_run_data_history(self):
-        opt = Model("125m", limit=1000)
+        opt = Model(self.model_name, limit=1000)
         history = RunDataHistory(use_wandb=False)
 
         eval_data = evaluate_all(opt, 1e4)

@@ -18,6 +18,7 @@
         "dtype",
         "einops",
         "evaluat",
+        "galactica",
         "imshow",
         "inpt",
         "intermedate",

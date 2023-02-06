@@ -3,10 +3,11 @@ from seperability import Model
 from seperability.activations import count_ff_key_activations, evaluate_all
 
 class TestDeleteFFKeys:
+    model_name = "facebook/opt-125m"
     def test_delete_ff_and_evaluate(self):
         print("# Running test: test_delete_ff_and_evaluate")
         # Load model and evaluate
-        opt = Model( "125m", limit=1000 )
+        opt = Model(self.model_name, limit=1000)
         print(" - Initial Evaluation...")
         eval_before = evaluate_all( opt, 1e3 )
 

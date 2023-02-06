@@ -7,9 +7,10 @@ from seperability import Model
 from seperability.activations import get_midlayer_activations
 
 class TestCollection:
+    model_name = "facebook/opt-125m"
     def test_ff_collections(self, verbose: bool = False):
         print( "# Running Test: test_ff_collection" )
-        opt = Model("125m", limit=1000)
+        opt = Model(self.model_name, limit=1000)
         n_samples = 1e3
 
         data_pile = get_midlayer_activations(opt, "pile", n_samples,
@@ -54,7 +55,7 @@ class TestCollection:
 
     def test_attn_collections(self, verbose: bool = False):
         print( "# Running Test: test_attn_collection" )
-        opt = Model("125m", limit=1000)
+        opt = Model(self.model_name, limit=1000)
         n_samples = 1e3
 
         data_pile = get_midlayer_activations(opt, "pile", n_samples,
@@ -97,7 +98,7 @@ class TestCollection:
 
     def test_does_not_collect(self):
         print( "# Running Test: test_does_not_collection" )
-        opt = Model("125m", limit=1000)
+        opt = Model(self.model_name, limit=1000)
         n_samples = 1e3
 
         with pytest.raises(ValueError):

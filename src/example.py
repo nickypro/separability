@@ -2,7 +2,7 @@ import torch
 from seperability import Model
 from seperability.activations import evaluate_all, prune_and_evaluate
 
-opt = Model("2.7b", limit=1000, use_accelerator=True, dtype=torch.float16, output_device="cuda:1")
+opt = Model("facebook/galactica-125m", limit=1000, use_accelerator=True, dtype=torch.float16, output_device="cuda:1")
 
 evaluate_all(opt, 1e4)
 
