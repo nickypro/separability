@@ -10,7 +10,7 @@ from accelerate import Accelerator
 from datasets import Dataset
 from transformers.models.opt.modeling_opt import OPTAttention
 
-from transformers import GPT2Tokenizer, OPTForCausalLM
+from transformers import GPT2Tokenizer, OPTForCausalLM, AutoModelForCausalLM
 import torch
 import numpy as np
 from welford_torch import Welford
@@ -125,7 +125,10 @@ class Model():
         if not model_size is None:
             self.set_repo( model_size )
         self.tokenizer = GPT2Tokenizer.from_pretrained( self.repo )
-        self.predictor = OPTForCausalLM.from_pretrained( self.repo )
+        #self.predictor = OPTForCausalLM.from_pretrained( self.repo )
+        self.predictor = AutoModelForCausalLM.from_pretrained( self.repo, device_map="auto" )
+        [ print(x) for x in dir(self.predictor) ]
+        print(self.predictor.forward)
         self.model = self.predictor.model
         print(f'- Loaded OPT-{self.model_size}')
         self.activations = {}
