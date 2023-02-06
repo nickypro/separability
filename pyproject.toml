@@ -4,6 +4,12 @@ version = "0.1.0"
 description = "Seperability of LLM Capabilities"
 authors = ["Nicky Pochinkov"]
 readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+repository = "https://github.com/pesvut/seperability"
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -34,3 +40,9 @@ autopep8 = "^2.0.1"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+addopts = [
+    "--import-mode=importlib",
+]

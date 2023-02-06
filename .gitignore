@@ -1,8 +1,9 @@
 __pycache__
 tmp
-tests/model.py
-tests/activations.py
-tests/texts.py
-tests/data_classes.py
-tests/seperability
 src/wandb
+src/seperability/__pycache__
+src/seperability/wandb
+tests/__pycache__
+tests/.pytest_cache
+tests/seperability
+dist
