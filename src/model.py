@@ -62,8 +62,9 @@ class InverseLinear(torch.nn.Module):
         self.inverse_bias = -bias
 
         # Define the Inverse Linear Layer
-        _dtype = weights.dtype
-        inverse_weights = weights.to(dtype=torch.float64).inverse().to(dtype=_dtype)
+        _dtype, _device = weights.dtype, weights.device
+        inverse_weights = weights.to('cuda:1').to(dtype=torch.float64).inverse()
+        inverse_weights = inverse_weights.to(dtype=_dtype).to(_device)
         size = inverse_weights.size()
         self.fc = torch.nn.Linear( size[0], size[1], bias=False )
         self.fc.load_state_dict({'weight': inverse_weights})
@@ -214,15 +215,17 @@ class Model():
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
         for layer in self.model.decoder.layers:
-            layer.self_attn.inv_out_proj = InverseLinear( layer.self_attn.out_proj )
-            layer.self_attn.inv_out_proj = \
-                layer.self_attn.inv_out_proj.to(dtype=self.dtype).to(self.device)
+            inv_out_proj = InverseLinear(layer.self_attn.out_proj)
+            inv_out_proj = inv_out_proj.to(dtype=self.dtype)
 
-            # optionally, prepare the layer for acceleration
-            if not self.use_accelerator:
-                continue
-            layer.self_attn.inv_out_proj = \
-                self.accelerator.prepare(layer.self_attn.inv_out_proj)
+            if self.use_accelerator:
+                inv_out_proj = self.accelerator.prepare(inv_out_proj)
+            else:
+                # Use self.output_device since that is where the output will be stored
+                inv_out_proj = inv_out_proj.to(self.output_device)
+
+            layer.self_attn.inv_out_proj = inv_out_proj
+
 
     def get_ids( self, text:str, limit:Optional[int]=None ):
         limit = self.limit if (limit is None) else limit
@@ -294,7 +297,7 @@ class Model():
             limit (Optional[int], optional): _description_. Defaults to None.
 
         Returns:
-            List: Tensor
+            ListTensor
                 input: The input tensor with positional encodings.
                 attention_out: Intermedate attention output activations.
                 ff_out: The intermedate ff output activations.
