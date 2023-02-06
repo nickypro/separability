@@ -6,6 +6,7 @@ import copy
 # import types for typed python
 from typing import Optional, List, Tuple, Union
 from torch import Tensor
+from accelerate import Accelerator
 from datasets import Dataset
 from transformers.models.opt.modeling_opt import OPTAttention
 
@@ -88,6 +89,7 @@ class Model():
             model_size : str  = "125m",
             limit: int = None,
             device: str = None,
+            use_accelerator: bool = True,
         ):
         """
         OPT Model with functions for extracting activations.
@@ -95,6 +97,10 @@ class Model():
         """
 
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.use_accelerator = use_accelerator
+        if self.use_accelerator:
+            self.accelerator = Accelerator()
+            self.device = self.accelerator.device
         self.device = device if device else self.device
         self.init_model( model_size )
         self.limit = limit
@@ -148,6 +154,12 @@ class Model():
         self.device = device
         self.predictor.to( device )
         self.model.to( device )
+
+        # Add accelerate functionality
+        if self.use_accelerator:
+            self.device, self.predictor, self.model = self.accelerator.prepare(
+                self.device, self.predictor, self.model
+            )
 
     def get_activation_of( self, name : str ):
         # Define hook function which adds output to self.activations
