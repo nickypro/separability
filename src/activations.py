@@ -147,12 +147,12 @@ def get_midlayer_activations( opt: Model,
     # ff activation collector
     if do_ff:
         ff_shape = (opt.n_layers, opt.d_ff)
-        ff_data = ActivationCollector( ff_shape, opt.device, collect_ff )
+        ff_data = ActivationCollector( ff_shape, opt.output_device, collect_ff )
 
     # self-attention activation collector
     if do_attn:
         attn_shape = (opt.n_layers, opt.n_heads, opt.d_head)
-        attn_data = ActivationCollector( attn_shape, opt.device, collect_attn )
+        attn_data = ActivationCollector( attn_shape, opt.output_device, collect_attn )
 
     if collect_ff or collect_attn:
         criteria_raw = []

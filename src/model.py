@@ -88,7 +88,8 @@ class Model():
     def __init__( self,
             model_size : str  = "125m",
             limit: int = None,
-            device: str = None,
+            model_device: str = None,
+            output_device: str = None,
             use_accelerator: bool = True,
         ):
         """
@@ -96,15 +97,20 @@ class Model():
         model_size : 125m, 350m, 1.3b, 2.7b, 6.7b, 13b, 30b, 66b, 175b
         """
 
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # Initialize model differently depending on accelerator use
         self.use_accelerator = use_accelerator
         if self.use_accelerator:
             self.accelerator = Accelerator()
             self.device = self.accelerator.device
-        self.device = device if device else self.device
-        self.init_model( model_size )
+            self.output_device = output_device if output_device else 'cpu'
+
+        else:
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            self.device = model_device if model_device else self.device
+            self.output_device = output_device if output_device else self.device
+
+        self.init_model( model_size ).to( self.device )
         self.limit = limit
-        self.to( self.device )
 
         # Indices of outputs for reference
         self.layer_index     = -3
@@ -125,11 +131,17 @@ class Model():
         if not model_size is None:
             self.set_repo( model_size )
         self.tokenizer = GPT2Tokenizer.from_pretrained( self.repo )
-        #self.predictor = OPTForCausalLM.from_pretrained( self.repo )
-        self.predictor = AutoModelForCausalLM.from_pretrained( self.repo, device_map="auto" )
-        [ print(x) for x in dir(self.predictor) ]
-        print(self.predictor.forward)
+
+        # Initialize model (with or without accelerator)
+        if self.use_accelerator:
+            self.predictor = \
+                AutoModelForCausalLM.from_pretrained(self.repo, device_map="auto")
+        else:
+            self.predictor = \
+                AutoModelForCausalLM.from_pretrained(self.repo)
+            #   OPTForCausalLM.from_pretrained( self.repo )
         self.model = self.predictor.model
+
         print(f'- Loaded OPT-{self.model_size}')
         self.activations = {}
 
@@ -144,6 +156,8 @@ class Model():
         self.register_activations()
         self.register_inverse_out_proj()
 
+        return self
+
     def show_details( self, verbose=True ):
         if verbose:
             print( " - n_layers :", self.n_layers )
@@ -154,15 +168,16 @@ class Model():
             print( f" - n_layers, d_model = {self.n_layers}, {self.d_model}" )
 
     def to( self, device ):
+        if self.use_accelerator: # If using accelerator, init handles multi-device
+            return
         self.device = device
         self.predictor.to( device )
         self.model.to( device )
 
-        # Add accelerate functionality
-        if self.use_accelerator:
-            self.device, self.predictor, self.model = self.accelerator.prepare(
-                self.device, self.predictor, self.model
-            )
+    def out_stack(self, tensor_list: List[Tensor]):
+        if self.use_accelerator or self.device != self.output_device:
+            tensor_list = [ t.to(self.output_device) for t in tensor_list ]
+        return torch.stack( tensor_list )
 
     def get_activation_of( self, name : str ):
         # Define hook function which adds output to self.activations
@@ -287,18 +302,18 @@ class Model():
                               output_hidden_states=True, **kwargs )
 
         # get the hidden states
-        hidden_states = torch.stack( outputs.hidden_states ).squeeze().detach()
+        hidden_states = self.out_stack( outputs.hidden_states ).squeeze().detach()
         inpt = hidden_states[0].detach()
 
         # get attention outputs
-        attention_out = torch.stack([ a[1] for a in self.get_recent_activations() ])
+        attention_out = self.out_stack([ a[1] for a in self.get_recent_activations() ])
         attention_out = attention_out.squeeze().detach()
 
         # get ff outputs
         ff_out =  []
         for i in range(self.n_layers):
             ff_out.append( hidden_states[i+1] - attention_out[i] - hidden_states[i] )
-        ff_out = torch.stack( ff_out ).squeeze().detach().detach()
+        ff_out = self.out_stack( ff_out ).squeeze().detach().detach()
 
         # get the final output
         output: Tensor = outputs.last_hidden_state[0].detach()
@@ -333,7 +348,7 @@ class Model():
         for delta in adjustments:
             residual_stream.append( residual_stream[-1] + delta )
 
-        return torch.stack( residual_stream )
+        return self.out_stack( residual_stream )
 
     def get_ff_key_activations( self,
                 text: Optional[str] = None,
@@ -427,7 +442,7 @@ class Model():
             if add_residual:
                 attn_out += attn_in_i
             outs.append( attn_out )
-        return torch.stack( outs )
+        return self.out_stack( outs )
 
     def calculate_attn_pre_out_layer( self,
             attn_out: Tensor,
@@ -474,7 +489,7 @@ class Model():
             pre_out = self.calculate_attn_pre_out_layer(
                 attn_out[layer], layer, reshape, transpose )
             out.append( pre_out)
-        return torch.stack( out )
+        return self.out_stack( out )
 
     def delete_attn_pre_out_layer( self,
             layer_index: int,
@@ -509,39 +524,52 @@ class Model():
                 size = remove_indices.size()
             assert remove_indices.size() == torch.Size([self.d_model])
 
-            # get the attention that we are changing
+            # get the attention that we are changing.
+            # We change both (1) the inputs and (2) the outputs of the pre_out layer
             out_proj = self.model.decoder.layers[layer_index].self_attn.out_proj
             v_proj    = self.model.decoder.layers[layer_index].self_attn.v_proj
 
+            # 1. Adjust the biases out of the out_proj layer to compensate for
+            #    the deletion of the weights
             out_params   = out_proj.state_dict()
-            v_params     = v_proj.state_dict()
             out_weights : Tensor = out_params['weight']
             out_biases  : Tensor = out_params['bias']
-            v_weights   : Tensor = v_params['weight']
-            v_biases    : Tensor = v_params['bias']
+
+            # Make a temporary copy of the weights going into the neuron (v_proj).
+            out_params.update({'bias': torch.zeros_like(out_biases)})
+            out_proj.load_state_dict(out_params)
 
             # adjust bias of out_proj by mean activations
             if not mean_values is None:
                 assert mean_values.size() == torch.Size([self.d_model])
                 mean_values  = mean_values.detach().clone().to( self.device )
                 mean_values *= remove_indices.to( self.device )
-                bias_adjustement = torch.matmul( out_weights, mean_values )
+                bias_adjustement = out_proj( mean_values )
                 out_biases += bias_adjustement
 
-            # We change it from "True => Remove" to "True => keep" so we can multiply
-            keep_indices = torch.logical_not( remove_indices ).to( self.device )
+            # Delete the weights going out of the neuron (out_proj).
+            # Note: this is not actually necessary, and is hard to do with the
+            # accelerator quickly, but on single-gpu it is a good sanity check
+            if not self.use_accelerator:
+                # Change from "True => Remove" to "True => keep" for multiplication
+                keep_indices = torch.logical_not( remove_indices ).to( self.device )
 
-            # Delete the weights going out of the neuron (out_proj)
-            for row_index, weights_row in enumerate(out_weights):
-                out_weights[row_index] = weights_row * keep_indices
+                for row_index, weights_row in enumerate(out_weights):
+                    out_weights[row_index] = weights_row * keep_indices
 
             out_params.update({'weight': out_weights, 'bias': out_biases})
             out_proj.load_state_dict(out_params)
 
+            # 2. Delete the weights going into neuron (v_proj) so it never activates
+            v_params     = v_proj.state_dict()
+            v_weights   : Tensor = v_params['weight']
+            v_biases    : Tensor = v_params['bias']
+
             # Delete the weights going into the neuron (v_proj)
             for row_index, weights_row in enumerate(v_params['weight']):
-                v_weights[row_index] = weights_row         * keep_indices[row_index]
-                v_biases[row_index]  = v_biases[row_index] * keep_indices[row_index]
+                if remove_indices[row_index]:
+                    v_weights[row_index] = torch.zeros_like(weights_row)
+                    v_biases[row_index]  = torch.zeros_like(v_biases[row_index])
 
             v_params.update({'weight': v_weights, 'bias': v_biases})
             v_proj.load_state_dict(v_params)
@@ -632,7 +660,7 @@ class Model():
                 self.calculate_ff_keys_layer( ff_in_layer, layer_index,
                     use_activation_function=use_activation_function )
             )
-        return torch.stack( out )
+        return self.out_stack( out )
 
     def calculate_ff_out_layer( self, ff_in: Tensor, layer: int):
         u = self.model.decoder.layers[ layer ]
@@ -649,7 +677,7 @@ class Model():
             if add_residual:
                 ff_out += ff_in[layer_index]
             out.append( ff_out )
-        return torch.stack( out )
+        return self.out_stack( out )
 
     # functions for 'deleting' neurons from the MLP mid layers
     def delete_ff_keys( self, layer_key_map: Tensor ):

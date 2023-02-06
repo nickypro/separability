@@ -41,7 +41,7 @@ class TestDeleteAttnPreOutLayer:
             # Start tests
             for add_mean in [True, False]:
                 print(f"## Testing outward weight removals - add_mean={add_mean}")
-                opt = Model(model_size, device=device)
+                opt = Model(model_size, device=device, use_accelerator=False)
                 LAYER = 0
 
                 out_proj = opt.model.decoder.layers[LAYER].self_attn.out_proj
@@ -76,7 +76,7 @@ class TestDeleteAttnPreOutLayer:
 
             # Also test inward weight removals
             print("## Testing inward weight removals")
-            opt = Model(model_size, device=device)
+            opt = Model(model_size, device=device, use_accelerator=False)
             v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
 
             # Get output vector before deletion
