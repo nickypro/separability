@@ -16,9 +16,9 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 # Import from this project
-from model import Model
-from texts import prepare
-from data_classes import RunDataItem, ActivationCollector
+from .model import Model
+from .texts import prepare
+from .data_classes import RunDataItem, ActivationCollector
 
 ####################################################################################
 # Code for Evaluating Model

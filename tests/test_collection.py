@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pytest
 
-from model import Model
-from activations import get_midlayer_activations
+from seperability import Model
+from seperability.activations import get_midlayer_activations
 
 class TestCollection:
     def test_ff_collections(self, verbose: bool = False):

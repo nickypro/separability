@@ -4,4 +4,5 @@ tests/model.py
 tests/activations.py
 tests/texts.py
 tests/data_classes.py
+tests/seperability
 src/wandb

@@ -1,6 +1,6 @@
 import torch
-from model import Model
-from activations import evaluate_all, prune_and_evaluate
+from seperability import Model
+from seperability.activations import evaluate_all, prune_and_evaluate
 
 opt = Model("2.7b", limit=1000, use_accelerator=True, dtype=torch.float16, output_device="cuda:1")
 

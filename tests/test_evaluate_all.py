@@ -1,8 +1,7 @@
 """ Test the evaluate_all function. """
 
-import argparse
-from model import Model
-from activations import evaluate, evaluate_all
+from seperability import Model
+from seperability.activations import evaluate, evaluate_all
 
 class TestEvaluate:
     def test_evaluate(self):

@@ -6,7 +6,7 @@ That is, the 'codeparrot-clean' and 'the pile' datasets.
 import argparse
 from datasets import load_dataset
 
-from model import Model
+from .model import Model
 
 def load_code():
     _dataset = load_dataset("codeparrot/codeparrot-clean-valid", streaming=True )

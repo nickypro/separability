@@ -1,13 +1,12 @@
 """ Test the get_ff_keys and delete_ff_keys functions. """
 
-import argparse
 import copy
 
 from torch import Tensor
 import torch
 import numpy as np
 
-from model import Model
+from seperability import Model
 
 class TestDeleteFFKeys:
     def test_ff_key_counting(self):

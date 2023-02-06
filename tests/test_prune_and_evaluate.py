@@ -1,8 +1,8 @@
 import warnings
 import torch
 
-from model import Model
-from activations import prune_and_evaluate
+from seperability import Model
+from seperability.activations import prune_and_evaluate
 
 class TestPruneAndEvaluate:
     def test_prune_and_evaluate_accelerate(self):

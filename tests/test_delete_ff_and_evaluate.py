@@ -1,7 +1,6 @@
-import torch
 
-from model import Model
-from activations import count_ff_key_activations, evaluate_all
+from seperability import Model
+from seperability.activations import count_ff_key_activations, evaluate_all
 
 class TestDeleteFFKeys:
     def test_delete_ff_and_evaluate(self):

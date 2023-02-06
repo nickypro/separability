@@ -1,13 +1,12 @@
 """ Test the delete_attn_pre_out_layer function. """
 
-import argparse
 import copy
 
 from torch import Tensor
 import torch
 import numpy as np
 
-from model import Model
+from seperability import Model
 
 class TestDeleteAttnPreOutLayer:
     def test_delete_attn_pre_out_layer(self):

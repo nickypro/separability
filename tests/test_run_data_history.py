@@ -1,8 +1,8 @@
 import torch
 
-from model import Model
-from activations import evaluate_all
-from data_classes import RunDataHistory
+from seperability import Model
+from seperability.data_classes import RunDataHistory
+from seperability.activations import evaluate_all
 
 class TestRunDataHistory:
     def test_run_data_history(self):

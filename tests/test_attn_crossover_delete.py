@@ -1,7 +1,7 @@
 """ Test the calculate_attn_crossover function. """
-import argparse
-from activations import get_attn_activations, get_attn_crossover, evaluate_all
-from model import Model
+from seperability import Model
+from seperability.activations import get_attn_activations, \
+    get_attn_crossover, evaluate_all
 
 class TestAttnCrossoverDelete:
     def test_calculate_attn_crossover_and_delete(self):
