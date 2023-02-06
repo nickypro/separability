@@ -247,9 +247,9 @@ def get_midlayer_activations( opt: Model,
 
     # Summary information about activations
     if calculate_ff:
-        output["ff"]   = ff_data.summary()
+        output["ff"]   = ff_data.summary(dtype=opt.dtype)
     if calculate_attn:
-        output["attn"] = attn_data.summary()
+        output["attn"] = attn_data.summary(dtype=opt.dtype)
 
 
     # Raw activations of data

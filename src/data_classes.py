@@ -197,16 +197,16 @@ class ActivationCollector:
             raise ValueError('No data points added to ActivationCollector')
         return torch.stack(self.raw)
 
-    def summary(self):
+    def summary(self, dtype: torch.dtype = torch.float32):
         if self.n_points == 0:
             raise ValueError('No data points added to ActivationCollector')
 
         return {
-            'mean': self.all.mean,
-            'std': self.all.var_s,
-            'pos_mass': self.pos.mean,
-            'pos_var': self.pos.var_s,
-            'neg_mass': self.neg.mean,
-            'neg_var': self.neg.var_s,
+            'mean': self.all.mean.to(dtype=dtype),
+            'std': self.all.var_s.to(dtype=dtype),
+            'pos_mass': self.pos.mean.to(dtype=dtype),
+            'pos_var': self.pos.var_s.to(dtype=dtype),
+            'neg_mass': self.neg.mean.to(dtype=dtype),
+            'neg_var': self.neg.var_s.to(dtype=dtype),
             'pos_count': self.pos_counter / self.n_points,
         }

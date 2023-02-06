@@ -74,10 +74,18 @@ class InverseLinear(torch.nn.Module):
         return y
 
     # pylint: disable=arguments-differ
-    def to(self, device: Optional[Union[str, torch.device]], **kwargs):
+    def to(self,
+           device: Optional[Union[str, torch.device]] = None,
+           dtype: Optional[torch.dtype] = None,
+           **kwargs
+        ):
         super( InverseLinear, self ).to( device, **kwargs )
-        self.inverse_bias = self.inverse_bias.to( device, **kwargs )
-        self.fc = self.fc.to( device, **kwargs )
+        if device is not None:
+            self.inverse_bias = self.inverse_bias.to( device, **kwargs )
+            self.fc = self.fc.to( device, **kwargs )
+        if dtype is not None:
+            self.inverse_bias = self.inverse_bias.to( dtype=dtype, **kwargs )
+            self.fc = self.fc.to( dtype=dtype, **kwargs )
         return self
 
 model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b", "175b" ]
@@ -208,7 +216,13 @@ class Model():
         for layer in self.model.decoder.layers:
             layer.self_attn.inv_out_proj = InverseLinear( layer.self_attn.out_proj )
             layer.self_attn.inv_out_proj = \
-                layer.self_attn.inv_out_proj.to(self.device)
+                layer.self_attn.inv_out_proj.to(dtype=self.dtype).to(self.device)
+
+            # optionally, prepare the layer for acceleration
+            if not self.use_accelerator:
+                continue
+            layer.self_attn.inv_out_proj = \
+                self.accelerator.prepare(layer.self_attn.inv_out_proj)
 
     def get_ids( self, text:str, limit:Optional[int]=None ):
         limit = self.limit if (limit is None) else limit

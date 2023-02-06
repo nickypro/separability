@@ -1,7 +1,8 @@
+import torch
 from model import Model
 from activations import evaluate_all, prune_and_evaluate
 
-opt = Model("2.7b", limit=1000, use_accelerator=True)
+opt = Model("2.7b", limit=1000, use_accelerator=True, dtype=torch.float16)
 
 evaluate_all(opt, 1e4)
 
