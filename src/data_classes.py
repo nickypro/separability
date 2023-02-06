@@ -149,17 +149,19 @@ class ActivationCollector:
     def __init__(self,
             shape: Tuple[int],
             device: str,
-            collect_raw: bool = False
+            collect_raw: bool = False,
+            dtype: torch.dtype = torch.float64,
         ):
         self.shape       = shape
         self.collect_raw = collect_raw
         self.device      = device
+        self.dtype       = dtype
         self.n_points    = 0
 
         # Welford for calculating mean and variance
-        self.all : Welford = Welford().detach()
-        self.pos = Welford().detach()
-        self.neg = Welford().detach()
+        self.all : Welford = Welford(dtype=self.dtype).detach()
+        self.pos = Welford(dtype=self.dtype).detach()
+        self.neg = Welford(dtype=self.dtype).detach()
 
         # Count number of times each activation is positive
         self.pos_counter = \
