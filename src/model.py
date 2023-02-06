@@ -62,7 +62,8 @@ class InverseLinear(torch.nn.Module):
         self.inverse_bias = -bias
 
         # Define the Inverse Linear Layer
-        inverse_weights = weights.inverse()
+        _dtype = weights.dtype
+        inverse_weights = weights.to(dtype=torch.float64).inverse().to(dtype=_dtype)
         size = inverse_weights.size()
         self.fc = torch.nn.Linear( size[0], size[1], bias=False )
         self.fc.load_state_dict({'weight': inverse_weights})
@@ -91,6 +92,7 @@ class Model():
             model_device: str = None,
             output_device: str = None,
             use_accelerator: bool = True,
+            dtype: torch.dtype = torch.float32,
         ):
         """
         OPT Model with functions for extracting activations.
@@ -99,6 +101,8 @@ class Model():
 
         # Initialize model differently depending on accelerator use
         self.use_accelerator = use_accelerator
+        self.dtype = dtype
+
         if self.use_accelerator:
             self.accelerator = Accelerator()
             self.device = self.accelerator.device
@@ -134,12 +138,12 @@ class Model():
 
         # Initialize model (with or without accelerator)
         if self.use_accelerator:
-            self.predictor = \
-                AutoModelForCausalLM.from_pretrained(self.repo, device_map="auto")
+            self.predictor = AutoModelForCausalLM.from_pretrained(
+                self.repo, torch_dtype=self.dtype, device_map="auto")
         else:
-            self.predictor = \
-                AutoModelForCausalLM.from_pretrained(self.repo)
-            #   OPTForCausalLM.from_pretrained( self.repo )
+            self.predictor = AutoModelForCausalLM.from_pretrained(
+                self.repo, torch_dtype=self.dtype)
+            #   OPTForCausalLM.from_pretrained( self.repo, dtype=self.dtype )
         self.model = self.predictor.model
 
         print(f'- Loaded OPT-{self.model_size}')
