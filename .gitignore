@@ -2,6 +2,7 @@
 __pycache__
 tmp
 src/wandb
+src/.ipynb_checkpoints
 src/seperability/__pycache__
 src/seperability/wandb
 tests/__pycache__
