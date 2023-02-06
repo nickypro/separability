@@ -10,7 +10,7 @@ from accelerate import Accelerator
 from datasets import Dataset
 from transformers.models.opt.modeling_opt import OPTAttention
 
-from transformers import GPT2Tokenizer, OPTForCausalLM, AutoModelForCausalLM
+from transformers import GPT2Tokenizer, AutoModelForCausalLM
 import torch
 import numpy as np
 from welford_torch import Welford
@@ -108,13 +108,13 @@ class Model():
         """
 
         # Initialize model differently depending on accelerator use
-        self.use_accelerator = use_accelerator
+        self.use_accelerator = use_accelerator and torch.cuda.device_count() > 1
         self.dtype = dtype
 
         if self.use_accelerator:
             self.accelerator = Accelerator()
             self.device = self.accelerator.device
-            self.output_device = output_device if output_device else 'cpu'
+            self.output_device = output_device if output_device else 'cuda:1'
 
         else:
             self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
