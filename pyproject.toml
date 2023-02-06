@@ -24,6 +24,7 @@ welford-torch = "^0.1.2"
 einops = "^0.6.0"
 matplotlib = "^3.6.3"
 wandb = "^0.13.9"
+accelerate = "^0.16.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.1"
