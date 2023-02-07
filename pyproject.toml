@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "seperability"
-version = "0.1.0"
+version = "0.1.1"
 description = "Seperability of LLM Capabilities"
 authors = ["Nicky Pochinkov"]
 readme = "README.md"
