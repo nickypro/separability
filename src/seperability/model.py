@@ -63,7 +63,7 @@ class InverseLinear(torch.nn.Module):
 
         # Define the Inverse Linear Layer
         _dtype, _device = weights.dtype, weights.device
-        inverse_weights = weights.to('cuda:1').to(dtype=torch.float64).inverse()
+        inverse_weights = weights.cpu().to(dtype=torch.float64).inverse()
         inverse_weights = inverse_weights.to(dtype=_dtype).to(_device)
         size = inverse_weights.size()
         self.fc = torch.nn.Linear( size[0], size[1], bias=False )
@@ -80,7 +80,7 @@ class InverseLinear(torch.nn.Module):
            dtype: Optional[torch.dtype] = None,
            **kwargs
         ):
-        super( InverseLinear, self ).to( device, **kwargs )
+        super( InverseLinear, self ).to( device, dtype=dtype, **kwargs )
         if device is not None:
             self.inverse_bias = self.inverse_bias.to( device, **kwargs )
             self.fc = self.fc.to( device, **kwargs )
@@ -160,7 +160,7 @@ class Model():
             self.model_repo, torch_dtype=self.dtype, device_map=device_map)
         self.model = self.predictor.model
 
-        print(f'- Loaded OPT-{self.model_size}')
+        print(f'- Loaded {self.model_repo}')
         self.activations = {}
 
         attn0 = self.model.decoder.layers[0].self_attn
