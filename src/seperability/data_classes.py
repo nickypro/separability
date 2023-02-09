@@ -31,7 +31,7 @@ class RunDataItem:
         'raw': keys_raw,
     }
 
-    def __init__(self, datasets: List[str] = None):
+    def __init__(self, input_data: dict = None, datasets: List[str] = None):
         if datasets is None:
             datasets = ['pile', 'code']
         self.datasets = datasets
@@ -55,6 +55,9 @@ class RunDataItem:
 
         # Raw Activations
         self.raw = {key: [] for key in self.keys_raw}
+
+        if not input_data is None:
+            self.update(input_data)
 
     def update(self, data):
         """ Update data in DataItem.
@@ -83,6 +86,9 @@ class RunDataItem:
         areas = {f'area_{key}': value for key, value in self.areas.items()}
 
         return { **dataset_loss, **dataset_accuracy, **self.deletions, **areas }
+
+    def __str__(self):
+        return str(self.summary())
 
 ######################################################################################
 # Run Data History Class
