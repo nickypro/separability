@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 # Import matplotlib and set dpi to 300
 import matplotlib as mpl
+from .model_names import supported_model_names
 mpl.rcParams['figure.dpi'] = 300
 
 # Return with the output tensors detached from gpu
@@ -89,13 +90,6 @@ class InverseLinear(torch.nn.Module):
             self.fc = self.fc.to( dtype=dtype, **kwargs )
         return self
 
-opt_model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b" ]
-galactica_model_sizes = [ "125m", "1.3b", "6.7b", "30b", "120b" ]
-tested_models = [
-    *[ f"facebook/opt-{s}"       for s in opt_model_sizes ],
-    *[ f"facebook/galactica-{s}" for s in galactica_model_sizes ],
-]
-
 class Model():
     """ Wrapper Class for Meta OPT model that allows me to do interpretability
     work on it's activations and modify it's parameters as needed. """
@@ -141,7 +135,7 @@ class Model():
 
     # pylint: disable=attribute-defined-outside-init
     def set_repo( self, model_name: str ):
-        if model_name not in tested_models:
+        if model_name not in supported_model_names:
             warnings.warn( f"Model {model_name} not tested." )
 
         self.model_size = model_name.split('-')[-1]

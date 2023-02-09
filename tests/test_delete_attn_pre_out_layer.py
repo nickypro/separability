@@ -7,11 +7,13 @@ import torch
 import numpy as np
 
 # pylint: disable=import-error
+import pytest
+from seperability.model_names import test_model_names
 from seperability import Model
 
 class TestDeleteAttnPreOutLayer:
-    model_name = "facebook/opt-125m"
-    def test_delete_attn_pre_out_layer(self):
+    @pytest.mark.parametrize("model_name", test_model_names)
+    def test_delete_attn_pre_out_layer(self, model_name):
         print("# Running Test: test_delete_attn_pre_out_layer")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         with torch.no_grad():
@@ -41,7 +43,7 @@ class TestDeleteAttnPreOutLayer:
             # Start tests
             for add_mean in [True, False]:
                 print(f"## Testing outward weight removals - add_mean={add_mean}")
-                opt = Model(self.model_name, model_device=device, use_accelerator=False)
+                opt = Model(model_name, model_device=device, use_accelerator=False)
                 LAYER = 0
 
                 out_proj = opt.model.decoder.layers[LAYER].self_attn.out_proj
@@ -76,7 +78,7 @@ class TestDeleteAttnPreOutLayer:
 
             # Also test inward weight removals
             print("## Testing inward weight removals")
-            opt = Model(self.model_name, model_device=device, use_accelerator=False)
+            opt = Model(model_name, model_device=device, use_accelerator=False)
             v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
 
             # Get output vector before deletion

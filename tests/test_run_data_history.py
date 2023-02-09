@@ -1,15 +1,16 @@
 import torch
 
 # pylint: disable=import-error
+import pytest
+from seperability.model_names import test_model_names
 from seperability import Model
 from seperability.data_classes import RunDataHistory
 from seperability.activations import evaluate_all
 
 class TestRunDataHistory:
-    model_name = "facebook/opt-125m"
-
-    def test_run_data_history(self):
-        opt = Model(self.model_name, limit=1000)
+    @pytest.mark.parametrize("model_name", test_model_names)
+    def test_run_data_history(self, model_name):
+        opt = Model(model_name, limit=1000)
         history = RunDataHistory(use_wandb=False)
 
         eval_data = evaluate_all(opt, 1e4)

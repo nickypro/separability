@@ -7,17 +7,19 @@ import torch
 import numpy as np
 
 # pylint: disable=import-error
+import pytest
+from seperability.model_names import test_model_names
 from seperability import Model
 
 class TestDeleteFFKeys:
-    model_name = "facebook/opt-125m"
-    def test_ff_key_counting(self):
+    @pytest.mark.parametrize("model_name", test_model_names)
+    def test_ff_key_counting(self, model_name):
         print("# Running Test: test_ff_key_counting")
         n_layers = 12
         d_ff     = 3072 # This is the value for 125m, 4*768
 
         # Initialize model
-        opt = Model(self.model_name, limit=1000)
+        opt = Model(model_name, limit=1000)
 
         # Run text
         text = "for ( var i = 0; i < 10; i++ ) { console.log(i); }"
@@ -38,7 +40,8 @@ class TestDeleteFFKeys:
         print( "Text size:", ff_keys.size() )
         print( "Expected :", expected_size )
 
-    def test_delete_ff_keys(self):
+    @pytest.mark.parametrize("model_name", test_model_names)
+    def test_delete_ff_keys(self, model_name):
         print("# Running Test: test_delete_ff_keys")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         n_layers = 12
@@ -69,7 +72,7 @@ class TestDeleteFFKeys:
         removal_indices = torch.stack(removal_indices)
         print( removal_indices.size() )
 
-        opt = Model(self.model_name, model_device=device, use_accelerator=False)
+        opt = Model(model_name, model_device=device, use_accelerator=False)
 
         # Pre-test to make sure that outputs are different on each layer
         for layer in range(opt.n_layers):

@@ -1,14 +1,16 @@
 """ Test the evaluate_all function. """
 
 # pylint: disable=import-error
+import pytest
+from seperability.model_names import test_model_names
 from seperability import Model
 from seperability.activations import evaluate, evaluate_all
 
 class TestEvaluate:
-    model_name = "facebook/opt-125m"
-    def test_evaluate(self):
+    @pytest.mark.parametrize("model_name", test_model_names)
+    def test_evaluate(self, model_name):
         print("# Running test: test_evaluate")
-        opt = Model(self.model_name, limit=1000)
+        opt = Model(model_name, limit=1000)
         opt.show_details()
 
         # We run the a first time, with a small subset of data
@@ -72,12 +74,12 @@ class TestEvaluate:
             assert data_1[key]*1.2 > data_2[key]
         print()
 
-    def test_evaluate_all(self, verbose: bool = False ):
+    @pytest.mark.parametrize("model_name", test_model_names)
+    def test_evaluate_all(self, model_name):
         print("# Running test: test_evaluate_all")
-        opt = Model(self.model_name, limit=1000)
-        if verbose:
-            opt.show_details()
+        opt = Model(model_name, limit=1000)
+        opt.show_details()
 
-        data = evaluate_all( opt, 1e3, verbose=verbose )
+        data = evaluate_all( opt, 1e3 )
 
         print( data.keys() )
