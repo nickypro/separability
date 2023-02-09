@@ -419,6 +419,9 @@ class Model():
     # then: W_o * pre_out       -> output          "attn_out"
     # output: attn_out, attn_weights, (k_i, v_i)
 
+    def get_attn_layers(self):
+        return [ l.self_attn for l in self.model.decoder.layers ]
+
     def prepare_attention_mask( self, inpt: Tensor ):
         decoder = self.model.decoder
         input_shape = input.size()[:-1]
@@ -702,15 +705,22 @@ class Model():
     # functions for 'deleting' neurons from the MLP mid layers
     def delete_ff_keys( self, layer_key_map: Tensor ):
         for layer, key_map in enumerate(layer_key_map):
-            # Get state dict
-            ff_1  = self.model.decoder.layers[ layer ].fc1
-            state_dict = ff_1.state_dict()
+            # 2. Delete the weights going into ff key so it never activates
+            ff_in = self.model.decoder.layers[ layer ].fc1
+            ff_in_params     = ff_in.state_dict()
+            ff_in_weights   : Tensor = ff_in_params['weight']
+            ff_in_biases    : Tensor = ff_in_params['bias']
 
-            # set biases to -inf to 'delete' the keys (due to ReLU)
-            for index, delete in enumerate(key_map):
-                if delete:
-                    state_dict['bias'][index] = - torch.inf
-            ff_1.load_state_dict( state_dict )
+            # Delete the weights going into the neuron (v_proj)
+            for row_index, weights_row in enumerate(ff_in_weights):
+                if key_map[row_index]:
+                    ff_in_weights[row_index] = torch.zeros_like(weights_row)
+                    ff_in_biases[row_index]  = torch.zeros_like(ff_in_biases[row_index])
+
+            ff_in_params.update({'weight': ff_in_weights, 'bias': ff_in_biases})
+            ff_in.load_state_dict(ff_in_params)
+
+            return
 
     def delete_ff_keys_from_files( self, files: List[str] ):
         """Delete ff mid layer neurons from list of numpy files
