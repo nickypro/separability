@@ -1,16 +1,18 @@
 """ Test the calculate_attn_crossover function. """
 
 # pylint: disable=import-error
+import pytest
+from seperability.test_model_names import model_names
 from seperability import Model
 from seperability.activations import get_attn_activations, \
     get_attn_crossover, evaluate_all
 
 class TestAttnCrossoverDelete:
-    model_name = "facebook/opt-125m"
-    def test_calculate_attn_crossover_and_delete(self):
+    @pytest.mark.parametrize("model_name", model_names)
+    def test_calculate_attn_crossover_and_delete(self, model_name):
         print("# Running test: test_calculate_attn_crossover_and_delete")
         # Load model and evaluate
-        opt = Model( self.model_name, limit=1000 )
+        opt = Model( model_name, limit=1000 )
         print(" - Initial Evaluation...")
         eval_before = evaluate_all( opt, 1e3 )
 

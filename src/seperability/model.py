@@ -192,7 +192,7 @@ class Model():
         self.predictor.to( device )
         self.model.to( device )
 
-    def out_stack(self, tensor_list: List[Tensor]):
+    def out_stack(self, tensor_list: List[Tensor]) -> Tensor:
         if self.use_accelerator or self.device != self.output_device:
             tensor_list = [ t.to(self.output_device) for t in tensor_list ]
         return torch.stack( tensor_list )

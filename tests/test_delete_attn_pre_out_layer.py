@@ -5,17 +5,21 @@ import copy
 from torch import Tensor
 import torch
 import numpy as np
+import pytest
 
 # pylint: disable=import-error
+from seperability.test_model_names import model_names
 from seperability import Model
 
 class TestDeleteAttnPreOutLayer:
-    model_name = "facebook/opt-125m"
-    def test_delete_attn_pre_out_layer(self):
+    @pytest.mark.parametrize("model_name", model_names)
+    def test_delete_attn_pre_out_layer(self, model_name):
         print("# Running Test: test_delete_attn_pre_out_layer")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        opt = Model(model_name, limit=1000)
+
         with torch.no_grad():
-            d_model = 768
+            d_model = opt.d_model
 
             # Define vectors for testing
             vec : Tensor = torch.tensor(
@@ -41,7 +45,7 @@ class TestDeleteAttnPreOutLayer:
             # Start tests
             for add_mean in [True, False]:
                 print(f"## Testing outward weight removals - add_mean={add_mean}")
-                opt = Model(self.model_name, model_device=device, use_accelerator=False)
+                opt = Model(model_name, model_device=device, use_accelerator=False)
                 LAYER = 0
 
                 out_proj = opt.model.decoder.layers[LAYER].self_attn.out_proj
@@ -63,7 +67,7 @@ class TestDeleteAttnPreOutLayer:
 
                 out_proj = opt.model.decoder.layers[LAYER].self_attn.out_proj
 
-                # Test that the new outputs do not care about changes to deleted indices
+                # Test that new outputs do not care about changes to deleted indices
                 # but still care about changes to undeleted indices.
                 new_vec_out = out_proj(vec)
                 new_vec_plus_out_1 = out_proj(vec_plus_1)
@@ -76,7 +80,7 @@ class TestDeleteAttnPreOutLayer:
 
             # Also test inward weight removals
             print("## Testing inward weight removals")
-            opt = Model(self.model_name, model_device=device, use_accelerator=False)
+            opt = Model(model_name, model_device=device, use_accelerator=False)
             v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
 
             # Get output vector before deletion
