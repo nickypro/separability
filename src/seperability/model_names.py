@@ -20,3 +20,7 @@ galactica_model_sizes = [ "125m", "1.3b", "6.7b", "30b", "120b" ]
 supported_model_names.extend([
     f"facebook/galactica-{s}" for s in galactica_model_sizes
 ])
+
+if __name__ == "__main__":
+    for model_name in supported_model_names:
+        print(model_name)
