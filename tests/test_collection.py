@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-# pylint: disable=import-error
+# pylint: disable=import-error, pointless-statement
 import pytest
 from seperability.model_names import test_model_names
 from seperability import Model
