@@ -3,7 +3,7 @@
 # List of models to use for pytest
 test_model_names = [
     "facebook/opt-125m",
-#    "facebook/galactica-125m",
+    "facebook/galactica-125m",
 ]
 
 # List of models to include for 'valid tested models' in Model

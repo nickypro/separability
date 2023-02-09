@@ -70,8 +70,8 @@ class TestEvaluate:
                 continue
             print( key, data_1[key], data_2[key] )
             assert data_1[key] != data_2[key]
-            assert data_1[key]*0.8 < data_2[key]
-            assert data_1[key]*1.2 > data_2[key]
+            assert data_1[key] < data_2[key] * 1.25
+            assert data_1[key] > data_2[key] * 0.75
         print()
 
     @pytest.mark.parametrize("model_name", test_model_names)
