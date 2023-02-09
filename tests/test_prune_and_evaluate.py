@@ -26,8 +26,6 @@ class TestPruneAndEvaluate:
 
     @pytest.mark.parametrize("model_name", test_model_names)
     def test_prune_and_evaluate(self, model_name):
-        print( "# Running Test: test_prune_and_evaluate" )
-
         opt = Model(model_name, limit=1000, use_accelerator=False)
         data = prune_and_evaluate(opt, 0.05, 0.05, 0.001, 1e4, 1e4)
 

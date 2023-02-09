@@ -5,6 +5,7 @@ import copy
 from torch import Tensor
 import torch
 import numpy as np
+import pytest
 
 # pylint: disable=import-error
 import pytest
@@ -16,8 +17,10 @@ class TestDeleteAttnPreOutLayer:
     def test_delete_attn_pre_out_layer(self, model_name):
         print("# Running Test: test_delete_attn_pre_out_layer")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        opt = Model(model_name, limit=1000)
+
         with torch.no_grad():
-            d_model = 768
+            d_model = opt.d_model
 
             # Define vectors for testing
             vec : Tensor = torch.tensor(
@@ -65,7 +68,7 @@ class TestDeleteAttnPreOutLayer:
 
                 out_proj = opt.model.decoder.layers[LAYER].self_attn.out_proj
 
-                # Test that the new outputs do not care about changes to deleted indices
+                # Test that new outputs do not care about changes to deleted indices
                 # but still care about changes to undeleted indices.
                 new_vec_out = out_proj(vec)
                 new_vec_plus_out_1 = out_proj(vec_plus_1)

@@ -1,7 +1,6 @@
 """ Test the get_ff_keys and delete_ff_keys functions. """
 
 import copy
-
 from torch import Tensor
 import torch
 import numpy as np
