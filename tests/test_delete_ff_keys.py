@@ -1,6 +1,5 @@
 """ Test the get_ff_keys and delete_ff_keys functions. """
 
-import copy
 from torch import Tensor
 import torch
 import numpy as np
@@ -89,13 +88,13 @@ class TestDeleteFFKeys:
         out_vecs_removed = torch.stack( out_vecs_removed )
 
         # Define a vector that is changed at certain indices
-        removal_tensor = torch.zeros_like(mid_vecs, dtype=torch.bool)
+        removal_tensor = torch.zeros((opt.n_layers, opt.d_ff), dtype=torch.bool)
         for layer in range(opt.n_layers):
             removal_tensor[layer][removed_indices] = True
 
         # Here the test starts
         # Pre-test to make sure that outputs are different on each layer
-        print('running post-deletion validation')
+        print('# Running pre-deletion validation')
         for layer in range(opt.n_layers):
             print('layer ', layer)
             mid_vec_layer = in_to_mid( in_vec, layer )
@@ -106,10 +105,11 @@ class TestDeleteFFKeys:
             assert torch.equal( out_vec_layer, out_vecs[layer] )
 
         # Run deletions on the layers
+        print('# Running deletion')
         opt.delete_ff_keys(removal_tensor)
 
         # Post-test to make sure deletions work as expected
-        print('running post-deletion validation')
+        print('# Running post-deletion validation')
         for layer in range(opt.n_layers):
             print('layer', layer)
             mid_vec_layer = in_to_mid( in_vec, layer )
@@ -120,9 +120,12 @@ class TestDeleteFFKeys:
             assert torch.equal( out_vec_layer, out_vecs_removed[layer] )
 
         # Extra sanity check: make sure that weights are zero where deleted
+        print('# Running sanity check')
         for layer in range(opt.n_layers):
+            print('layer', layer)
             w = opt.model.decoder.layers[layer].fc1.weight
+            removed_weights = ( torch.sum(w, dim=-1) == 0.0 )
             assert torch.equal(
-                removal_tensor[layer],
-                ( torch.sum( w, dim=0 ) == 0.0 )
+                removal_tensor[layer].cpu(),
+                removed_weights.cpu()
             )

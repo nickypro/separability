@@ -704,24 +704,27 @@ class Model():
 
     # functions for 'deleting' neurons from the MLP mid layers
     def delete_ff_keys( self, layer_key_map: Tensor ):
+        print('layer key map:', layer_key_map.shape)
         for layer, key_map in enumerate(layer_key_map):
+            print('deleting layer', layer)
+            print(key_map)
             # 2. Delete the weights going into ff key so it never activates
             ff_in = self.model.decoder.layers[ layer ].fc1
-            ff_in_params     = ff_in.state_dict()
-            ff_in_weights   : Tensor = ff_in_params['weight']
-            ff_in_biases    : Tensor = ff_in_params['bias']
+            ff_params     = ff_in.state_dict()
+            ff_weights   : Tensor = ff_params['weight']
+            ff_biases    : Tensor = ff_params['bias']
 
             # Delete the weights going into the neuron (v_proj)
-            for row_index, weights_row in enumerate(ff_in_weights):
+            for row_index, weights_row in enumerate(ff_weights):
                 if key_map[row_index]:
-                    ff_in_weights[row_index] = torch.zeros_like(weights_row)
-                    ff_in_biases[row_index]  = torch.zeros_like(ff_in_biases[row_index])
+                    ff_weights[row_index] = torch.zeros_like(weights_row)
+                    ff_biases[row_index]  = torch.zeros_like(ff_biases[row_index])
 
             # update model decoder layers
-            ff_in_params.update({'weight': ff_in_weights, 'bias': ff_in_biases})
-            self.model.decoder.layers[ layer ].fc1.load_state_dict(ff_in_params)
+            ff_params.update({'weight': ff_weights, 'bias': ff_biases})
+            self.model.decoder.layers[ layer ].fc1.load_state_dict(ff_params)
 
-            return
+        return self
 
     def delete_ff_keys_from_files( self, files: List[str] ):
         """Delete ff mid layer neurons from list of numpy files
