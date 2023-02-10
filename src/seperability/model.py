@@ -717,8 +717,9 @@ class Model():
                     ff_in_weights[row_index] = torch.zeros_like(weights_row)
                     ff_in_biases[row_index]  = torch.zeros_like(ff_in_biases[row_index])
 
+            # update model decoder layers
             ff_in_params.update({'weight': ff_in_weights, 'bias': ff_in_biases})
-            ff_in.load_state_dict(ff_in_params)
+            self.model.decoder.layers[ layer ].fc1.load_state_dict(ff_in_params)
 
             return
 
