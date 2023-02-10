@@ -1,6 +1,7 @@
 .venv
 __pycache__
 tmp
+examples/wandb
 src/wandb
 src/.ipynb_checkpoints
 src/seperability/__pycache__
