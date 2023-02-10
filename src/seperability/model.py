@@ -90,6 +90,97 @@ class InverseLinear(torch.nn.Module):
             self.fc = self.fc.to( dtype=dtype, **kwargs )
         return self
 
+def mlp_delete_rows(mlp: torch.nn.Linear, deletion_indices: Tensor):
+    """Deletes (in place) the weights and biases of rows of the MLP that
+    are marked True in deletion_rows
+
+    Args:
+        mlp (torch.nn.Linear): The Multi-Layer Perceptron to delete rows from
+        deletion_rows (Tensor): Tensor of booleans indicating which rows to delete
+    """
+    # Get the parameters from the MLP
+    params = mlp.state_dict()
+    weights: Tensor = params['weight']
+    biases: Tensor  = params['bias']
+
+    # Delete the weights and biases from the rows
+    n_rows = len(weights)
+    for row_index in range(n_rows):
+        if deletion_indices[row_index]:
+            weights[row_index] = torch.zeros_like(weights[row_index])
+            biases[row_index]  = torch.zeros_like(biases[row_index])
+
+    # Update the model to have the deleted rows
+    params.update({'weight': weights, 'bias': biases})
+    mlp.load_state_dict(params)
+
+    return mlp
+
+def mlp_adjust_biases(
+        mlp: torch.nn.Linear,
+        deletion_indices: Tensor,
+        mean_activations: Tensor,
+    ):
+    """ Calculates the bias adjustement needed to compensate for the deletion of
+    neurons in the MLP, and applies it to the MLP
+
+    Args:
+        mlp (torch.nn.Linear): The Multi-Layer Perceptron to adjust the biases of
+        deletion_rows (Tensor): The
+        mean_activations (Tensor):
+    """
+    if mean_activations is None:
+        return mlp
+
+    # Load parameters
+    params = mlp.state_dict()
+    biases: Tensor = params['bias']
+    device = biases.device
+
+    # Make a temporary copy of the MLP with only the weights (no biases).
+    params.update({'bias': torch.zeros_like(biases)})
+    mlp.load_state_dict(params)
+
+    # adjust bias of out_proj by mean activations
+    mean_activations  = mean_activations.detach().clone().to(device)
+    mean_activations *= deletion_indices.to(device)
+    bias_adjustement = mlp( mean_activations )
+    biases += bias_adjustement
+
+    # Place biases back into the MLP, with adjustements from above
+    params.update({'bias': biases})
+    mlp.load_state_dict(params)
+
+    return mlp
+
+def mlp_delete_columns(mlp: torch.nn.Linear, deletion_indices: Tensor):
+    """Deletes (in place) the columns of weights in the MLP that are
+    marked as True in deletion_indices
+
+    Args:
+        mlp (torch.nn.Linear): The Multi-Layer Perceptron to delete columns from
+        deletion_indices (Tensor): The indices of the columns to delete
+    """
+    # Load parameters
+    params = mlp.state_dict()
+    weights: Tensor = params['weight']
+    device = weights.device
+
+    # Transpose the weights, then delete row by row
+    weights_t = weights.transpose(0, 1)
+
+    for row_index, delete_row in enumerate(deletion_indices):
+        if delete_row:
+            weights_t[row_index] = torch.zeros_like(weights_t[row_index])
+
+    weights = weights_t.transpose(0, 1)
+
+    # Update the model to have the deleted columns
+    params.update({'weight': weights})
+    mlp.load_state_dict(params)
+
+    return mlp
+
 class Model():
     """ Wrapper Class for Meta OPT model that allows me to do interpretability
     work on it's activations and modify it's parameters as needed. """
@@ -535,7 +626,7 @@ class Model():
         if isinstance(mean_values,    np.ndarray):
             mean_values = torch.tensor(mean_values, dtype=torch.float32)
 
-        # NOTE: in this case, we need to delete both the input and the output
+        # NOTE: in this case, we need to modify both the input and the output
         #       of the attention pre_out (ie: v_proj and out_proj) layers
         #       since we have the option of offset by the mean value
 
@@ -550,54 +641,21 @@ class Model():
             # get the attention that we are changing.
             # We change both (1) the inputs and (2) the outputs of the pre_out layer
             out_proj = self.model.decoder.layers[layer_index].self_attn.out_proj
-            v_proj    = self.model.decoder.layers[layer_index].self_attn.v_proj
+            v_proj   = self.model.decoder.layers[layer_index].self_attn.v_proj
 
             # 1. Adjust the biases out of the out_proj layer to compensate for
             #    the deletion of the weights
-            out_params   = out_proj.state_dict()
-            out_weights : Tensor = out_params['weight']
-            out_biases  : Tensor = out_params['bias']
+            if not remove_indices is None:
+                mlp_adjust_biases( out_proj, remove_indices, mean_values )
 
-            # Make a temporary copy of the weights going into the neuron (v_proj).
-            out_params.update({'bias': torch.zeros_like(out_biases)})
-            out_proj.load_state_dict(out_params)
-
-            # adjust bias of out_proj by mean activations
-            if not mean_values is None:
-                assert mean_values.size() == torch.Size([self.d_model])
-                mean_values  = mean_values.detach().clone().to( self.device )
-                mean_values *= remove_indices.to( self.device )
-                bias_adjustement = out_proj( mean_values )
-                out_biases += bias_adjustement
-
-            # Delete the weights going out of the neuron (out_proj).
-            # Note: this is not actually necessary, and is hard to do with the
-            # accelerator quickly, but on single-gpu it is a good sanity check
+            # Optionally, delete the weights going out of a neuron
+            # more of a sanity check than actually being useful
             if not self.use_accelerator:
-                # Change from "True => Remove" to "True => keep" for multiplication
-                keep_indices = torch.logical_not( remove_indices ).to( self.device )
+                mlp_delete_columns( out_proj, remove_indices )
 
-                for row_index, weights_row in enumerate(out_weights):
-                    out_weights[row_index] = weights_row * keep_indices
-
-            out_params.update({'weight': out_weights, 'bias': out_biases})
-            out_proj.load_state_dict(out_params)
-
-            # 2. Delete the weights going into neuron (v_proj) so it never activates
-            v_params     = v_proj.state_dict()
-            v_weights   : Tensor = v_params['weight']
-            v_biases    : Tensor = v_params['bias']
-
-            # Delete the weights going into the neuron (v_proj)
-            for row_index, weights_row in enumerate(v_params['weight']):
-                if remove_indices[row_index]:
-                    v_weights[row_index] = torch.zeros_like(weights_row)
-                    v_biases[row_index]  = torch.zeros_like(v_biases[row_index])
-
-            v_params.update({'weight': v_weights, 'bias': v_biases})
-            v_proj.load_state_dict(v_params)
-
-            return
+            # 2. Delete the weights and biases going into neuron (v_proj)
+            #  so it never activates in the first place
+            mlp_delete_rows(v_proj, remove_indices)
 
     def delete_attn_pre_out( self,
             remove_indices: Tensor,
@@ -704,25 +762,10 @@ class Model():
 
     # functions for 'deleting' neurons from the MLP mid layers
     def delete_ff_keys( self, layer_key_map: Tensor ):
-        print('layer key map:', layer_key_map.shape)
         for layer, key_map in enumerate(layer_key_map):
-            print('deleting layer', layer)
-            print(key_map)
             # 2. Delete the weights going into ff key so it never activates
             ff_in = self.model.decoder.layers[ layer ].fc1
-            ff_params     = ff_in.state_dict()
-            ff_weights   : Tensor = ff_params['weight']
-            ff_biases    : Tensor = ff_params['bias']
-
-            # Delete the weights going into the neuron (v_proj)
-            for row_index, weights_row in enumerate(ff_weights):
-                if key_map[row_index]:
-                    ff_weights[row_index] = torch.zeros_like(weights_row)
-                    ff_biases[row_index]  = torch.zeros_like(ff_biases[row_index])
-
-            # update model decoder layers
-            ff_params.update({'weight': ff_weights, 'bias': ff_biases})
-            self.model.decoder.layers[ layer ].fc1.load_state_dict(ff_params)
+            mlp_delete_rows(ff_in, key_map)
 
         return self
 
