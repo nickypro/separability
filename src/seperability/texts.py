@@ -8,12 +8,20 @@ from datasets import load_dataset
 
 from .model import Model
 
-def load_code():
-    _dataset = load_dataset("codeparrot/codeparrot-clean-valid", streaming=True )
+def load_code(_name=None):
+    repo = "codeparrot/github-code-clean"
+    name = 'all-all'
+
+    # allow custom configurations
+    if (_name is not None) and (1 <= len(_name)):
+        name = _name
+
+    _dataset = load_dataset(repo, name, streaming=True)
     return _dataset['train']
 
 def load_pile():
-    _dataset = load_dataset("EleutherAI/the_pile_deduplicated", streaming=True )
+    repo = "EleutherAI/the_pile_deduplicated"
+    _dataset = load_dataset(repo, streaming=True )
     return _dataset['train']
 
 # Hard load the most common tokens from the datasets from previous runs.
@@ -21,8 +29,8 @@ def load_pile():
 most_common_code_tokens = [' ', '\n', '.', '_', ',', '#', '(', ' =', ' import', 'from', ' the', ':', ')', '\n\n', 'import', " '", '/', '-', '):', '\t', "',", ' "', ' self', '=', ' of', "'", '__', ' (', 'self', ' in', ' License', '</s>', ' is', '0', ' for', ' to', 's', '1', '2', ' a', ' as', '\r', ' -', ' and', ' def', ' #', 'x', '()', "('", '\\']
 most_common_pile_tokens = ['\n', '.', ',', ' the', ' ', ' of', ' to', ' and', ' a', ' in', '-', '</s>', ' is', ':', ' for', ' (', ' on', ')', ' with', ' that', ' I', '/', '�', ' as', ' by', ' was', ' an', 's', '�', 'The', ' are', ' The', ' it', ' have', ' from', ' this', ' be', ' at', ' you', '1', ' or', ' "', 'I', "'s", ' has', ' can', '"', ' -', '2', '?']
 
-def prepare_code():
-    return load_code(), 'content', most_common_code_tokens
+def prepare_code(name = None):
+    return load_code(name), 'code', most_common_code_tokens
 
 def prepare_pile():
     return load_pile(), 'text', most_common_pile_tokens
@@ -30,8 +38,10 @@ def prepare_pile():
 def prepare( dataset_name ):
     if dataset_name == 'pile':
         return prepare_pile()
-    if dataset_name == 'code':
-        return prepare_code()
+
+    if dataset_name[:4] == 'code':
+        name = dataset_name[5:]
+        return prepare_code(name)
 
 if __name__ == "__main__":
     # syntax: python texts.py model_size dataset
