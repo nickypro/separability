@@ -1,8 +1,6 @@
 from typing import List, Tuple, Union
-from copy import deepcopy
 
 import torch
-import numpy as np
 import pandas as pd
 import wandb
 from welford_torch import Welford
@@ -11,6 +9,18 @@ from welford_torch import Welford
 # Data Store Classes
 ######################################################################################
 
+# function for converting nested dicts to dicts with slash notation
+def flatten_dict(d, parent_key='', sep='/'):
+    items = []
+    for k, v in d.items():
+        new_key = parent_key + sep + k if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+# define data store class
 class RunDataItem:
     """ Data class for storing data from a single run.
     """
@@ -73,7 +83,12 @@ class RunDataItem:
             'accuracy': self.accuracy,
             'deletions': self.deletions,
             'deletions_per_layer': self.deletions_per_layer,
+            'areas': self.areas,
         }
+
+    def summary_wandb(self):
+        data = self.summary()
+        return flatten_dict(data, sep="/")
 
     def flat_summary(self):
         dataset_loss = {}
@@ -112,7 +127,7 @@ class RunDataHistory:
 
         # Log to wandb
         if self.use_wandb:
-            wandb.log( self.history[-1].summary() )
+            wandb.log( self.history[-1].summary_wandb() )
 
         # save to pandas DataFrame
         self.df_append(item)
