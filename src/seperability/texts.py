@@ -39,6 +39,9 @@ def prepare( dataset_name ):
     if dataset_name == 'pile':
         return prepare_pile()
 
+    if dataset_name == 'python':
+        return prepare_code('Python-all')
+
     if dataset_name[:4] == 'code':
         name = dataset_name[5:]
         return prepare_code(name)

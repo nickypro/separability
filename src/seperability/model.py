@@ -982,6 +982,7 @@ class Model():
             token_limit: Optional[int] = None,
             count_tokens: bool = False,
             num_top_tokens: int = 50,
+            loading_bar_desc: str = "Acc",
             ):
         """An evaluation of next-token prediction accuracy for an iterable Dataset,
         which includes options for topk evaluation as well as skipping the most
@@ -1065,7 +1066,8 @@ class Model():
 
                 # Print output string showing current accuracy
                 percent  = self.calculate_evaluation_percentages( out, string=True )
-                out_str  =   f"Acc: {percent['topk']}|{percent['base']} "
+                out_str  = f"{loading_bar_desc}: "
+                out_str +=        f"{percent['topk']}|{percent['base']} "
                 out_str += f"(Skip: {percent['topk_skip']}|{percent['skip']})"
                 pbar.set_description( out_str )
 

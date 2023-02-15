@@ -110,7 +110,8 @@ class RunDataItem:
 ######################################################################################
 
 class RunDataHistory:
-    def __init__(self, use_wandb: bool = True):
+    def __init__(self, datasets: List[str] = None, use_wandb: bool = True):
+        self.datasets = datasets if datasets is not None else ['pile', 'code']
         self.history : List[RunDataItem] = []
         self.df = pd.DataFrame()
         self.use_wandb = use_wandb
@@ -118,7 +119,7 @@ class RunDataHistory:
     def add(self, item: Union[RunDataItem, dict]):
         # Add RunDataItem to history
         if not isinstance(item, RunDataItem) and isinstance(item, dict):
-            item = RunDataItem().update(item)
+            item = RunDataItem(datasets=self.datasets).update(item)
         self.history.append(item)
 
         # Calculate EXTRACT prediction areas
@@ -140,9 +141,10 @@ class RunDataHistory:
     def calculate_areas(self):
         keys = RunDataItem.keys_accuracy
         areas = {}
+        dataset_1, dataset_2 = self.datasets[:2]
         for k in keys:
-            pile_data = [ run.accuracy['pile'][k] for run in self.history ]
-            code_data = [ run.accuracy['code'][k] for run in self.history ]
+            pile_data = [ run.accuracy[dataset_1][k] for run in self.history ]
+            code_data = [ run.accuracy[dataset_2][k] for run in self.history ]
 
             total_area = 0.5 * pile_data[0] * code_data[0]
             area = 0

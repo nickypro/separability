@@ -31,11 +31,13 @@ def evaluate( opt: Model,
         verbose: bool = False,
         dataset_texts_to_skip: int = 0,
     ):
+    print(f"Evaluating {dataset_name}...")
+
     dataset, label, skip_eval = prepare( dataset_name )
     dataset = dataset.skip( dataset_texts_to_skip )
     out = opt.evaluate_dataset( dataset, k=topk, start_index=1,
         sample_size=sample_size, skip_eval=skip_eval, dataset_text_label=label,
-        count_tokens=False )
+        count_tokens=False, loading_bar_desc="%6s"%dataset_name )
 
     percent  = out['percent']
     loss     = round(float(out['loss']), 4)
@@ -59,23 +61,20 @@ def evaluate( opt: Model,
 
 def evaluate_all( opt: Model,
         sample_size: int = 1e5,
+        datasets = None,
         topk: int = 10,
         verbose: bool = False,
         texts_to_skip: int = 0,
     ):
-    pile_out = evaluate( opt, 'pile', sample_size, topk, verbose, texts_to_skip )
-    code_out = evaluate( opt, 'code', sample_size, topk, verbose, texts_to_skip )
+    if datasets is None:
+        datasets = ['pile', 'code']
 
-    out = {
-        'loss_data': {
-            'pile': pile_out['loss_data'],
-            'code': code_out['loss_data'],
-        },
-        'accuracy': {
-            'pile': pile_out['percent'],
-            'code': code_out['percent'],
-        },
-    }
+    out = { 'loss_data': {}, 'accuracy': {} }
+    for dataset in datasets:
+        dataset_out = evaluate(opt, dataset, sample_size, topk, verbose, texts_to_skip)
+
+        out['loss_data'].update({ dataset: dataset_out['loss_data'] })
+        out['accuracy'].update({  dataset: dataset_out['percent'] })
 
     return out
 
@@ -328,6 +327,7 @@ def prune_and_evaluate( opt: Model,
         raise ValueError("Must prune at least one of FF or Attention")
 
     # Get midlayer activations of FF and ATTN
+    datasets = [focus, cripple]
     focus_out   = get_midlayer_activations( opt, focus, sample_size, **kwargs )
     cripple_out = get_midlayer_activations( opt, cripple, sample_size, **kwargs )
 
@@ -361,7 +361,9 @@ def prune_and_evaluate( opt: Model,
 
     # Evaluate the model
     texts_to_skip = max( focus_out["texts_viewed"], cripple_out["texts_viewed"] )
-    data.update( evaluate_all( opt, eval_size, texts_to_skip=texts_to_skip ) )
+    data.update(
+        evaluate_all( opt, eval_size, datasets, texts_to_skip=texts_to_skip )
+    )
 
     data.update({'deletions': {
         "ff_threshold": ff_threshold if do_ff else 0,
