@@ -86,8 +86,10 @@ class RunDataItem:
             'areas': self.areas,
         }
 
-    def summary_wandb(self):
+    def summary_wandb(self, is_first_run: bool = False):
         data = self.summary()
+        if is_first_run:
+            data['init_accuracy'] = data['accuracy']
         return flatten_dict(data, sep="/")
 
     def flat_summary(self):
@@ -128,7 +130,8 @@ class RunDataHistory:
 
         # Log to wandb
         if self.use_wandb:
-            wandb.log( self.history[-1].summary_wandb() )
+            is_first_run = (len(self.history) == 1)
+            wandb.log(item.summary_wandb(is_first_run))
 
         # save to pandas DataFrame
         self.df_append(item)
