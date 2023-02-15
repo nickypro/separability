@@ -31,8 +31,6 @@ def evaluate( opt: Model,
         verbose: bool = False,
         dataset_texts_to_skip: int = 0,
     ):
-    print(f"Evaluating {dataset_name}...")
-
     dataset, label, skip_eval = prepare( dataset_name )
     dataset = dataset.skip( dataset_texts_to_skip )
     out = opt.evaluate_dataset( dataset, k=topk, start_index=1,
