@@ -1,16 +1,16 @@
 
 # pylint: disable=import-error
 import pytest
-from seperability.model_names import test_model_names
+from seperability.model_repos import test_model_repos
 from seperability import Model
 from seperability.activations import count_ff_key_activations, evaluate_all
 
 class TestDeleteFFKeys:
-    @pytest.mark.parametrize("model_name", test_model_names)
-    def test_delete_ff_and_evaluate(self, model_name):
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_delete_ff_and_evaluate(self, model_repo):
         print("# Running test: test_delete_ff_and_evaluate")
         # Load model and evaluate
-        opt = Model(model_name, limit=1000)
+        opt = Model(model_repo, limit=1000)
         print(" - Initial Evaluation...")
         eval_before = evaluate_all( opt, 1e3 )
 

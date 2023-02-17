@@ -4,15 +4,15 @@ import matplotlib.pyplot as plt
 
 # pylint: disable=import-error, pointless-statement
 import pytest
-from seperability.model_names import test_model_names
+from seperability.model_repos import test_model_repos
 from seperability import Model
 from seperability.activations import get_midlayer_activations
 
 class TestCollection:
-    @pytest.mark.parametrize("model_name", test_model_names)
-    def test_ff_collections(self, model_name):
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_ff_collections(self, model_repo):
         print( "# Running Test: test_ff_collection" )
-        opt = Model(model_name, limit=1000)
+        opt = Model(model_repo, limit=1000)
         n_samples = 1e3
 
         data_pile = get_midlayer_activations(opt, "pile", n_samples,
@@ -41,10 +41,10 @@ class TestCollection:
 
         # TODO: Add more tests here to make sure the data is correct
 
-    @pytest.mark.parametrize("model_name", test_model_names)
-    def test_attn_collections(self, model_name):
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_attn_collections(self, model_repo):
         print( "# Running Test: test_attn_collection" )
-        opt = Model(model_name, limit=1000)
+        opt = Model(model_repo, limit=1000)
         n_samples = 1e3
 
         data_pile = get_midlayer_activations(opt, "pile", n_samples,
@@ -71,10 +71,10 @@ class TestCollection:
 
         # TODO: Add more tests here to make sure the data is correct
 
-    @pytest.mark.parametrize("model_name", test_model_names)
-    def test_does_not_collect(self, model_name):
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_does_not_collect(self, model_repo):
         print( "# Running Test: test_does_not_collection" )
-        opt = Model(model_name, limit=1000)
+        opt = Model(model_repo, limit=1000)
         n_samples = 1e3
 
         with pytest.raises(ValueError):

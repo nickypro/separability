@@ -2,15 +2,15 @@
 
 # pylint: disable=import-error
 import pytest
-from seperability.model_names import test_model_names
+from seperability.model_repos import test_model_repos
 from seperability import Model
 from seperability.activations import evaluate, evaluate_all
 
 class TestEvaluate:
-    @pytest.mark.parametrize("model_name", test_model_names)
-    def test_evaluate(self, model_name):
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_evaluate(self, model_repo):
         print("# Running test: test_evaluate")
-        opt = Model(model_name, limit=1000)
+        opt = Model(model_repo, limit=1000)
         opt.show_details()
 
         # We run the a first time, with a small subset of data
@@ -74,10 +74,10 @@ class TestEvaluate:
             assert data_1[key] > data_2[key] * 0.75
         print()
 
-    @pytest.mark.parametrize("model_name", test_model_names)
-    def test_evaluate_all(self, model_name):
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_evaluate_all(self, model_repo):
         print("# Running test: test_evaluate_all")
-        opt = Model(model_name, limit=1000)
+        opt = Model(model_repo, limit=1000)
         opt.show_details()
 
         data = evaluate_all( opt, 1e3 )

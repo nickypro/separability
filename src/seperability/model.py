@@ -17,7 +17,7 @@ from welford_torch import Welford
 from tqdm import tqdm
 
 # Import from inside module
-from .model_names import supported_model_names
+from .model_repos import supported_model_repos
 from .nn import InverseLinear, mlp_delete_rows, mlp_adjust_biases, mlp_delete_columns
 
 # Import matplotlib and set dpi to 300
@@ -47,7 +47,7 @@ class Model():
     work on it's activations and modify it's parameters as needed. """
 
     def __init__( self,
-            model_name : str  = "facebook/opt-125m",
+            model_repo: str  = "facebook/opt-125m",
             limit: int = None,
             model_device: str = None,
             output_device: str = None,
@@ -77,7 +77,7 @@ class Model():
             self.device = model_device if model_device else self.device
             self.output_device = output_device if output_device else self.device
 
-        self.init_model( model_name ).to( self.device )
+        self.init_model( model_repo ).to( self.device )
         self.limit = limit
 
         # Indices of outputs for reference
@@ -86,17 +86,17 @@ class Model():
         self.dimension_index = -1
 
     # pylint: disable=attribute-defined-outside-init
-    def set_repo( self, model_name: str ):
-        if model_name not in supported_model_names:
-            warnings.warn( f"Model {model_name} not tested." )
+    def set_repo( self, model_repo: str ):
+        if model_repo not in supported_model_repos:
+            warnings.warn( f"Model {model_repo} not tested." )
 
-        self.model_size = model_name.split('-')[-1]
-        self.model_repo = model_name
+        self.model_size = model_repo.split('-')[-1]
+        self.model_repo = model_repo
 
     # pylint: disable=attribute-defined-outside-init
-    def init_model( self, model_name: Optional[str] = None ):
-        if not model_name is None:
-            self.set_repo( model_name )
+    def init_model( self, model_repo: Optional[str] = None ):
+        if not model_repo is None:
+            self.set_repo( model_repo )
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_repo)
 
         # Initialize model (with or without accelerator)
