@@ -10,7 +10,7 @@ test_model_repos = [
 supported_model_repos = []
 
 # Meta OPT Models
-opt_model_sizes = [ "125m", "350m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b" ]
+opt_model_sizes = [ "125m", "1.3b", "2.7b", "6.7b", "13b", "30b", "66b" ]
 supported_model_repos.extend([
     f"facebook/opt-{s}"       for s in opt_model_sizes
 ])
