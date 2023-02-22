@@ -532,8 +532,8 @@ def get_attn_crossover( opt: Model,
 
 
 def choose_attn_heads_by_std( opt: Model,
-        pile_out: Dict[str, Tensor],
-        code_out: Dict[str, Tensor],
+        focus_out: Dict[str, Tensor],
+        cripple_out: Dict[str, Tensor],
         top_frac: float,
         eps: float = 1e-6,
     ):
@@ -548,11 +548,12 @@ def choose_attn_heads_by_std( opt: Model,
     Returns:
         Dict[str, Tensor]:
     """
-    pile_out_std_mean = pile_out["std"].mean(dim=-1)
-    code_out_std_mean = code_out["std"].mean(dim=-1)
-    mean_ratio = code_out_std_mean / ( pile_out_std_mean + eps )
+    focus_stds   = focus_out["std"]
+    cripple_stds = cripple_out["std"]
+    std_ratios = cripple_stds / ( focus_stds + eps )
+    std_ratio_means = std_ratios.mean(dim=-1)
 
-    return get_top_frac( mean_ratio, top_frac )
+    return get_top_frac( std_ratio_means, top_frac )
 
 
 def delete_attn_and_evaluate( opt: Model,
