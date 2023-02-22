@@ -339,16 +339,16 @@ def prune_and_evaluate( opt: Model,
 
     # Get the top fraction of Attention activations and prune
     if do_attn > 0:
-        attn_data = get_attn_crossover( opt, focus_out["attn"], cripple_out["attn"] )
-        attn_criteria, attn_threshold = \
-            get_top_frac( attn_data["crossover_multiple"], attn_prune_frac )
-        opt.delete_attn_pre_out_heads( attn_criteria, attn_data["pile_means"] )
+        attn_criteria, attn_threshold = choose_attn_heads_by_std( opt,
+                focus_out["attn"], cripple_out["attn"], attn_prune_frac )
+        opt.delete_attn_pre_out_heads( attn_criteria, focus_out["attn"]["mean"] )
 
     # Save the removals to file
     if save:
         tensor_data = {
             "ff_rel_freq": ff_rel_freq if do_ff else None,
-            "attn_crossover": attn_data["crossover_multiple"] if do_attn else None,
+            # FIXME: doesn't return attn_std_mean
+            "attn_std_mean": attn_criteria if do_attn else None,
             "ff_frac": torch.tensor( ff_prune_frac ) if do_ff else None,
             "attn_frac": torch.tensor( attn_prune_frac ) if do_attn else None,
         }
@@ -529,6 +529,30 @@ def get_attn_crossover( opt: Model,
         'crossover_multiple' : crossover_multiple
     }
     return data
+
+
+def choose_attn_heads_by_std( opt: Model,
+        pile_out: Dict[str, Tensor],
+        code_out: Dict[str, Tensor],
+        top_frac: float,
+        eps: float = 1e-6,
+    ):
+    """
+    Calculates the attention crossover between the pile and code activations.
+
+    Args:
+        opt (Model): OPT model with my special sauce modifications
+        pile_out (Dict[str, Tensor]): pile activations
+        code_out (Dict[str, Tensor]): code activations
+
+    Returns:
+        Dict[str, Tensor]:
+    """
+    pile_out_std_mean = pile_out["std"].mean(dim=-1)
+    code_out_std_mean = code_out["std"].mean(dim=-1)
+    mean_ratio = code_out_std_mean / ( pile_out_std_mean + eps )
+
+    return get_top_frac( mean_ratio, top_frac )
 
 
 def delete_attn_and_evaluate( opt: Model,
