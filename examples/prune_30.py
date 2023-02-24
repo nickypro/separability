@@ -17,9 +17,9 @@ pre_removals = []
 
 # Removals parameters
 ff_frac,   ff_eps   = 0.04, 0.001
-attn_frac           = 0.01
+attn_frac           = 0.00
 focus, cripple      = "pile", "code"
-project             = "seperability-pile-code"
+project             = "pile-code-attn"
 datasets            = list(sorted([focus, cripple]))
 
 parser = argparse.ArgumentParser()
