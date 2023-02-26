@@ -8,8 +8,8 @@ import numpy as np
 
 # pylint: disable=import-error
 import pytest
-from seperability.model_repos import test_model_repos
-from seperability import Model
+from separability.model_repos import test_model_repos
+from separability import Model
 
 class TestDeleteAttnPreOutLayer:
     @pytest.mark.parametrize("model_repo", test_model_repos)

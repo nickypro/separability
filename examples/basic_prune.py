@@ -1,7 +1,7 @@
 import torch
-from seperability import Model
-from seperability.data_classes import RunDataItem
-from seperability.activations import evaluate_all, prune_and_evaluate
+from separability import Model
+from separability.data_classes import RunDataItem
+from separability.activations import evaluate_all, prune_and_evaluate
 
 opt = Model("facebook/opt-125m", limit=1000, use_accelerator=True, dtype=torch.float32)
 

@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "seperability"
-version = "0.1.3"
-description = "Seperability of LLM Capabilities"
+name = "separability"
+version = "0.1.4"
+description = "separability of LLM Capabilities"
 authors = ["Nicky Pochinkov"]
 readme = "README.md"
 classifiers = [
@@ -9,7 +9,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-repository = "https://github.com/pesvut/seperability"
+repository = "https://github.com/pesvut/separability"
 
 [tool.poetry.dependencies]
 python = "^3.8"

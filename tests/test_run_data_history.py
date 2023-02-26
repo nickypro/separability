@@ -2,10 +2,10 @@ import torch
 
 # pylint: disable=import-error
 import pytest
-from seperability.model_repos import test_model_repos
-from seperability import Model
-from seperability.data_classes import RunDataHistory
-from seperability.activations import evaluate_all
+from separability.model_repos import test_model_repos
+from separability import Model
+from separability.data_classes import RunDataHistory
+from separability.activations import evaluate_all
 
 class TestRunDataHistory:
     @pytest.mark.parametrize("model_repo", test_model_repos)

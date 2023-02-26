@@ -5,9 +5,9 @@ tmp
 examples/wandb
 src/wandb
 src/.ipynb_checkpoints
-src/seperability/__pycache__
-src/seperability/wandb
+src/separability/__pycache__
+src/separability/wandb
 tests/__pycache__
 tests/.pytest_cache
-tests/seperability
+tests/separability
 dist

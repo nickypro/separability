@@ -1,11 +1,11 @@
-# Seperability
+# separability
 
 My basic library for studying LLMs (currently, only the Meta OPT models).
 This includes functions for analysing the activations of the models for different inputs, and for pruning different parts of the model based on those activations.
 
 ## Pruning based on Capabilities
 
-For a full example, see `src/seperability.ipynb`. 
+For a full example, see `src/separability.ipynb`.
 
 The simple example is:
 ```
@@ -26,7 +26,7 @@ print(eval_data)
 ```
 
 ## model.py
-This defines a wrapper function that encapsulates the HuggingFace implementation of Meta OPT. 
+This defines a wrapper function that encapsulates the HuggingFace implementation of Meta OPT.
 To get the model, simply run:
 
 ```
@@ -48,7 +48,7 @@ We can look at the residual stream of how the output changes over time.
 residual_stream = opt.get_residual_stream( text )
 ```
 This will return a tensor of size `2 + 2*n_layers`.
-i.e: 
+i.e:
 - the input (w/ positional encoding)
 - n attention layer outputs
 - n feed forward layer outputs

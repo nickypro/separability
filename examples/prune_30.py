@@ -6,20 +6,20 @@ import einops
 import matplotlib.pyplot as plt
 import wandb
 
-from seperability import Model
-from seperability.data_classes import RunDataHistory
-from seperability.activations import prune_and_evaluate, evaluate_all
+from separability import Model
+from separability.data_classes import RunDataHistory
+from separability.activations import prune_and_evaluate, evaluate_all
 
 # Configure initial model and tests
-model_size, token_limit  = "facebook/opt-13b", 1000
+model_size, token_limit  = "facebook/opt-1.3b", 1000
 run_pre_test             = True
 pre_removals = []
 
 # Removals parameters
-ff_frac,   ff_eps   = 0.04, 0.001
-attn_frac           = 0.00
-focus, cripple      = "pile", "code"
-project             = "pile-code-attn"
+ff_frac,   ff_eps   = 0.005, 0.001
+attn_frac           = 0.002
+focus, cripple      = "code", "pile"
+project             = "separability-pile-code"
 datasets            = list(sorted([focus, cripple]))
 
 parser = argparse.ArgumentParser()
@@ -32,7 +32,7 @@ args = parser.parse_args()
 model_size = args.repo
 
 # Prepare data logging
-wandb.init(project=project, entity="seperability")
+wandb.init(project=project, entity="separability")
 c = wandb.config
 c.update({
     "model_size"  : model_size,
@@ -58,7 +58,7 @@ if c.run_pre_test:
     print( history.df.T )
 
 # First do some pruning of the feed forward layers
-for i in range(30):
+for i in range(200):
     data = prune_and_evaluate( opt, c.ff_frac, c.attn_frac, c.ff_eps, cripple=c.cripple, focus=c.focus )
     history.add( data )
 

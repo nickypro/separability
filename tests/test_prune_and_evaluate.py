@@ -3,9 +3,9 @@ import torch
 
 # pylint: disable=import-error
 import pytest
-from seperability.model_repos import test_model_repos
-from seperability import Model
-from seperability.activations import prune_and_evaluate, evaluate_all
+from separability.model_repos import test_model_repos
+from separability import Model
+from separability.activations import prune_and_evaluate, evaluate_all
 
 class TestPruneAndEvaluate:
     @pytest.mark.parametrize("model_repo", test_model_repos)

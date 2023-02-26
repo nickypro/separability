@@ -1,7 +1,7 @@
 import torch
-from seperability import Model
-from seperability.data_classes import RunDataItem
-from seperability.activations import get_midlayer_activations, evaluate_all, \
+from separability import Model
+from separability.data_classes import RunDataItem
+from separability.activations import get_midlayer_activations, evaluate_all, \
     get_top_frac, get_attn_crossover
 
 def manual_prune_and_evaluate(model_name):

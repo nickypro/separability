@@ -1,45 +1,45 @@
-seperability package
+separability package
 ====================
 
 Submodules
 ----------
 
-seperability.activations module
+separability.activations module
 -------------------------------
 
-.. automodule:: seperability.activations
+.. automodule:: separability.activations
    :members:
    :undoc-members:
    :show-inheritance:
 
-seperability.data\_classes module
+separability.data\_classes module
 ---------------------------------
 
-.. automodule:: seperability.data_classes
+.. automodule:: separability.data_classes
    :members:
    :undoc-members:
    :show-inheritance:
 
-seperability.model module
+separability.model module
 -------------------------
 
-.. automodule:: seperability.model
+.. automodule:: separability.model
    :members:
    :undoc-members:
    :show-inheritance:
 
-seperability.model\_names module
+separability.model\_names module
 --------------------------------
 
-.. automodule:: seperability.model_names
+.. automodule:: separability.model_names
    :members:
    :undoc-members:
    :show-inheritance:
 
-seperability.texts module
+separability.texts module
 -------------------------
 
-.. automodule:: seperability.texts
+.. automodule:: separability.texts
    :members:
    :undoc-members:
    :show-inheritance:
@@ -47,7 +47,7 @@ seperability.texts module
 Module contents
 ---------------
 
-.. automodule:: seperability
+.. automodule:: separability
    :members:
    :undoc-members:
    :show-inheritance:

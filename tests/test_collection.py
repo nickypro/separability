@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 
 # pylint: disable=import-error, pointless-statement
 import pytest
-from seperability.model_repos import test_model_repos
-from seperability import Model
-from seperability.activations import get_midlayer_activations
+from separability.model_repos import test_model_repos
+from separability import Model
+from separability.activations import get_midlayer_activations
 
 class TestCollection:
     @pytest.mark.parametrize("model_repo", test_model_repos)

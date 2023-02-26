@@ -33,7 +33,7 @@
         "pretrained",
         "probs",
         "pyplot",
-        "seperability",
+        "separability",
         "softmax",
         "stds",
         "topk",

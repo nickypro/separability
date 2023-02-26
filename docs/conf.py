@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath('../src'))
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Seperability'
+project = 'separability'
 copyright = '2023, Nicky Pochinkov'
 author = 'Nicky Pochinkov'
 
