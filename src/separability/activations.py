@@ -551,9 +551,11 @@ def choose_attn_heads_by_std( opt: Model,
     focus_stds   = focus_out["std"]
     cripple_stds = cripple_out["std"]
     std_ratios = cripple_stds / ( focus_stds + eps )
-    std_ratio_means = std_ratios.mean(dim=-1)
+    # std_ratio_means = std_ratios.mean(dim=-1)
+    std_ratio_medians = torch.quantile(
+        std_ratios.to(dtype=torch.float32), q=0.5, dim=-1)
 
-    return get_top_frac( std_ratio_means, top_frac )
+    return get_top_frac( std_ratio_medians, top_frac )
 
 
 def delete_attn_and_evaluate( opt: Model,
