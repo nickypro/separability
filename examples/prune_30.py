@@ -16,23 +16,26 @@ run_pre_test             = True
 pre_removals = []
 
 # Removals parameters
-ff_frac,   ff_eps   = 0.005, 0.001
-attn_frac           = 0.002
-focus, cripple      = "code", "pile"
-project             = "separability-pile-code"
+ff_frac,   ff_eps   = 0.00, 0.001
+attn_frac           = 0.04
+focus, cripple      = "pile", "code"
+project             = "pile-code-attn"
 datasets            = list(sorted([focus, cripple]))
 
 parser = argparse.ArgumentParser()
 
 # Add an argument
 parser.add_argument('repo', type=str)
+parser.add_argument('-r', '--reverse', action='store_true')
 
 # Parse the argument
 args = parser.parse_args()
 model_size = args.repo
+if args.reverse:
+    focus, cripple = cripple, focus
 
 # Prepare data logging
-wandb.init(project=project, entity="separability")
+wandb.init(project=project, entity="seperability")
 c = wandb.config
 c.update({
     "model_size"  : model_size,
@@ -43,6 +46,7 @@ c.update({
     "attn_frac": attn_frac,
     "cripple": cripple,
     "focus"  : focus,
+    "attn_prune_type": "pre_out neurons"
 })
 
 # Load model and show details about model
@@ -58,7 +62,7 @@ if c.run_pre_test:
     print( history.df.T )
 
 # First do some pruning of the feed forward layers
-for i in range(200):
+for i in range(25):
     data = prune_and_evaluate( opt, c.ff_frac, c.attn_frac, c.ff_eps, cripple=c.cripple, focus=c.focus )
     history.add( data )
 
