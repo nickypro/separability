@@ -339,9 +339,17 @@ def prune_and_evaluate( opt: Model,
 
     # Get the top fraction of Attention activations and prune
     if do_attn > 0:
-        attn_criteria, attn_threshold = choose_attn_heads_by_std( opt,
+        # attn_criteria, attn_threshold = choose_attn_heads_by_std( opt,
+        #         focus_out["attn"], cripple_out["attn"], attn_prune_frac )
+        attn_criteria, attn_threshold = choose_indices_by_std( opt,
                 focus_out["attn"], cripple_out["attn"], attn_prune_frac )
-        opt.delete_attn_pre_out_heads( attn_criteria, focus_out["attn"]["mean"] )
+        if len(attn_criteria.shape) == 3:
+            opt.delete_attn_pre_out( attn_criteria.reshape((opt.n_layers, opt.n_heads*opt.d_head)),
+                focus_out["attn"]["mean"].reshape((opt.n_layers, opt.n_heads*opt.d_head)) )
+        elif len(attn_criteria.shape) == 2:
+            opt.delete_attn_pre_out_heads( attn_criteria, focus_out["attn"]["mean"] )
+        else:
+            print("WARNING: NOT DELETING ATTENTION")
 
     # Save the removals to file
     if save:
@@ -530,6 +538,31 @@ def get_attn_crossover( opt: Model,
     }
     return data
 
+def choose_indices_by_std( opt: Model,
+        focus_out: Dict[str, Tensor],
+        cripple_out: Dict[str, Tensor],
+        top_frac: float,
+        eps: float = 1e-6,
+    ):
+    """
+    Gets indices with highest ratio between Standard Deviations.
+
+    Args:
+        opt (Model): OPT model with my special sauce modifications
+        focus_out (Dict[str, Tensor]): focus dataset neuron activations
+        cripple_out (Dict[str, Tensor]): cripple dataset neuron activations
+        top_frac (float): Fraction of neurons to return
+        eps (float): Epislon for numerical stability
+
+    Returns:
+        removal_indices (Tensor)
+        threshold (float)
+    """
+    focus_stds   = focus_out["std"]
+    cripple_stds = cripple_out["std"]
+    std_ratios = cripple_stds / ( focus_stds + eps )
+
+    return get_top_frac( std_ratios, top_frac )
 
 def choose_attn_heads_by_std( opt: Model,
         focus_out: Dict[str, Tensor],
