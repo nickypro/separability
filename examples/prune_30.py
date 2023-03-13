@@ -46,25 +46,29 @@ c.update({
     "attn_frac": attn_frac,
     "cripple": cripple,
     "focus"  : focus,
-    "attn_prune_type": "pre_out neurons"
+    "attn_prune_type": "pre_out neurons sqrt",
+    "svd_attn": True,
+    "do_attn_mean_offset": False,
 })
 
 # Load model and show details about model
 history = RunDataHistory(datasets)
-opt = Model( c.model_size, limit=c.token_limit, dtype=torch.float16 )
+opt = Model(c.model_size, limit=c.token_limit, dtype=torch.float16,
+    svd_attn=c.svd_attn)
 
 # Pre-pruning of model
 opt.delete_ff_keys_from_files(pre_removals)
 
 # Evaluate model before removal of any neurons
 if c.run_pre_test:
-    history.add( evaluate_all( opt, 1e5, datasets ) )
-    print( history.df.T )
+    history.add(evaluate_all(opt, 1e5, datasets))
+    print(history.df.T)
 
 # First do some pruning of the feed forward layers
 for i in range(25):
-    data = prune_and_evaluate( opt, c.ff_frac, c.attn_frac, c.ff_eps, cripple=c.cripple, focus=c.focus )
-    history.add( data )
+    data = prune_and_evaluate(opt, c.ff_frac, c.attn_frac, c.ff_eps,
+        cripple=c.cripple, focus=c.focus, do_attn_mean_offset=c.do_attn_mean_offset)
+    history.add(data)
 
 print(history.history[-1])
 print(history.df.T)
