@@ -3,6 +3,7 @@
 __pycache__
 tmp
 examples/wandb
+wandb
 src/wandb
 src/.ipynb_checkpoints
 src/separability/__pycache__
