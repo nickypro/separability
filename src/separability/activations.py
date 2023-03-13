@@ -341,7 +341,7 @@ def prune_and_evaluate( opt: Model,
     if do_attn > 0:
         # attn_criteria, attn_threshold = choose_attn_heads_by_std( opt,
         #         focus_out["attn"], cripple_out["attn"], attn_prune_frac )
-        attn_criteria, attn_threshold = choose_indices_by_std( opt,
+        attn_criteria, attn_threshold = choose_indices_by_abs( opt,
                 focus_out["attn"], cripple_out["attn"], attn_prune_frac )
         if len(attn_criteria.shape) == 3:
             opt.delete_attn_pre_out( attn_criteria.reshape((opt.n_layers, opt.n_heads*opt.d_head)),
@@ -538,6 +538,30 @@ def get_attn_crossover( opt: Model,
     }
     return data
 
+def choose_indices_by_sqrt( opt: Model,
+        focus_out: Dict[str, Tensor],
+        cripple_out: Dict[str, Tensor],
+        top_frac: float,
+        eps: float = 1e-6,
+    ):
+    focus_stds   = focus_out["sqrt"]
+    cripple_stds = cripple_out["sqrt"]
+    std_ratios = cripple_stds / ( focus_stds + eps )
+
+    return get_top_frac( std_ratios, top_frac )
+
+def choose_indices_by_abs( opt: Model,
+        focus_out: Dict[str, Tensor],
+        cripple_out: Dict[str, Tensor],
+        top_frac: float,
+        eps: float = 1e-6,
+    ):
+    focus_stds   = focus_out["pos_mass"] + focus_out["neg_mass"].abs()
+    cripple_stds = cripple_out["pos_mass"] + cripple_out["neg_mass"].abs()
+    std_ratios = cripple_stds / ( focus_stds + eps )
+
+    return get_top_frac( std_ratios, top_frac )
+
 def choose_indices_by_std( opt: Model,
         focus_out: Dict[str, Tensor],
         cripple_out: Dict[str, Tensor],
@@ -589,7 +613,6 @@ def choose_attn_heads_by_std( opt: Model,
         std_ratios.to(dtype=torch.float32), q=0.5, dim=-1)
 
     return get_top_frac( std_ratio_medians, top_frac )
-
 
 def delete_attn_and_evaluate( opt: Model,
         frac_removed: float,
