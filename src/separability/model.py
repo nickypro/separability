@@ -3,7 +3,7 @@ with additional methods for inspecting the activations of the model.
 """
 
 # import types for typed python
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Tuple
 import warnings
 from torch import Tensor
 from accelerate import Accelerator
@@ -16,12 +16,14 @@ import numpy as np
 from welford_torch import Welford
 from tqdm import tqdm
 
-# Import from inside module
-from .model_repos import supported_model_repos
-from .nn import InverseLinear, mlp_delete_rows, mlp_adjust_biases, mlp_delete_columns
-
 # Import matplotlib and set dpi to 300
 import matplotlib as mpl
+
+# Import from inside module
+from .model_repos import supported_model_repos
+from .nn import InverseLinear, mlp_delete_rows, mlp_adjust_biases, \
+    mlp_delete_columns, mlp_svd_two_layer
+
 mpl.rcParams['figure.dpi'] = 300
 
 # Return with the output tensors detached from gpu
@@ -53,6 +55,7 @@ class Model():
             output_device: str = None,
             use_accelerator: bool = True,
             dtype: torch.dtype = torch.float32,
+            svd_attn: bool = False,
         ):
         """
         OPT Model with functions for extracting activations.
@@ -66,6 +69,7 @@ class Model():
         # Initialize model differently depending on accelerator use
         self.use_accelerator = use_accelerator and torch.cuda.device_count() > 1
         self.dtype = dtype
+        self.svd_attn = svd_attn
 
         if self.use_accelerator:
             self.accelerator = Accelerator()
@@ -77,7 +81,7 @@ class Model():
             self.device = model_device if model_device else self.device
             self.output_device = output_device if output_device else self.device
 
-        self.init_model( model_repo ).to( self.device )
+        self.init_model( model_repo )
         self.limit = limit
 
         # Indices of outputs for reference
@@ -106,6 +110,8 @@ class Model():
             self.model_repo, torch_dtype=self.dtype, device_map=device_map)
         self.model = self.predictor.model
 
+        self.to(self.device)
+
         print(f'- Loaded {self.model_repo}')
         self.activations = {}
 
@@ -118,7 +124,10 @@ class Model():
         self.d_ff = 4 * self.d_model
 
         self.register_activations()
-        self.register_inverse_out_proj()
+        if self.svd_attn:
+            self.svd_attention_layers()
+        else:
+            self.register_inverse_out_proj()
 
         return self
 
@@ -177,6 +186,17 @@ class Model():
 
             layer.self_attn.inv_out_proj = inv_out_proj
 
+    def svd_attention_layers( self ):
+        # Rewrite the v_proj and out_proj matrices using SVD
+        t0 = time.time()
+        for layer in self.model.decoder.layers:
+            v_proj = layer.self_attn.v_proj
+            out_proj = layer.self_attn.out_proj
+            inv_out_proj = mlp_svd_two_layer(v_proj, out_proj, self.d_head)
+            inv_out_proj = inv_out_proj.to(dtype=self.dtype)
+            layer.self_attn.inv_out_proj = inv_out_proj.to(self.output_device)
+        t = time.time() - t0
+        print( f" - SVD Attention Layers in {t:d} seconds" )
 
     def get_ids( self, text:str, limit:Optional[int]=None ):
         limit = self.limit if (limit is None) else limit
