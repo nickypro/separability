@@ -297,6 +297,8 @@ def prune_and_evaluate( opt: Model,
         sample_size: int = 1e5,
         eval_size: int = 1e5,
         do_attn_mean_offset: bool = True,
+        attn_scoring: str = "abs",
+        attn_prune_heads: Optional[str] = None,
         save: bool = False,
         cripple: str = "code",
         focus: str = "pile",
@@ -340,22 +342,27 @@ def prune_and_evaluate( opt: Model,
 
     # Get the top fraction of Attention activations and prune
     if do_attn > 0:
-        # attn_criteria, attn_threshold = choose_attn_heads_by_std( opt,
-        #         focus_out["attn"], cripple_out["attn"], attn_prune_frac )
-        attn_criteria, attn_threshold = choose_indices_by_abs( opt,
-                focus_out["attn"], cripple_out["attn"], attn_prune_frac )
+        # scoring for attention
+        attn_scoring_fn = score_indices_by(attn_scoring)
+        attn_scores = attn_scoring_fn(opt, focus_out["attn"], cripple_out["attn"])
 
+        # offset by means if desired (probably bad?)
         means = focus_out["attn"]["mean"]
         if not do_attn_mean_offset:
             means = None
 
-        if len(attn_criteria.shape) == 3:
+        # get criteria and prune if using full heads
+        if attn_prune_heads:
+            attn_head_scoring_fn = choose_attn_heads_by(attn_prune_heads)
+            attn_criteria, attn_threshold = \
+                attn_head_scoring_fn(opt, attn_scores, attn_prune_frac)
+            opt.delete_attn_pre_out_heads( attn_criteria, means )
+
+        # get criteria and prune if using only attention neurons
+        else:
+            attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_prune_frac)
             _shape = (opt.n_layers, opt.n_heads*opt.d_head)
             opt.delete_attn_pre_out( attn_criteria.reshape(_shape), means )
-        elif len(attn_criteria.shape) == 2:
-            opt.delete_attn_pre_out_heads( attn_criteria, means )
-        else:
-            print("WARNING: NOT DELETING ATTENTION")
 
     # Save the removals to file
     if save:
@@ -544,34 +551,30 @@ def get_attn_crossover( opt: Model,
     }
     return data
 
-def choose_indices_by_sqrt( opt: Model,
+def score_indices_by_sqrt( opt: Model,
         focus_out: Dict[str, Tensor],
         cripple_out: Dict[str, Tensor],
-        top_frac: float,
         eps: float = 1e-6,
     ):
     focus_stds   = focus_out["sqrt"]
     cripple_stds = cripple_out["sqrt"]
-    std_ratios = cripple_stds / ( focus_stds + eps )
+    ratios = cripple_stds / ( focus_stds + eps )
+    return ratios
 
-    return get_top_frac( std_ratios, top_frac )
-
-def choose_indices_by_abs( opt: Model,
+def score_indices_by_abs( opt: Model,
         focus_out: Dict[str, Tensor],
         cripple_out: Dict[str, Tensor],
-        top_frac: float,
         eps: float = 1e-6,
     ):
     focus_stds   = focus_out["pos_mass"] + focus_out["neg_mass"].abs()
     cripple_stds = cripple_out["pos_mass"] + cripple_out["neg_mass"].abs()
-    std_ratios = cripple_stds / ( focus_stds + eps )
+    ratios = cripple_stds / ( focus_stds + eps )
 
-    return get_top_frac( std_ratios, top_frac )
+    return ratios
 
-def choose_indices_by_std( opt: Model,
+def score_indices_by_std( opt: Model,
         focus_out: Dict[str, Tensor],
         cripple_out: Dict[str, Tensor],
-        top_frac: float,
         eps: float = 1e-6,
     ):
     """
@@ -590,35 +593,39 @@ def choose_indices_by_std( opt: Model,
     """
     focus_stds   = focus_out["std"]
     cripple_stds = cripple_out["std"]
-    std_ratios = cripple_stds / ( focus_stds + eps )
+    ratios = cripple_stds / ( focus_stds + eps )
 
-    return get_top_frac( std_ratios, top_frac )
+    return ratios
 
-def choose_attn_heads_by_std( opt: Model,
-        focus_out: Dict[str, Tensor],
-        cripple_out: Dict[str, Tensor],
+def score_indices_by(key: str):
+    scoring_map = {
+        'abs': score_indices_by_abs,
+        'sqrt': score_indices_by_sqrt,
+        'std': score_indices_by_std,
+    }
+    return scoring_map[key]
+
+def choose_attn_heads_by_mean( opt: Model,
+        attn_scores: Tensor,
         top_frac: float,
-        eps: float = 1e-6,
     ):
-    """
-    Calculates the attention crossover between the pile and code activations.
-
-    Args:
-        opt (Model): OPT model with my special sauce modifications
-        pile_out (Dict[str, Tensor]): pile activations
-        code_out (Dict[str, Tensor]): code activations
-
-    Returns:
-        Dict[str, Tensor]:
-    """
-    focus_stds   = focus_out["std"]
-    cripple_stds = cripple_out["std"]
-    std_ratios = cripple_stds / ( focus_stds + eps )
-    # std_ratio_means = std_ratios.mean(dim=-1)
     std_ratio_medians = torch.quantile(
-        std_ratios.to(dtype=torch.float32), q=0.5, dim=-1)
+        attn_scores.to(dtype=torch.float32), q=0.5, dim=-1)
+    return get_top_frac(std_ratio_medians, top_frac)
 
-    return get_top_frac( std_ratio_medians, top_frac )
+def choose_attn_heads_by_median( opt: Model,
+        attn_scores: Tensor,
+        top_frac: float,
+    ):
+    std_ratio_means = attn_scores.mean(dim=-1)
+    return get_top_frac(std_ratio_means, top_frac)
+
+def choose_attn_heads_by(key: str):
+    choosing_map = {
+        'mean': choose_attn_heads_by_mean,
+        'median': choose_attn_heads_by_median,
+    }
+    return choosing_map[key]
 
 def delete_attn_and_evaluate( opt: Model,
         frac_removed: float,
