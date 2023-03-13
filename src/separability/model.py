@@ -5,6 +5,7 @@ with additional methods for inspecting the activations of the model.
 # import types for typed python
 from typing import Optional, List, Tuple
 import warnings
+import time
 from torch import Tensor
 from accelerate import Accelerator
 from datasets import Dataset
@@ -196,7 +197,7 @@ class Model():
             inv_out_proj = inv_out_proj.to(dtype=self.dtype)
             layer.self_attn.inv_out_proj = inv_out_proj.to(self.output_device)
         t = time.time() - t0
-        print( f" - SVD Attention Layers in {t:d} seconds" )
+        print( f" - SVD Attention Layers in {t:.1f} seconds" )
 
     def get_ids( self, text:str, limit:Optional[int]=None ):
         limit = self.limit if (limit is None) else limit
