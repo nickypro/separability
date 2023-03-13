@@ -185,6 +185,7 @@ class ActivationCollector:
         self.n_points    = 0
 
         # Welford for calculating mean and variance
+        self.sqrt: Welford = Welford(dtype=self.dtype).detach()
         self.all : Welford = Welford(dtype=self.dtype).detach()
         self.pos = Welford(dtype=self.dtype).detach()
         self.neg = Welford(dtype=self.dtype).detach()
@@ -202,6 +203,7 @@ class ActivationCollector:
         # Add mean and variance of data_point to all_activation
         self.n_points += 1
         self.all.add(data_point)
+        self.sqrt.add(data_point.abs().sqrt())
 
         # Get information about positive and negative activations
         pos_points = (data_point>0)
@@ -228,6 +230,7 @@ class ActivationCollector:
             raise ValueError('No data points added to ActivationCollector')
 
         return {
+            'sqrt': self.sqrt.mean.to(dtype=dtype),
             'mean': self.all.mean.to(dtype=dtype),
             'std': self.all.var_s.to(dtype=dtype),
             'pos_mass': self.pos.mean.to(dtype=dtype),
