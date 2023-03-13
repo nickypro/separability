@@ -232,7 +232,7 @@ def mlp_svd_two_layer(
     layer_1_weights = layer_1_weights.reshape(orig_shape)
 
     # Use inverse linear to reconstruct new biases for layer_1
-    inv_out = InverseLinear(layer_2).to(device)
+    inv_out = InverseLinear(layer_2).to(dtype=dtype).to(device)
     layer_1_biases = inv_out(layer_1_biases_effect)
 
     params_1.update({'weight': layer_1_weights, 'bias': layer_1_biases})
