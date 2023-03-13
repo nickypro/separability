@@ -109,7 +109,7 @@ def mlp_adjust_biases(
 
     # adjust bias of out_proj by mean activations
     mean_activations  = mean_activations.detach().clone().to(device)
-    mean_activations *= deletion_indices.to(device)
+    mean_activations *= deletion_indices.to(device).reshape(mean_activations.shape)
     bias_adjustement = mlp( mean_activations )
     biases += bias_adjustement
 
@@ -146,3 +146,111 @@ def mlp_delete_columns(mlp: torch.nn.Linear, deletion_indices: Tensor):
     mlp.load_state_dict(params)
 
     return mlp
+
+
+def mlp_svd_two_layer(
+        layer_1: torch.nn.Linear,
+        layer_2: torch.nn.Linear,
+        d_head: float,
+        svd_dtype: torch.dtype = torch.float32,
+    ):
+    """Calculates the SVD of the two layers, and applies it to the MLP
+
+    Args:
+        layer_1 (torch.nn.Linear): The first layer of the MLP
+        layer_2 (torch.nn.Linear): The second layer of the MLP
+        d_head (float): The dimension of the head
+        svd_dtype (torch.dtype, optional): The dtype to use for the SVD.
+            Defaults to torch.float32.
+    """
+    # Get the parameters from the MLP
+    params_1 = layer_1.state_dict()
+    layer_1_weights = params_1['weight']
+    orig_shape = layer_1_weights.shape
+    assert orig_shape[0] % d_head == 0, "d_head must divide d_model"
+    n_heads = orig_shape[0] // d_head
+    d_model = orig_shape[1]
+
+    layer_1_weights = layer_1_weights.reshape((n_heads, d_head, d_model))
+    layer_1_biases = params_1['bias'].reshape((n_heads, d_head))
+    shape_1 = layer_1_weights.shape
+
+    params_2 = layer_2.state_dict()
+    layer_2_weights = params_2['weight'].reshape((d_model, n_heads, d_head))
+    shape_2 = layer_2_weights.shape
+
+    dtype, device = layer_1_weights.dtype, layer_1_weights.device
+
+    # perform SVD
+    for head in range(n_heads):
+        in_weights = layer_1_weights[head]
+        in_biases  = layer_1_biases[head]
+
+        # make in_matrix with bias, which has "1.0" in the bias position
+        # this is so that the SVD can be full rank when the bias is included
+        in_matrix_shape = (d_head+1, d_model+1)
+        in_matrix = torch.zeros(in_matrix_shape, dtype=dtype, device=device)
+        in_matrix[:-1, :-1] = in_weights
+        in_matrix[:-1,  -1] = in_biases
+        in_matrix[ -1,  -1] = 1
+
+        # do the same for the output matrix, but do not include out biases
+        out_weights = layer_2_weights[:, head]
+        out_matrix_shape = (d_model+1, d_head+1)
+        out_matrix = torch.zeros(out_matrix_shape, dtype=dtype, device=device)
+        out_matrix[:-1, :-1] = out_weights
+        out_matrix[-1, -1]   = 1
+
+        # Build the matrix which we will perform SVD on
+        big_matrix = torch.matmul(out_matrix, in_matrix).to(dtype=svd_dtype)
+
+        # Perform SVD
+        u_out, s, v_in = torch.linalg.svd(big_matrix, full_matrices=True)
+
+        # Remove rows/columns which we know should have zero rank
+        s = s[:d_head+1].to(dtype=dtype)
+        v_in  = v_in[:d_head+1, :].to(dtype=dtype)  # in_matrix,  eg [64+1, 768+1]
+        u_out = u_out[:, :d_head+1].to(dtype=dtype) # out_matrix, eg [768+1, 64+1]
+
+        # Get the index of the bias term
+        bias_index = torch.argmax( v_in[:, -1] )
+
+        # Multiply the v_in matrix by S
+        v_in = s.unsqueeze(dim=-1) * v_in
+
+        # Keep matrix before
+        before = torch.matmul(out_weights, in_weights)
+        #print(in_biases[-5:])
+
+        # return new weights to original head matrix
+        in_weights[:bias_index] = v_in[:bias_index, :-1]
+        in_weights[bias_index:] = v_in[bias_index+1:, :-1]
+
+        in_biases[:bias_index] = v_in[:bias_index, -1]
+        in_biases[bias_index:] = v_in[bias_index+1:, -1]
+
+        out_weights[:, :bias_index] = u_out[:-1, :bias_index]
+        out_weights[:, bias_index:] = u_out[:-1, bias_index+1:]
+
+        # Keep matrix after
+        after = torch.matmul(out_weights, in_weights)
+
+        # Compare before and after, and make sure they are the same
+        #assert torch.allclose(before, after)
+        #print(in_biases[-5:])
+
+        # move to actual original matrices for load_state_dict later
+        layer_1_weights[head] = in_weights
+        layer_1_biases[head]  = in_biases
+        layer_2_weights[:, head] = out_weights
+
+    layer_1_weights = layer_1_weights.reshape(orig_shape)
+    layer_1_biases  = layer_1_biases.flatten()
+    layer_2_weights = layer_2_weights.reshape(orig_shape)
+
+    params_1.update({'weight': layer_1_weights, 'bias': layer_1_biases})
+    params_2.update({'weight': layer_2_weights })
+
+    layer_1.load_state_dict(params_1)
+    layer_2.load_state_dict(params_2)
+    return layer_1, layer_2
