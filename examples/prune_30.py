@@ -17,7 +17,7 @@ pre_removals = []
 
 # Removals parameters
 ff_frac,   ff_eps   = 0.00, 0.001
-attn_frac           = 0.04
+attn_frac           = 0.05
 focus, cripple      = "pile", "code"
 project             = "pile-code-attn"
 datasets            = list(sorted([focus, cripple]))
@@ -28,6 +28,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('repo', type=str)
 parser.add_argument('-r', '--reverse', action='store_true')
 parser.add_argument('--svd', action='store_true')
+parser.add_argument('-s', '--attn_scoring', type=str, default="abs")
+parser.add_argument('-a', '--prune_heads', type=str, default=None) # mean, median
 
 # Parse the argument
 args = parser.parse_args()
@@ -48,9 +50,11 @@ c.update({
     "attn_frac": attn_frac,
     "cripple": cripple,
     "focus"  : focus,
-    "attn_prune_type": "pre_out neurons sqrt",
+    "attn_prune_type": "pre_out",
     "svd_attn": svd_attn,
     "do_attn_mean_offset": False,
+    "attn_scoring": args.attn_scoring,
+    "attn_prune_heads": args.prune_heads,
 })
 
 # Load model and show details about model
@@ -67,9 +71,10 @@ if c.run_pre_test:
     print(history.df.T)
 
 # First do some pruning of the feed forward layers
-for i in range(25):
+for i in range(20):
     data = prune_and_evaluate(opt, c.ff_frac, c.attn_frac, c.ff_eps,
-        cripple=c.cripple, focus=c.focus, do_attn_mean_offset=c.do_attn_mean_offset)
+        cripple=c.cripple, focus=c.focus, do_attn_mean_offset=c.do_attn_mean_offset,
+        attn_scoring=c.attn_scoring, attn_prune_heads=c.attn_prune_heads)
     history.add(data)
 
 print(history.history[-1])
