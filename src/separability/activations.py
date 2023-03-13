@@ -296,6 +296,7 @@ def prune_and_evaluate( opt: Model,
         ff_eps: float,
         sample_size: int = 1e5,
         eval_size: int = 1e5,
+        do_attn_mean_offset: bool = True,
         save: bool = False,
         cripple: str = "code",
         focus: str = "pile",
@@ -343,11 +344,16 @@ def prune_and_evaluate( opt: Model,
         #         focus_out["attn"], cripple_out["attn"], attn_prune_frac )
         attn_criteria, attn_threshold = choose_indices_by_abs( opt,
                 focus_out["attn"], cripple_out["attn"], attn_prune_frac )
+
+        means = focus_out["attn"]["mean"]
+        if not do_attn_mean_offset:
+            means = None
+
         if len(attn_criteria.shape) == 3:
-            opt.delete_attn_pre_out( attn_criteria.reshape((opt.n_layers, opt.n_heads*opt.d_head)),
-                focus_out["attn"]["mean"].reshape((opt.n_layers, opt.n_heads*opt.d_head)) )
+            _shape = (opt.n_layers, opt.n_heads*opt.d_head)
+            opt.delete_attn_pre_out( attn_criteria.reshape(_shape), means )
         elif len(attn_criteria.shape) == 2:
-            opt.delete_attn_pre_out_heads( attn_criteria, focus_out["attn"]["mean"] )
+            opt.delete_attn_pre_out_heads( attn_criteria, means )
         else:
             print("WARNING: NOT DELETING ATTENTION")
 
