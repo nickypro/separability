@@ -27,10 +27,12 @@ parser = argparse.ArgumentParser()
 # Add an argument
 parser.add_argument('repo', type=str)
 parser.add_argument('-r', '--reverse', action='store_true')
+parser.add_argument('--svd', action='store_true')
 
 # Parse the argument
 args = parser.parse_args()
 model_size = args.repo
+svd_attn = args.svd
 if args.reverse:
     focus, cripple = cripple, focus
 
@@ -47,7 +49,7 @@ c.update({
     "cripple": cripple,
     "focus"  : focus,
     "attn_prune_type": "pre_out neurons sqrt",
-    "svd_attn": True,
+    "svd_attn": svd_attn,
     "do_attn_mean_offset": False,
 })
 
