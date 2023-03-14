@@ -16,8 +16,8 @@ run_pre_test             = True
 pre_removals = []
 
 # Removals parameters
-ff_frac,   ff_eps   = 0.00, 0.001
-attn_frac           = 0.05
+ff_frac,   ff_eps   = 0.05, 0.001
+attn_frac           = 0.02
 focus, cripple      = "pile", "code"
 project             = "pile-code-attn"
 datasets            = list(sorted([focus, cripple]))
@@ -29,7 +29,7 @@ parser.add_argument('repo', type=str)
 parser.add_argument('-r', '--reverse', action='store_true')
 parser.add_argument('--svd', action='store_true')
 parser.add_argument('-s', '--attn_scoring', type=str, default="abs")
-parser.add_argument('-a', '--prune_heads', type=str, default=None) # mean, median
+parser.add_argument('--prune_heads', type=str, default=False) # mean, median
 
 # Parse the argument
 args = parser.parse_args()
