@@ -16,10 +16,10 @@ run_pre_test             = True
 pre_removals = []
 
 # Removals parameters
-ff_frac,   ff_eps   = 0.04, 0.001
-attn_frac           = 0.01
-focus, cripple      = "code", "python"
-project             = "seperability-code-python"
+ff_frac,   ff_eps   = 0.00, 0.001
+attn_frac           = 0.05
+focus, cripple      = "pile", "code"
+project             = "pile-code-attn"
 datasets            = list(sorted([focus, cripple]))
 
 parser = argparse.ArgumentParser()
