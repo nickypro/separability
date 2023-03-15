@@ -153,6 +153,7 @@ def mlp_svd_two_layer(
         layer_2: torch.nn.Linear,
         d_head: float,
         svd_dtype: torch.dtype = torch.float32,
+        combine_biases: bool = False,
     ):
     """Calculates the SVD of the two layers, and alters the weights of the
     layers to be sqrt(S)*U and sqrt(S)*V, and alters the biases of layer_1
@@ -171,20 +172,21 @@ def mlp_svd_two_layer(
     """
     # Get the parameters from the MLP
     params_1 = layer_1.state_dict()
-    layer_1_weights = params_1['weight']
-    orig_shape = layer_1_weights.shape
+    params_2 = layer_2.state_dict()
+
+    # Load information about the layers
+    orig_shape = params_1['weight'].shape
     assert orig_shape[0] % d_head == 0, "d_head must divide d_model"
     n_heads = orig_shape[0] // d_head
     d_model = orig_shape[1]
 
-    layer_1_weights = layer_1_weights.reshape((n_heads, d_head, d_model))
-
     # pre-compute the effect of the layer 1 biases, so that we can reconstruct
     # the bias again in the new basis later
     layer_1_biases = params_1['bias']
-    layer_1_biases_effect = layer_2(layer_1_biases)
+    layer_1_biases_effect = torch.matmul(params_2['weight'], layer_1_biases)
 
-    params_2 = layer_2.state_dict()
+    # Get layer 1 and layer 2 weights in correct shapes for SVD
+    layer_1_weights = params_1['weight'].reshape((n_heads, d_head, d_model))
     layer_2_weights = params_2['weight'].reshape((d_model, n_heads, d_head))
 
     dtype, device = layer_1_weights.dtype, layer_1_weights.device
@@ -233,7 +235,17 @@ def mlp_svd_two_layer(
 
     # Use inverse linear to reconstruct new biases for layer_1
     inv_out = InverseLinear(layer_2).to(dtype=dtype).to(device)
-    layer_1_biases = inv_out(layer_1_biases_effect)
+
+    if combine_biases:
+        # Combine the biases of layer_1 into layer_2
+        layer_2_biases = params_2['bias'] + layer_1_biases_effect
+        params_2.update({'bias': layer_2_biases})
+        layer_2.load_state_dict(params_2)
+        layer_1_biases = torch.zeros_like(layer_1_biases)
+
+    else:
+        # otherwise, reconstruct the biases for layer_1, keep layer_2 unchanged
+        layer_1_biases = inv_out.fc(layer_1_biases_effect)
 
     params_1.update({'weight': layer_1_weights, 'bias': layer_1_biases})
     layer_1.load_state_dict(params_1)
