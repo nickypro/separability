@@ -6,7 +6,7 @@ references to functions from texts.py, so is not included in model.py Model.
 import os
 import datetime
 # Import types for typed python
-from typing import Optional, Union, Dict, Tuple
+from typing import Optional, Union, Dict, Tuple, List
 from torch import Tensor
 
 import torch
@@ -402,7 +402,7 @@ def prune_random( opt: Model,
         ff_frac: float,
         attn_frac: float,
         ff_pruned: Optional[np.ndarray] = None,
-        attn_pruned: Optional[np.ndarray] = None
+        attn_pruned: Optional[np.ndarray] = None,
         ):
     """Prune a random fraction of FF and Attention weights
     Args:
@@ -412,18 +412,18 @@ def prune_random( opt: Model,
 
     """
     if ff_pruned is None:
-        ff_pruned = np.zeros( (opt.n_layers, opt.d_model), dtype=np.bool_ )
+        ff_pruned = np.zeros( (opt.n_layers, opt.d_ff), dtype=np.bool_ )
     if attn_pruned is None:
         attn_pruned = np.zeros( (opt.n_layers, opt.n_heads ), dtype=np.bool_ )
 
-    n_ff_to_prune   = int( ff_frac   * opt.d_model )
+    n_ff_to_prune   = int( ff_frac   * opt.d_ff )
     n_attn_to_prune = int( attn_frac * opt.n_heads )
 
     # First prune the FF
     if not ff_frac == 0:
         for layer in range( opt.n_layers ):
             # choose new ff neurons to prune
-            indices = np.where(ff_pruned == 0)[0]
+            indices = np.where(ff_pruned[layer] == 0)[0]
             random_indices = np.random.choice(indices, n_ff_to_prune, replace=False)
             ff_pruned[layer][random_indices] = 1
 
@@ -433,7 +433,7 @@ def prune_random( opt: Model,
     if not attn_frac == 0:
         for layer in range( opt.n_layers ):
             # choose new attention heads to prune
-            indices = np.where(attn_pruned == 0)[0]
+            indices = np.where(attn_pruned[layer] == 0)[0]
             random_indices = np.random.choice(indices, n_attn_to_prune, replace=False)
             attn_pruned[layer][random_indices] = 1
 
@@ -445,6 +445,36 @@ def prune_random( opt: Model,
         "attn_del": n_attn_to_prune*opt.n_layers
     }
     return ff_pruned, attn_pruned, data_out
+
+def prune_random_and_evaluate( opt: Model,
+        ff_frac: float,
+        attn_frac: float,
+        ff_pruned: Optional[np.ndarray] = None,
+        attn_pruned: Optional[np.ndarray] = None,
+        eval_size: int = 1e5,
+        datasets: List[str] = ["code", "pile"],
+        ):
+
+    # Prune the model randomly
+    ff_pruned, attn_pruned, data_out = \
+        prune_random( opt, ff_frac, attn_frac, ff_pruned, attn_pruned )
+
+    # Initialize the output dictionary
+    data = RunDataItem()
+
+    # Evaluate the model
+    data.update(
+        evaluate_all( opt, eval_size, datasets )
+    )
+
+    data.update({'deletions': data_out })
+
+    data.update({'deletions_per_layer': {
+        'ff': ff_pruned.sum(axis=-1).tolist() if (not ff_pruned is None) else 0,
+        'attn': attn_pruned.sum(axis=-1).tolist() if (not attn_pruned is None) else 0,
+    }})
+
+    return ff_pruned, attn_pruned, data
 
 ####################################################################################
 # Code for getting attention activations
