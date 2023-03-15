@@ -560,7 +560,8 @@ class Model():
         use_means = not (mean_values is None)
         if use_means:
             # TODO: test this is fine?
-            assert mean_values.size().prod() == remove_indices.size().prod()
+            assert torch.tensor(mean_values.size()).prod() \
+                == torch.tensor(remove_indices.size()).prod()
 
         for layer_index in range(self.n_layers):
             mean_values_layer = mean_values[layer_index] if use_means else None
