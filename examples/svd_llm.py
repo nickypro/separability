@@ -61,7 +61,8 @@ def svd_model_attention(use_zero_biases=False):
         print(out[:3])
         print(big[:5, :3])
 
-        inv_out = mlp_svd_two_layer(v_proj, out_proj, opt.d_head)
+        inv_out = mlp_svd_two_layer(v_proj, out_proj, opt.d_head,
+            svd_dtype=torch.float32, combine_biases=True)
 
         new_output = out_proj(v_proj(vector))
 
