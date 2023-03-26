@@ -199,6 +199,18 @@ class Model():
         t = time.time() - t0
         print( f" - SVD Attention Layers in {t:.1f} seconds" )
 
+    def delete_residual_biases( self ):
+        for layer in self.model.decoder.layers:
+            out_proj = layer.self_attn.out_proj
+            out_params = out_proj.state_dict()
+            out_params['bias'] = torch.zeros_like( out_params['bias'] )
+            out_proj.load_state_dict(out_params)
+
+            fc2 = layer.fc2
+            fc2_params = fc2.state_dict()
+            fc2_params['bias'] = torch.zeros_like( fc2_params['bias'] )
+            fc2.load_state_dict(fc2_params)
+
     def get_ids( self, text:str, limit:Optional[int]=None ):
         limit = self.limit if (limit is None) else limit
         input_ids = self.tokenizer( text, return_tensors='pt').input_ids
@@ -675,8 +687,14 @@ class Model():
 
         self.delete_ff_keys( criteria )
 
-    # Next token prediction, show tokens
-    def predict( self, text : str, num: int = 10, limit: Optional[int] = None ):
+    def generate(self,
+            text: str,
+            num: int = 10,
+            do_sample: bool = True,
+            temperature: float = 0.7,
+            limit: int = None,
+            **kwargs,
+        ):
         """ Predict the next {num} tokens from an input {text}."""
 
         inputs = self.tokenizer( text, return_tensors="pt" )
@@ -686,7 +704,11 @@ class Model():
             input_ids = input_ids[0][:limit].reshape(1, -1)
 
         new_len = len(input_ids[0])+num
-        generate_ids = self.predictor.generate( input_ids, max_length=new_len )
+        generate_ids = self.predictor.generate( input_ids, max_length=new_len,
+            do_sample=do_sample, temperature=temperature, **kwargs)
+        #import inspect
+        #print(inspect.getsource(self.predictor.generate))
+        #print(temperature)
 
         before = self.tokenizer.batch_decode( input_ids,
             skip_special_tokens=True, clean_up_tokenization_spaces=False )[0]
@@ -694,6 +716,16 @@ class Model():
             skip_special_tokens=True, clean_up_tokenization_spaces=False )[0]
         after = after[ len(before): ]
         return before, after
+
+    # Next token prediction, show tokens
+    def predict(self,
+            text: str,
+            num: int = 10,
+            limit: int = None,
+            ):
+        """ Predict the next {num} tokens from an input {text}."""
+
+        return self.generate( text, num, do_sample=False, limit=limit )
 
     def get_kth_tokens( self, output: Tensor, k: int = 16 ):
         n_tokens = output.size()[self.token_index]
