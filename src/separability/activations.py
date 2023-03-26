@@ -365,14 +365,14 @@ def prune_and_evaluate( opt: Model,
             opt.delete_attn_pre_out( attn_criteria.reshape(_shape), means )
 
     # Save the removals to file
+    tensor_data = {
+        "ff_scores": ff_rel_freq if do_ff else None,
+        # FIXME: doesn't return attn_std_mean
+        "attn_scores": attn_scores if do_attn else None,
+        "ff_criteria": ff_criteria if do_ff else None,
+        "attn_criteria": attn_criteria if do_attn else None,
+    }
     if save:
-        tensor_data = {
-            "ff_rel_freq": ff_rel_freq if do_ff else None,
-            # FIXME: doesn't return attn_std_mean
-            "attn_std_mean": attn_criteria if do_attn else None,
-            "ff_frac": torch.tensor( ff_prune_frac ) if do_ff else None,
-            "attn_frac": torch.tensor( attn_prune_frac ) if do_attn else None,
-        }
         save_timestamped_tensor_dict( opt, tensor_data, "activation_metrics" )
 
     # Initialize the output dictionary
@@ -394,6 +394,12 @@ def prune_and_evaluate( opt: Model,
     data.update({'deletions_per_layer': {
         'ff': ff_criteria.sum(dim=-1).tolist() if do_ff else [],
         'attn': attn_criteria.sum(dim=-1).tolist() if do_attn else [],
+    }})
+
+    # Save removals and scores to history
+    _numpify = lambda x: x.cpu().numpy() if x is not None else None
+    data.update({'raw': {
+        k: _numpify(v) for k,v in tensor_data.items()
     }})
 
     return data
