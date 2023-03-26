@@ -66,6 +66,9 @@ class RunDataItem:
         # Raw Activations
         self.raw = {key: [] for key in self.keys_raw}
 
+        # Misc
+        self.misc = {}
+
         if not input_data is None:
             self.update(input_data)
 
@@ -84,6 +87,7 @@ class RunDataItem:
             'deletions': self.deletions,
             'deletions_per_layer': self.deletions_per_layer,
             'areas': self.areas,
+            'misc': self.misc,
         }
 
     def summary_wandb(self, is_first_run: bool = False):
