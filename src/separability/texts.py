@@ -35,6 +35,22 @@ def prepare_code(name = None):
 def prepare_pile():
     return load_pile(), 'text', most_common_pile_tokens
 
+def prepare_civil():
+    _dataset = load_dataset("civil_comments", streaming=True)
+    # Filter the dataset for toxicity > 0.8
+    def filter_toxicity(example):
+        return example["toxicity"] <= 0.2
+    low_toxicity_dataset = _dataset.filter(filter_toxicity)
+    return low_toxicity_dataset['train'], 'text', most_common_pile_tokens
+
+def prepare_toxic():
+    _dataset = load_dataset("civil_comments", streaming=True)
+    # Filter the dataset for toxicity > 0.8
+    def filter_toxicity(example):
+        return example["toxicity"] >= 0.8
+    high_toxicity_dataset = _dataset.filter(filter_toxicity)
+    return high_toxicity_dataset['train'], 'text', most_common_pile_tokens
+
 def prepare( dataset_name ):
     if dataset_name == 'pile':
         return prepare_pile()
@@ -45,6 +61,14 @@ def prepare( dataset_name ):
     if dataset_name[:4] == 'code':
         name = dataset_name[5:]
         return prepare_code(name)
+
+    if dataset_name[:5] == 'civil':
+        return prepare_civil()
+
+    if dataset_name[:5] == 'toxic':
+        return prepare_toxic()
+
+    raise ValueError( f"Unknown dataset: {dataset_name}" )
 
 if __name__ == "__main__":
     # syntax: python texts.py model_size dataset
