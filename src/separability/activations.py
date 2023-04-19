@@ -6,7 +6,7 @@ references to functions from texts.py, so is not included in model.py Model.
 import os
 import datetime
 # Import types for typed python
-from typing import Optional, Union, Dict, Tuple, List
+from typing import Optional, Union, Dict, Tuple, List, Callable
 from torch import Tensor
 
 import torch
@@ -294,11 +294,13 @@ def prune_and_evaluate( opt: Model,
         ff_prune_frac: float,
         attn_prune_frac: float,
         ff_eps: float,
+        attn_eps: float,
         sample_size: int = 1e5,
         eval_size: int = 1e5,
-        do_attn_mean_offset: bool = False,
+        ff_scoring: str = "freq",
         attn_scoring: str = "abs",
         attn_prune_heads: Optional[str] = False,
+        do_attn_mean_offset: bool = False,
         save: bool = False,
         cripple: str = "code",
         focus: str = "pile",
@@ -334,17 +336,16 @@ def prune_and_evaluate( opt: Model,
 
     # Get the top fraction FF activations and prune
     if do_ff > 0:
-        cripple_ff_count = cripple_out["ff"]["pos_count"]
-        focus_ff_count = focus_out["ff"]["pos_count"]
-        ff_rel_freq = ( cripple_ff_count / ( focus_ff_count + ff_eps ) ).cpu()
-        ff_criteria, ff_threshold = get_top_frac( ff_rel_freq, ff_prune_frac )
+        ff_scoring_fn = score_indices_by(ff_scoring)
+        ff_scores = ff_scoring_fn(opt, focus_out["ff"], cripple_out["ff"], ff_eps)
+        ff_criteria, ff_threshold = get_top_frac( ff_scores, ff_prune_frac )
         opt.delete_ff_keys( ff_criteria )
 
     # Get the top fraction of Attention activations and prune
     if do_attn > 0:
         # scoring for attention
         attn_scoring_fn = score_indices_by(attn_scoring)
-        attn_scores = attn_scoring_fn(opt, focus_out["attn"], cripple_out["attn"])
+        attn_scores = attn_scoring_fn(opt, focus_out["attn"], cripple_out["attn"], attn_eps)
 
         # offset by means if desired (probably bad?)
         means = focus_out["attn"]["mean"]
@@ -366,7 +367,7 @@ def prune_and_evaluate( opt: Model,
 
     # Save the removals to file
     tensor_data = {
-        "ff_scores": ff_rel_freq if do_ff else None,
+        "ff_scores": ff_scores if do_ff else None,
         # FIXME: doesn't return attn_std_mean
         "attn_scores": attn_scores if do_attn else None,
         "ff_criteria": ff_criteria if do_ff else None,
@@ -587,6 +588,16 @@ def get_attn_crossover( opt: Model,
     }
     return data
 
+def score_indices_by_freq( opt: Model,
+        focus_out: Dict[str, Tensor],
+        cripple_out: Dict[str, Tensor],
+        eps: float = 1e-3,
+    ):
+    cripple_count  = cripple_out["pos_count"]
+    focus_count = focus_out["pos_count"]
+    ratios = cripple_count / ( focus_count + eps )
+    return ratios
+
 def score_indices_by_sqrt( opt: Model,
         focus_out: Dict[str, Tensor],
         cripple_out: Dict[str, Tensor],
@@ -633,8 +644,21 @@ def score_indices_by_std( opt: Model,
 
     return ratios
 
-def score_indices_by(key: str):
+def score_indices_by(key: str) -> Callable:
+    """Get the scoring function we want to use.
+
+    Args:
+        key (str): The name of the scoring function to use. Options:
+            'freq': Importance = number of times activation is positive
+            'abs': Mean absolute activation from zero.
+            'sqrt': Mean square root activation from zero.
+            'std': Standard deviation of activation from mean.
+
+    Returns:
+        scoring_func (Callable): The scoring function we want to use.
+    """
     scoring_map = {
+        'freq': score_indices_by_freq,
         'abs': score_indices_by_abs,
         'sqrt': score_indices_by_sqrt,
         'std': score_indices_by_std,
