@@ -16,7 +16,7 @@ run_pre_test             = True
 pre_removals = []
 
 # Removals parameters
-ff_frac,   ff_eps   = 0.05, 0.001
+ff_frac,   ff_eps   = 0.02, 0.001
 attn_frac, attn_eps = 0.00, 1e-4
 focus, cripple      = "pile", "code"
 project             = "pile-code-attn"
@@ -78,7 +78,7 @@ if c.run_pre_test:
     print(history.df.T)
 
 # First do some pruning of the feed forward layers
-for i in range(20):
+for i in range(50):
     data = prune_and_evaluate(opt, c.ff_frac, c.attn_frac, c.ff_eps, c.attn_eps,
         cripple=c.cripple, focus=c.focus,
         ff_scoring=c.ff_scoring, attn_scoring=c.attn_scoring,
