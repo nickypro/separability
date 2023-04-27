@@ -24,6 +24,14 @@ def load_pile():
     _dataset = load_dataset(repo, streaming=True )
     return _dataset['train']
 
+def load_pile_codeless():
+    repo = "EleutherAI/the_pile" # deduplicated does not have meta tags
+    _dataset = load_dataset(repo, "all", streaming=True)
+    def filter_out_code(example):
+        return example['meta']['pile_set_name'] != 'Github'
+    _dataset = _dataset.filter(filter_out_code)
+    return _dataset['train']
+
 # Hard load the most common tokens from the datasets from previous runs.
 # pylint: disable=line-too-long
 most_common_code_tokens = [' ', '\n', '.', '_', ',', '#', '(', ' =', ' import', 'from', ' the', ':', ')', '\n\n', 'import', " '", '/', '-', '):', '\t', "',", ' "', ' self', '=', ' of', "'", '__', ' (', 'self', ' in', ' License', '</s>', ' is', '0', ' for', ' to', 's', '1', '2', ' a', ' as', '\r', ' -', ' and', ' def', ' #', 'x', '()', "('", '\\']
@@ -34,6 +42,9 @@ def prepare_code(name = None):
 
 def prepare_pile():
     return load_pile(), 'text', most_common_pile_tokens
+
+def prepare_pile_codeless():
+    return load_pile_codeless(), 'text', most_common_pile_tokens
 
 def prepare_civil():
     _dataset = load_dataset("civil_comments", streaming=True)
@@ -52,6 +63,9 @@ def prepare_toxic():
     return high_toxicity_dataset['train'], 'text', most_common_pile_tokens
 
 def prepare( dataset_name ):
+    if dataset_name == 'pile_codeless':
+        return prepare_pile_codeless()
+
     if dataset_name == 'pile':
         return prepare_pile()
 
