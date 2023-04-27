@@ -24,6 +24,7 @@ import matplotlib as mpl
 from .model_repos import supported_model_repos
 from .nn import InverseLinear, mlp_delete_rows, mlp_adjust_biases, \
     mlp_delete_columns, mlp_svd_two_layer
+from .model_maps import convert_hf_model_config, ModelMap
 
 mpl.rcParams['figure.dpi'] = 300
 
@@ -101,15 +102,22 @@ class Model():
     # pylint: disable=attribute-defined-outside-init
     def init_model( self, model_repo: Optional[str] = None ):
         if not model_repo is None:
-            self.set_repo( model_repo )
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_repo)
-
+            self.set_repo(model_repo)
         # Initialize model (with or without accelerator)
         device_map = "auto" if self.use_accelerator else None
-        #self.predictor = OPTForCausalLM.from_pretrained(self.repo, dtype=self.dtype)
+
+        # Import model components
+        self.cfg = convert_hf_model_config(self.model_repo)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_repo)
         self.predictor = AutoModelForCausalLM.from_pretrained(
             self.model_repo, torch_dtype=self.dtype, device_map=device_map)
-        self.model = self.predictor.model
+
+        # Build map for working with model
+        self.map = ModelMap(self.predictor, self.cfg)
+        self.model  = self.map["model"]
+        self.layers = self.map.layers
+
+        #self.predictor = OPTForCausalLM.from_pretrained(self.repo, dtype=self.dtype)
 
         self.to(self.device)
 
