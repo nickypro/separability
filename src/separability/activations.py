@@ -143,12 +143,12 @@ def get_midlayer_activations( opt: Model,
 
     # ff activation collector
     if do_ff:
-        ff_shape = (opt.n_layers, opt.d_ff)
+        ff_shape = (opt.cfg.n_layers, opt.cfg.d_mlp)
         ff_data = ActivationCollector( ff_shape, opt.output_device, collect_ff )
 
     # self-attention activation collector
     if do_attn:
-        attn_shape = (opt.n_layers, opt.n_heads, opt.d_head)
+        attn_shape = (opt.cfg.n_layers, opt.cfg.n_heads, opt.cfg.d_head)
         attn_data = ActivationCollector( attn_shape, opt.output_device, collect_attn )
 
     if collect_ff or collect_attn:
@@ -362,7 +362,7 @@ def prune_and_evaluate( opt: Model,
         # get criteria and prune if using only attention neurons
         else:
             attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_prune_frac)
-            _shape = (opt.n_layers, opt.n_heads*opt.d_head)
+            _shape = (opt.cfg.n_layers, opt.cfg.n_heads*opt.cfg.d_head)
             opt.delete_attn_pre_out( attn_criteria.reshape(_shape), means )
 
     # Save the removals to file
@@ -419,16 +419,16 @@ def prune_random( opt: Model,
 
     """
     if ff_pruned is None:
-        ff_pruned = np.zeros( (opt.n_layers, opt.d_ff), dtype=np.bool_ )
+        ff_pruned = np.zeros( (opt.cfg.n_layers, opt.cfg.d_mlp), dtype=np.bool_ )
     if attn_pruned is None:
-        attn_pruned = np.zeros( (opt.n_layers, opt.n_heads ), dtype=np.bool_ )
+        attn_pruned = np.zeros( (opt.cfg.n_layers, opt.cfg.n_heads ), dtype=np.bool_ )
 
-    n_ff_to_prune   = int( ff_frac   * opt.d_ff )
-    n_attn_to_prune = int( attn_frac * opt.n_heads )
+    n_ff_to_prune   = int( ff_frac   * opt.cfg.d_mlp )
+    n_attn_to_prune = int( attn_frac * opt.cfg.n_heads )
 
     # First prune the FF
     if not ff_frac == 0:
-        for layer in range( opt.n_layers ):
+        for layer in range( opt.cfg.n_layers ):
             # choose new ff neurons to prune
             indices = np.where(ff_pruned[layer] == 0)[0]
             random_indices = np.random.choice(indices, n_ff_to_prune, replace=False)
@@ -438,7 +438,7 @@ def prune_random( opt: Model,
         opt.delete_ff_keys( ff_pruned )
 
     if not attn_frac == 0:
-        for layer in range( opt.n_layers ):
+        for layer in range( opt.cfg.n_layers ):
             # choose new attention heads to prune
             indices = np.where(attn_pruned[layer] == 0)[0]
             random_indices = np.random.choice(indices, n_attn_to_prune, replace=False)
@@ -448,8 +448,8 @@ def prune_random( opt: Model,
         opt.delete_ff_keys( attn_pruned )
 
     data_out = {
-        "ff_del": n_ff_to_prune*opt.n_layers,
-        "attn_del": n_attn_to_prune*opt.n_layers
+        "ff_del": n_ff_to_prune*opt.cfg.n_layers,
+        "attn_del": n_attn_to_prune*opt.cfg.n_layers
     }
     return ff_pruned, attn_pruned, data_out
 
@@ -559,12 +559,12 @@ def get_attn_crossover( opt: Model,
     code_means, code_pos, code_neg = \
         code_out["mean"], code_out["pos_mass"], code_out["neg_mass"]
 
-    crossover_multiple = torch.ones((opt.n_layers, opt.n_heads))
+    crossover_multiple = torch.ones((opt.cfg.n_layers, opt.cfg.n_heads))
     pos_code_rel_freq = code_pos / ( pile_pos + eps )
     neg_code_rel_freq = code_neg / ( pile_neg - eps )
 
-    for layer in range( opt.n_layers ):
-        for head in range( opt.n_heads ):
+    for layer in range( opt.cfg.n_layers ):
+        for head in range( opt.cfg.n_heads ):
             # Relative probability mass in positive and negative directions
             pos_rel, _pos_index = torch.sort( pos_code_rel_freq[layer][head] )
             neg_rel, _neg_index = \
@@ -705,7 +705,7 @@ def delete_attn_and_evaluate( opt: Model,
         frac_removed (float): The fraction of attention heads removed from the model
         sample_size (int, optional): token sample size to collect data for.
             Defaults to 1e5.
-        eval_size (int, optional): token sample size to use for evaluating the model.
+        eval_size (int, optional): token sample size to use for evaluating the m"]odel.
         eps (float, optional): epsilon for numerical stability. Defaults to 1e-6.
         pile_out (Dict[str, Tensor], optional): pile activations output from
             running get_attn_activations. Defaults to None (i.e: compute here).

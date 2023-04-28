@@ -124,14 +124,6 @@ class Model():
         print(f'- Loaded {self.model_repo}')
         self.activations = {}
 
-        attn0 = self.model.decoder.layers[0].self_attn
-        self.d_model = attn0.embed_dim
-        self.d_head  = attn0.head_dim
-        self.n_heads = attn0.num_heads
-        self.n_layers = len(self.model.decoder.layers)
-
-        self.d_ff = 4 * self.d_model
-
         self.register_activations()
         if self.svd_attn:
             self.svd_attention_layers()
@@ -142,12 +134,12 @@ class Model():
 
     def show_details( self, verbose=True ):
         if verbose:
-            print( " - n_layers :", self.n_layers )
-            print( " - d_model  :", self.d_model  )
-            print( " - n_heads  :", self.n_heads  )
-            print( " - d_head   :", self.d_head   )
+            print( " - n_layers :", self.cfg.n_layers )
+            print( " - d_model  :", self.cfg.d_model  )
+            print( " - n_heads  :", self.cfg.n_heads  )
+            print( " - d_head   :", self.cfg.d_head   )
         else:
-            print( f" - n_layers, d_model = {self.n_layers}, {self.d_model}" )
+            print( f" - n_layers, d_model = {self.cfg.n_layers}, {self.cfg.d_model}" )
 
     def to( self, device ):
         if self.use_accelerator: # If using accelerator, init handles multi-device
@@ -172,19 +164,19 @@ class Model():
     def register_activations( self ):
         # register the forward hook
         attention_index = 0
-        for module in self.model.decoder.layers.modules():
-            if isinstance(module, OPTAttention):
-                name = pad_zeros( attention_index ) + "-attention"
-                # print( f"registering : ({name}), OPTAttention layer" )
-                module.register_forward_hook( self.get_activation_of( name ) )
-                attention_index += 1
-                continue
+        for layer_index, layer in enumerate(self.layers):
+            attn = layer["attn"]
+            name = pad_zeros( layer_index ) + "-attention"
+            # print( f"registering : ({name}), OPTAttention layer" )
+            attn.register_forward_hook( self.get_activation_of( name ) )
+            attention_index += 1
+            continue
         print( f" - Registered {attention_index} OPT Attention Layers" )
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
-        for layer in self.model.decoder.layers:
-            inv_out_proj = InverseLinear(layer.self_attn.out_proj)
+        for layer in self.layers:
+            inv_out_proj = InverseLinear(layer["attn.out_proj"])
             inv_out_proj = inv_out_proj.to(dtype=self.dtype)
 
             if self.use_accelerator:
@@ -193,31 +185,24 @@ class Model():
                 # Use self.output_device since that is where the output will be stored
                 inv_out_proj = inv_out_proj.to(self.output_device)
 
-            layer.self_attn.inv_out_proj = inv_out_proj
+            layer["attn.inv_out_proj"] = inv_out_proj
 
     def svd_attention_layers( self ):
         # Rewrite the v_proj and out_proj matrices using SVD
         t0 = time.time()
-        for layer in self.model.decoder.layers:
-            v_proj = layer.self_attn.v_proj
-            out_proj = layer.self_attn.out_proj
-            inv_out_proj = mlp_svd_two_layer(v_proj, out_proj, self.d_head)
+        for layer in self.layers:
+            v_proj   = layer["attn.v_proj"]
+            out_proj = layer["attn.out_proj"]
+            inv_out_proj = mlp_svd_two_layer(v_proj, out_proj, self.cfg.d_head)
             inv_out_proj = inv_out_proj.to(dtype=self.dtype)
-            layer.self_attn.inv_out_proj = inv_out_proj.to(self.output_device)
+            layer["attn.inv_out_proj"] = inv_out_proj.to(self.output_device)
         t = time.time() - t0
         print( f" - SVD Attention Layers in {t:.1f} seconds" )
 
     def delete_residual_biases( self ):
-        for layer in self.model.decoder.layers:
-            out_proj = layer.self_attn.out_proj
-            out_params = out_proj.state_dict()
-            out_params['bias'] = torch.zeros_like( out_params['bias'] )
-            out_proj.load_state_dict(out_params)
-
-            fc2 = layer.fc2
-            fc2_params = fc2.state_dict()
-            fc2_params['bias'] = torch.zeros_like( fc2_params['bias'] )
-            fc2.load_state_dict(fc2_params)
+        for layer in self.layers:
+            layer["attn.b_O"] = torch.zeros_like( layer["attn.b_O"] )
+            layer["mlp.b_out"] = torch.zeros_like( layer["mlp.b_out"] )
 
     def get_ids( self, text:str, limit:Optional[int]=None ):
         limit = self.limit if (limit is None) else limit
@@ -234,7 +219,7 @@ class Model():
         if input_ids is None:
             input_ids = self.get_ids( text, limit )
 
-        inputs_embeds = self.model.decoder.embed_tokens( input_ids )
+        inputs_embeds = self.map["embed"]( input_ids )
 
         return inputs_embeds
 
@@ -324,7 +309,7 @@ class Model():
 
         # get ff outputs
         ff_out =  []
-        for i in range(self.n_layers):
+        for i in range(self.cfg.n_layers):
             ff_out.append( hidden_states[i+1] - attention_out[i] - hidden_states[i] )
         ff_out = self.out_stack( ff_out ).squeeze().detach().detach()
 
@@ -347,10 +332,10 @@ class Model():
                 input_ids, inputs_embeds, limit, **kwargs )
         inpt, attention_out, ff_out, _output = text_activations
 
-        assert len(attention_out) == self.n_layers
-        assert len(ff_out) == self.n_layers
+        assert len(attention_out) == self.cfg.n_layers
+        assert len(ff_out) == self.cfg.n_layers
 
-        adjustments = [0]*(2*self.n_layers)
+        adjustments = [0]*(2*self.cfg.n_layers)
         adjustments[0::2] = attention_out
         adjustments[1::2] = ff_out
 
@@ -413,9 +398,10 @@ class Model():
     # output: attn_out, attn_weights, (k_i, v_i)
 
     def get_attn_layers(self):
-        return [ l.self_attn for l in self.model.decoder.layers ]
+        return [ l["attn"] for l in self.layers ]
 
     def prepare_attention_mask( self, inpt: Tensor ):
+        # TODO: change to ModelMap
         decoder = self.model.decoder
         input_shape = input.size()[:-1]
 
@@ -432,9 +418,9 @@ class Model():
                 layer: int,
                 attention_mask: Tensor
             ):
-        u = self.model.decoder.layers[ layer ]
-        x = u.self_attn_layer_norm( attn_in )
-        x = u.self_attn( x, attention_mask=attention_mask )[0]
+        u = self.layers[ layer ]
+        x = u["ln1"]( attn_in )
+        x = u["attn"]( x, attention_mask=attention_mask )[0]
         return x
 
     def calculate_attn_out( self, attn_in: Tensor, add_residual: bool = False ):
@@ -467,15 +453,13 @@ class Model():
             transpose: bool
             ):
         # ie: turns attn_out into attn_pre_out
-        self_attn = self.model.decoder.layers[layer].self_attn
-
-        # Calculate the layer before
-        pre_out = self_attn.inv_out_proj( attn_out )
+        layer = self.layers[layer]
+        pre_out = layer["attn.inv_out_proj"]( attn_out )
 
         # reshape into the shape it was before W_out
         if reshape:
             [ tgt_len, _embed_dim ] = attn_out.size() # see OPTAttention
-            pre_out = pre_out.view(tgt_len, self.n_heads, self.d_head)
+            pre_out = pre_out.view(tgt_len, self.cfg.n_heads, self.cfg.d_head)
 
         # whether to transpose the output to what it originally looked like
         if reshape and transpose:
@@ -500,8 +484,8 @@ class Model():
         """
 
         out = []
-        assert len(attn_out) == self.n_layers
-        for layer in range(self.n_layers):
+        assert len(attn_out) == self.cfg.n_layers
+        for layer in range(self.cfg.n_layers):
             pre_out = self.calculate_attn_pre_out_layer(
                 attn_out[layer], layer, reshape, transpose )
             out.append( pre_out)
@@ -535,19 +519,21 @@ class Model():
         with torch.no_grad():
             # check tensor sizes are correct
             size = remove_indices.size()
-            if size[-1] == self.d_head:
+            if size[-1] == self.cfg.d_head:
                 remove_indices = remove_indices.reshape( (*size[:-2], -1) )
                 size = remove_indices.size()
-            assert remove_indices.size() == torch.Size([self.d_model])
+            assert remove_indices.size() == torch.Size([self.cfg.d_model])
 
             # get the attention that we are changing.
-            # We change both (1) the inputs and (2) the outputs of the pre_out layer
-            out_proj = self.model.decoder.layers[layer_index].self_attn.out_proj
-            v_proj   = self.model.decoder.layers[layer_index].self_attn.v_proj
+            # We change both (1) the inputs and (2) the outputs of the pre_out
+            # layer
+            # TODO: Make compatible with ModelMap
+            out_proj = self.layers[layer_index]["attn.out_proj"]
+            v_proj   = self.layers[layer_index]["attn.v_proj"]
 
             # 1. Adjust the biases out of the out_proj layer to compensate for
             #    the deletion of the weights
-            if not remove_indices is None:
+            if (mean_values is not None):
                 mlp_adjust_biases( out_proj, remove_indices, mean_values )
 
             # Optionally, delete the weights going out of a neuron
@@ -583,7 +569,7 @@ class Model():
             assert torch.tensor(mean_values.size()).prod() \
                 == torch.tensor(remove_indices.size()).prod()
 
-        for layer_index in range(self.n_layers):
+        for layer_index in range(self.cfg.n_layers):
             mean_values_layer = mean_values[layer_index] if use_means else None
             self.delete_attn_pre_out_layer( layer_index,
                 remove_indices[layer_index], mean_values_layer )
@@ -604,21 +590,21 @@ class Model():
                 Defaults to None.
         """
         # Check that the size for remove_heads is correct
-        if remove_heads.size() != torch.Size([ self.n_layers, self.n_heads ]):
+        if remove_heads.size() != torch.Size([ self.cfg.n_layers, self.cfg.n_heads ]):
             raise ValueError( "Removals must have dimension [n_layers, n_heads]" )
 
         # Convert 'heads' tensor into 'individual neurons' tensor
         remove_indices = remove_heads.unsqueeze(-1).expand([
-            self.n_layers, self.n_heads, self.d_head])
+            self.cfg.n_layers, self.cfg.n_heads, self.cfg.d_head])
 
         # delete heads in each layer
-        for layer in range(self.n_layers):
+        for layer in range(self.cfg.n_layers):
             # if using means, get means for current layer
             if means is None:
                 means_i = None
             else:
                 means_i = means[layer].flatten()
-                assert means_i.size() == torch.Size([ self.d_model ])
+                assert means_i.size() == torch.Size([ self.cfg.d_model ])
 
             self.delete_attn_pre_out_layer( layer, remove_indices[layer], means_i )
 
@@ -628,11 +614,11 @@ class Model():
             layer: int,
             use_activation_function: bool = True,
         ):
-        u = self.model.decoder.layers[ layer ]
-        x = u.final_layer_norm( ff_in )
-        x = u.fc1( x )
+        u = self.layers[ layer ]
+        x = u["ln2"]( ff_in )
+        x = u["fc1"]( x )
         if use_activation_function:
-            x = u.activation_fn( x )
+            x = u["activation_fn"]( x )
         return x
 
     def calculate_ff_keys( self,
@@ -648,11 +634,11 @@ class Model():
         return self.out_stack( out )
 
     def calculate_ff_out_layer( self, ff_in: Tensor, layer: int):
-        u = self.model.decoder.layers[ layer ]
-        x = u.final_layer_norm( ff_in )
-        x = u.fc1( x )
-        x = u.activation_fn( x )
-        x = u.fc2( x )
+        u = self.layers[ layer ]
+        x = u["ln2"]( ff_in )
+        x = u["fc1"]( x )
+        x = u["activation_fn"]( x )
+        x = u["fc2"]( x )
         return x
 
     def calculate_ff_out( self, ff_in: Tensor, add_residual: bool = False ):
@@ -668,7 +654,7 @@ class Model():
     def delete_ff_keys( self, layer_key_map: Tensor ):
         for layer, key_map in enumerate(layer_key_map):
             # 2. Delete the weights going into ff key so it never activates
-            ff_in = self.model.decoder.layers[ layer ].fc1
+            ff_in = self.layers[ layer ]["fc1"]
             mlp_delete_rows(ff_in, key_map)
 
         return self

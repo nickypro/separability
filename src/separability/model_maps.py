@@ -1,9 +1,30 @@
 # Code mostly from TransformerLens
 # https://github.com/neelnanda-io/TransformerLens/blob/main/transformer_lens/loading_from_pretrained.py
 from typing import Callable, Any, Optional
-import torch
+from dataclasses import dataclass
 import einops
 from transformers import AutoConfig
+
+@dataclass
+class ConfigClass:
+    d_model: int
+    d_head: int
+    n_heads: int
+    d_mlp: int
+    n_layers: int
+    n_ctx: int
+    eps: float
+    d_vocab: int
+    act_fn: str
+    use_attn_scale: bool
+    use_local_attn: bool
+    scale_attn_by_inverse_layer_idx: bool
+    normalization_type: str
+    architecture: str
+    tokenizer_name: str
+    parallel_attn_mlp: bool = False
+    positional_embedding_type: str = "standard"
+    rotary_dim: Optional[int] = None
 
 def convert_hf_model_config(official_model_name: str):
     """
@@ -178,10 +199,10 @@ def convert_hf_model_config(official_model_name: str):
     else:
         raise NotImplementedError(f"{architecture} is not currently supported.")
     # All of these models use LayerNorm
-    cfg_dict["original_architecture"] = architecture
+    cfg_dict["architecture"] = architecture
     # The name such that AutoTokenizer.from_pretrained works
     cfg_dict["tokenizer_name"] = official_model_name
-    return cfg_dict
+    return ConfigClass(**cfg_dict)
 
 
 #####################################################################################
@@ -194,6 +215,7 @@ def convert_hf_model_config(official_model_name: str):
 opt_model_map = {
     "model"           : "model",
     "layers"          : "model.decoder.layers",
+    "embed"           : "model.decoder.embed_tokens",
     "embed.W_E"       : "model.decoder.embed_tokens.weight",
     "pos_embed.W_pos" : "model.decoder.embed_positions",
     # in OPT, ln_final is only added for backwards compatibility
@@ -209,6 +231,10 @@ opt_layer_map = {
     "ln1.b"         : "self_attn_layer_norm.bias",
 
     "attn"          : "self_attn",
+    "attn.q_proj"   : "self_attn.q_proj",
+    "attn.k_proj"   : "self_attn.k_proj",
+    "attn.v_proj"   : "self_attn.v_proj",
+
     "attn.W_Q"      : "self_attn.q_proj.weight",
     "attn.W_K"      : "self_attn.k_proj.weight",
     "attn.W_V"      : "self_attn.v_proj.weight",
@@ -232,6 +258,8 @@ opt_layer_map = {
     "mlp.W_in"      : "fc1.weight",
     "mlp.b_in"      : "fc1.bias",
 
+    "activation_fn" : "activation_fn",
+
     "fc2"           : "fc2",
     "mlp.W_out"     : "fc2.weight",
     "mlp.b_out"     : "fc2.bias",
@@ -244,6 +272,7 @@ opt_layer_map = {
 gpt_neox_model_map = {
     "model"           : "base_model",
     "layers"          : "base_model.layers",
+    "embed"           : "base_model.embed_in",
     "embed.W_E"       : "base_model.embed_in.weight",
     "pos_embed.W_pos" : "base_model.embed_pos.weight",
     "ln_final.w"      : "base_model.final_layer_norm.weight",
@@ -299,6 +328,10 @@ def build_gpt_neox_layer_map(cfg):
         "ln1.b"     : "ln1.input_layernorm.weight",
 
         "attn"      : "attention",
+        "attn.q_proj"   : None,
+        "attn.k_proj"   : None,
+        "attn.v_proj"   : None,
+
         "attn.W_Q"  : lambda layer, inpt: gpt_neox_qkv_weight(layer, "q", inpt),
         "attn.W_K"  : lambda layer, inpt: gpt_neox_qkv_weight(layer, "k", inpt),
         "attn.W_V"  : lambda layer, inpt: gpt_neox_qkv_weight(layer, "v", inpt),
@@ -320,11 +353,11 @@ def build_gpt_neox_layer_map(cfg):
 
         "fc1"       : "mlp.dense_h_to_4h",
         "fc2"       : "mlp.dense_4h_to_h",
-        "act_fn"    : "mlp.act",
         "mlp.W_in"  : "mlp.dense_h_to_4h.weight",
         "mlp.W_out" : "mlp.dense_4h_to_h.weight",
         "mlp.b_in"  : "mlp.dense_h_to_4h.bias",
         "mlp.b_out" : "mlp.dense_4h_to_h.bias",
+        "activation_fn" : "mlp.act",
     }
     return gpt_neox_layer_map
 
@@ -343,7 +376,7 @@ def get_attrs(obj, attr_string):
     return current_attr
 
 def get_model_key_map(config):
-    architecture = config["original_architecture"]
+    architecture = config.architecture
     if architecture == "OPTForCausalLM":
         return opt_model_map
     if architecture == "GPTNeoXForCausalLM":
@@ -352,7 +385,7 @@ def get_model_key_map(config):
     raise NotImplementedError(f"Architecture {architecture} not implemented")
 
 def get_layer_key_map(config):
-    architecture = config["original_architecture"]
+    architecture = config.architecture
 
     if architecture == "OPTForCausalLM":
         return opt_layer_map
