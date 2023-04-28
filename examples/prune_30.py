@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('repo', type=str)
 parser.add_argument('-r', '--reverse', action='store_true')
 parser.add_argument('--svd', action='store_true')
-parser.add_argument('-f', '--ff_scoring', type=str, default="pos_freq")
+parser.add_argument('-f', '--ff_scoring', type=str, default="freq")
 parser.add_argument('-s', '--attn_scoring', type=str, default="abs")
 parser.add_argument('--prune_heads', type=str, default=False) # mean, median
 parser.add_argument('--project', type=str, default=project)
