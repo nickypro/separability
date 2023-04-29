@@ -527,23 +527,30 @@ class Model():
             # get the attention that we are changing.
             # We change both (1) the inputs and (2) the outputs of the pre_out
             # layer
-            # TODO: Make compatible with ModelMap
-            out_proj = self.layers[layer_index]["attn.out_proj"]
-            v_proj   = self.layers[layer_index]["attn.v_proj"]
+            layer = self.layers[layer_index]
+            out_proj = layer["attn.out_proj"]
+            v_proj   = layer["attn.v_proj"]
 
             # 1. Adjust the biases out of the out_proj layer to compensate for
             #    the deletion of the weights
             if (mean_values is not None):
+                # TODO: Make compatible with ModelMap
                 mlp_adjust_biases( out_proj, remove_indices, mean_values )
 
             # Optionally, delete the weights going out of a neuron
             # more of a sanity check than actually being useful
             if not self.use_accelerator:
+                # TODO: Make compatible with ModelMap
                 mlp_delete_columns( out_proj, remove_indices )
 
             # 2. Delete the weights and biases going into neuron (v_proj)
             #  so it never activates in the first place
-            mlp_delete_rows(v_proj, remove_indices)
+            W_V, b_V = layer["attn.W_V"], layer["attn.b_V"]
+            for row_index in range(len(W_V)):
+                if remove_indices[row_index]:
+                    W_V[row_index] = torch.zeros_like(W_V[row_index])
+                    b_V[row_index] = torch.zeros_like(b_V[row_index])
+            layer["attn.W_V"], layer["attn.b_V"] = W_V, b_V
 
     def delete_attn_pre_out( self,
             remove_indices: Tensor,
