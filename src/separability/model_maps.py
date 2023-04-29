@@ -285,18 +285,19 @@ def build_gpt_neox_layer_map(cfg):
     def gpt_neox_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
         qkv_heads = layer.attention.query_key_value
         W = qkv_heads.weight
-        W = einops.rearrange(W, "(i qkv h) m->qkv i m h", i=cfg.n_heads, qkv=3)
+        #W = einops.rearrange(W, "(i qkv h) m->qkv i m h", i=cfg.n_heads, qkv=3)
+        W = einops.rearrange(W, "(i qkv h) m->qkv m (i h)", i=cfg.n_heads, qkv=3)
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
 
         # Get mode
-        if input is None:
+        if inpt is None:
             return W[index]
 
         # Set mode
         params = qkv_heads.state_dict()
         W[index] = inpt
-        W = einops.rearrange(W, "qkv i m h -> (i qkv h) m", i=cfg.n_heads, qkv=3)
+        W = einops.rearrange(W, "qkv m (i h) -> (i qkv h) m", i=cfg.n_heads, qkv=3)
         params["weight"] = W
         qkv_heads.load_state_dict(params)
 
@@ -304,20 +305,20 @@ def build_gpt_neox_layer_map(cfg):
         qkv_head = layer.attention.query_key_value
         qkv_bias = qkv_head.bias
         qkv_bias = einops.rearrange(
-            qkv_bias, "(index qkv head)->qkv index head", qkv=3, index=cfg.n_heads,
+            qkv_bias, "(index qkv head)->qkv (index head)", qkv=3, index=cfg.n_heads,
         )
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
 
         # Get mode
-        if input is None:
+        if inpt is None:
             return qkv_bias[index]
 
         # Set mode
         params = qkv_head.state_dict()
         qkv_bias[index] = inpt
         qkv_bias = einops.rearrange(
-            qkv_bias, "qkv index head -> (index qkv head)", qkv=3, index=cfg.n_heads,
+            qkv_bias, "qkv (index head) -> (index qkv head)", qkv=3, index=cfg.n_heads,
         )
         params["bias"] = qkv_bias
         qkv_head.load_state_dict(params)
@@ -332,12 +333,12 @@ def build_gpt_neox_layer_map(cfg):
         "attn.k_proj"   : None,
         "attn.v_proj"   : None,
 
-        "attn.W_Q"  : lambda layer, inpt: gpt_neox_qkv_weight(layer, "q", inpt),
-        "attn.W_K"  : lambda layer, inpt: gpt_neox_qkv_weight(layer, "k", inpt),
-        "attn.W_V"  : lambda layer, inpt: gpt_neox_qkv_weight(layer, "v", inpt),
-        "attn.b_Q"  : lambda layer, inpt: gpt_neox_qkv_bias(layer, "q", inpt),
-        "attn.b_K"  : lambda layer, inpt: gpt_neox_qkv_bias(layer, "q", inpt),
-        "attn.b_V"  : lambda layer, inpt: gpt_neox_qkv_bias(layer, "q", inpt),
+        "attn.W_Q"  : lambda layer, inpt=None: gpt_neox_qkv_weight(layer, "q", inpt),
+        "attn.W_K"  : lambda layer, inpt=None: gpt_neox_qkv_weight(layer, "k", inpt),
+        "attn.W_V"  : lambda layer, inpt=None: gpt_neox_qkv_weight(layer, "v", inpt),
+        "attn.b_Q"  : lambda layer, inpt=None: gpt_neox_qkv_bias(layer, "q", inpt),
+        "attn.b_K"  : lambda layer, inpt=None: gpt_neox_qkv_bias(layer, "q", inpt),
+        "attn.b_V"  : lambda layer, inpt=None: gpt_neox_qkv_bias(layer, "q", inpt),
 
         "attn.out_proj" : "attention.dense",
         "attn.W_O"      : "attention.dense.weight",
@@ -439,19 +440,26 @@ class ModelLayerMap:
 
     def __setitem__(self, __name: str, __value: Any) -> None:
         key = self.key_map[__name]
-
-        if isinstance(key, str):
-            keys = key.split('.')
-            attr = keys[-1]
-            module = get_attrs(self.layer, ".".join(keys[:-1]))
-
-            params = module.state_dict()
-            params[attr] = __value
-            module.load_state_dict(params)
-            return
-
         if isinstance(key, Callable):
             return key(self.layer, __value)
+
+        if not isinstance(key, str):
+            raise ValueError("Invalid key, must be string or callable")
+
+        # Get the module and attribute name
+        keys = key.split('.')
+        module = get_attrs(self.layer, ".".join(keys[:-1]))
+        attr = keys[-1]
+
+        if attr == "inv_out_proj":
+            setattr(module, attr, __value)
+            return
+
+        # If setting an attribute of a module (eg: weights or biases), update
+        params = module.state_dict()
+        params[attr] = __value
+        module.load_state_dict(params)
+        return
 
     def __str__(self):
         out_str  = "Wrapper for Transformer Layer\n"
