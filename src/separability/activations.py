@@ -613,9 +613,9 @@ def score_indices_by_abs( opt: Model,
         cripple_out: Dict[str, Tensor],
         eps: float = 1e-6,
     ):
-    focus_stds   = focus_out["pos_mass"] + focus_out["neg_mass"].abs()
-    cripple_stds = cripple_out["pos_mass"] + cripple_out["neg_mass"].abs()
-    ratios = cripple_stds / ( focus_stds + eps )
+    focus_mean_abs   = focus_out["pos_mass"] + focus_out["neg_mass"].abs()
+    cripple_mean_abs = cripple_out["pos_mass"] + cripple_out["neg_mass"].abs()
+    ratios = cripple_mean_abs / ( focus_mean_abs + eps )
 
     return ratios
 
@@ -644,6 +644,16 @@ def score_indices_by_std( opt: Model,
 
     return ratios
 
+def score_indices_by_rms( opt: Model,
+        focus_out: Dict[str, Tensor],
+        cripple_out: Dict[str, Tensor],
+        eps: float = 1e-6,
+    ):
+    focus_rms   = torch.sqrt( focus_out["std"]**2 + focus_out["mean"]**2 )
+    cripple_rms = torch.sqrt( cripple_out["std"]**2 + cripple_out["mean"]**2 )
+    ratios = cripple_rms / ( focus_rms + eps )
+    return ratios
+
 def score_indices_by(key: str) -> Callable:
     """Get the scoring function we want to use.
 
@@ -653,6 +663,7 @@ def score_indices_by(key: str) -> Callable:
             'abs': Mean absolute activation from zero.
             'sqrt': Mean square root activation from zero.
             'std': Standard deviation of activation from mean.
+            'rms': Root Mean Square activation from zero.
 
     Returns:
         scoring_func (Callable): The scoring function we want to use.
@@ -662,6 +673,7 @@ def score_indices_by(key: str) -> Callable:
         'abs': score_indices_by_abs,
         'sqrt': score_indices_by_sqrt,
         'std': score_indices_by_std,
+        'rms': score_indices_by_rms,
     }
     return scoring_map[key]
 
