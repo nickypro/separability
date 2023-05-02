@@ -16,8 +16,8 @@ run_pre_test             = True
 pre_removals = []
 
 # Removals parameters
-ff_frac,   ff_eps   = 0.03, 0.001
-attn_frac, attn_eps = 0.007, 1e-4
+ff_frac,   ff_eps   = 0.02, 0.001
+attn_frac, attn_eps = 0.000, 1e-4
 focus, cripple      = "pile_codeless", "code"
 project             = "seperability-pile-code"
 datasets            = list(sorted([focus, cripple]))
@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('repo', type=str)
 parser.add_argument('-r', '--reverse', action='store_true')
 parser.add_argument('--svd', action='store_true')
-parser.add_argument('-f', '--ff_scoring', type=str, default="std")
+parser.add_argument('-f', '--ff_scoring', type=str, default="rms")
 parser.add_argument('-s', '--attn_scoring', type=str, default="abs")
 parser.add_argument('--prune_heads', type=str, default=False) # mean, median
 parser.add_argument('--project', type=str, default=project)
@@ -78,7 +78,7 @@ if c.run_pre_test:
     print(history.df.T)
 
 # First do some pruning of the feed forward layers
-for i in range(33):
+for i in range(50):
     data = prune_and_evaluate(opt, c.ff_frac, c.attn_frac, c.ff_eps, c.attn_eps,
         cripple=c.cripple, focus=c.focus,
         ff_scoring=c.ff_scoring, attn_scoring=c.attn_scoring,
