@@ -18,9 +18,9 @@ pre_removals = []
 # Removals parameters
 ff_frac,   ff_eps   = 0.02, 0.001
 attn_frac, attn_eps = 0.000, 1e-4
-focus, cripple      = "pile_codeless", "code"
-project             = "seperability-pile-code"
-datasets            = list(sorted([focus, cripple]))
+focus, cripple      = "code", "python"
+project             = "seperability-code-python"
+datasets            = [ *list(sorted([focus, cripple])), "pile_codeless"]
 
 parser = argparse.ArgumentParser()
 
@@ -78,12 +78,19 @@ if c.run_pre_test:
     print(history.df.T)
 
 # First do some pruning of the feed forward layers
-for i in range(50):
+for i in range(20):
     data = prune_and_evaluate(opt, c.ff_frac, c.attn_frac, c.ff_eps, c.attn_eps,
         cripple=c.cripple, focus=c.focus,
         ff_scoring=c.ff_scoring, attn_scoring=c.attn_scoring,
         do_attn_mean_offset=c.do_attn_mean_offset, attn_prune_heads=c.attn_prune_heads)
     history.add(data)
+
+# Prune the rest of the model
+data = prune_and_evaluate(opt, 1.0, 1.0, c.ff_eps, c.attn_eps,
+    cripple=c.cripple, focus=c.focus,
+    ff_scoring=c.ff_scoring, attn_scoring=c.attn_scoring,
+    do_attn_mean_offset=c.do_attn_mean_offset, attn_prune_heads=c.attn_prune_heads)
+history.add(data)
 
 print(history.history[-1])
 print(history.df.T)
