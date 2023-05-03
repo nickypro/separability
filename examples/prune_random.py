@@ -32,6 +32,7 @@ parser.add_argument('--svd', action='store_true')
 parser.add_argument('--prune_heads', type=str, default=False) # mean, median
 parser.add_argument('--project', type=str, default=project)
 parser.add_argument('--svd_combine_biases', action='store_true')
+parser.add_argument('-n', "--name", type=str, default=None)
 
 # Parse the argument
 args = parser.parse_args()
@@ -41,7 +42,7 @@ if args.reverse:
     focus, cripple = cripple, focus
 
 # Prepare data logging
-wandb.init(project=args.project, entity="seperability")
+wandb.init(project=args.project, entity="seperability", name=args.name)
 c = wandb.config
 c.update({
     "model_size"  : model_size,
