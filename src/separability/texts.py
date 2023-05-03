@@ -25,7 +25,7 @@ def load_pile():
     return _dataset['train']
 
 def load_pile_codeless():
-    repo = "EleutherAI/the_pile" # deduplicated does not have meta tags
+    repo = "EleutherAI/pile" # deduplicated does not have meta tags
     _dataset = load_dataset(repo, "all", streaming=True)
     def filter_out_code(example):
         return example['meta']['pile_set_name'] != 'Github'
