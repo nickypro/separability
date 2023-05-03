@@ -18,7 +18,7 @@ pre_removals = []
 
 # Removals parameters
 ff_frac,   ff_eps   = 0.1, 0.001
-attn_frac           = 0.00
+attn_frac, attn_eps = 0.00, 1e-4
 focus, cripple      = "pile", "code"
 project             = "pile-code-attn"
 datasets            = list(sorted([focus, cripple]))
@@ -32,6 +32,7 @@ parser.add_argument('--svd', action='store_true')
 parser.add_argument('--prune_heads', type=str, default=False) # mean, median
 parser.add_argument('--project', type=str, default=project)
 parser.add_argument('--svd_combine_biases', action='store_true')
+parser.add_argument('-n', "--name", type=str, default=None)
 
 # Parse the argument
 args = parser.parse_args()
@@ -41,7 +42,7 @@ if args.reverse:
     focus, cripple = cripple, focus
 
 # Prepare data logging
-wandb.init(project=args.project, entity="seperability")
+wandb.init(project=args.project, entity="seperability", name=args.name)
 c = wandb.config
 c.update({
     "model_size"  : model_size,
@@ -50,12 +51,14 @@ c.update({
     "ff_frac"  : ff_frac,
     "ff_eps"   : ff_eps,
     "attn_frac": attn_frac,
+    "attn_eps" : attn_eps,
     "cripple": cripple,
     "focus"  : focus,
     "attn_prune_type": "pre_out",
     "svd_attn": svd_attn,
     "do_attn_mean_offset": False,
     "attn_scoring": "random",
+    "ff_scoring": "random",
     "attn_prune_heads": args.prune_heads,
     "svd_combine_biases": args.svd_combine_biases,
 })
