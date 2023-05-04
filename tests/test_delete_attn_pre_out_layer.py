@@ -19,7 +19,7 @@ class TestDeleteAttnPreOutLayer:
         opt = Model(model_repo, limit=1000)
 
         with torch.no_grad():
-            d_model = opt.d_model
+            d_model = opt.cnf.d_model
 
             # Define vectors for testing
             vec : Tensor = torch.tensor(

@@ -50,7 +50,7 @@ class TestDeleteFFKeys:
         # Define input vectors for testing
         removed_indices   = [ 0, 10, 100 ]
         in_vec : Tensor = torch.tensor(
-            np.random.random(opt.d_model), dtype=torch.float32
+            np.random.random(opt.cnf.d_model), dtype=torch.float32
         ).to( device ).detach()
 
         # define functions for testing
