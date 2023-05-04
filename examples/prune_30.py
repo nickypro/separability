@@ -18,9 +18,9 @@ pre_removals = []
 # Removals parameters
 ff_frac,   ff_eps   = 0.02, 0.001
 attn_frac, attn_eps = 0.000, 1e-4
-focus, cripple      = "code", "python"
-project             = "seperability-code-python"
-datasets            = [ *list(sorted([focus, cripple])), "pile_codeless"]
+focus, cripple      = "pile", "code"
+project             = "pile-code-attn"
+datasets            = list(sorted([focus, cripple]))
 
 parser = argparse.ArgumentParser()
 
@@ -34,6 +34,9 @@ parser.add_argument('--prune_heads', type=str, default=False) # mean, median
 parser.add_argument('--project', type=str, default=project)
 parser.add_argument('--svd_combine_biases', action='store_true')
 parser.add_argument('-n', "--name", type=str, default=None)
+parser.add_argument('--ff_frac', type=float, default=ff_frac)
+parser.add_argument('--attn_frac', type=float, default=attn_frac)
+parser.add_argument('--n_steps', type=str, default=None)
 
 # Parse the argument
 args = parser.parse_args()
@@ -78,19 +81,16 @@ if c.run_pre_test:
     print(history.df.T)
 
 # First do some pruning of the feed forward layers
-for i in range(20):
+n_steps = args.n_steps
+if n_steps is None:
+    n_steps = int( 1 / max(c.ff_frac, c.attn_frac) )
+
+for i in range(n_steps):
     data = prune_and_evaluate(opt, c.ff_frac, c.attn_frac, c.ff_eps, c.attn_eps,
         cripple=c.cripple, focus=c.focus,
         ff_scoring=c.ff_scoring, attn_scoring=c.attn_scoring,
         do_attn_mean_offset=c.do_attn_mean_offset, attn_prune_heads=c.attn_prune_heads)
     history.add(data)
-
-# Prune the rest of the model
-data = prune_and_evaluate(opt, 1.0, 1.0, c.ff_eps, c.attn_eps,
-    cripple=c.cripple, focus=c.focus,
-    ff_scoring=c.ff_scoring, attn_scoring=c.attn_scoring,
-    do_attn_mean_offset=c.do_attn_mean_offset, attn_prune_heads=c.attn_prune_heads)
-history.add(data)
 
 print(history.history[-1])
 print(history.df.T)
