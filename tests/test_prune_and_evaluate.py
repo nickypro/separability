@@ -48,3 +48,15 @@ class TestPruneAndEvaluate:
         code_loss = data.loss_data['code']['loss']
         assert pile_loss > 1
         assert code_loss > 1
+
+
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_prune_attn_values_and_evaluate(self, model_repo):
+        opt = Model(model_repo, limit=1000, use_accelerator=False)
+        data = prune_and_evaluate(opt, 0.1, 0.1, 0.001, 1e4, 1e4,
+                do_attn_mean_offset=False, attn_mode="values")
+
+        pile_loss = data.loss_data['pile']['loss']
+        code_loss = data.loss_data['code']['loss']
+        assert pile_loss > 1
+        assert code_loss > 1
