@@ -673,6 +673,16 @@ def score_indices_by_rms( opt: Model,
     ratios = cripple_rms / ( focus_rms + eps )
     return ratios
 
+def score_indices_by_mean( opt: Model,
+        focus_out: Dict[str, Tensor],
+        cripple_out: Dict[str, Tensor],
+        eps: float = 1e-6,
+    ):
+    focus_mean   = focus_out["mean"]
+    cripple_mean = cripple_out["mean"]
+    diff = torch.abs( cripple_mean - focus_mean )
+    return diff
+
 def score_indices_by(key: str) -> Callable:
     """Get the scoring function we want to use.
 
@@ -683,16 +693,18 @@ def score_indices_by(key: str) -> Callable:
             'sqrt': Mean square root activation from zero.
             'std': Standard deviation of activation from mean.
             'rms': Root Mean Square activation from zero.
+            'mean': difference between mean activations.
 
     Returns:
         scoring_func (Callable): The scoring function we want to use.
     """
     scoring_map = {
         'freq': score_indices_by_freq,
-        'abs': score_indices_by_abs,
+        'abs':  score_indices_by_abs,
         'sqrt': score_indices_by_sqrt,
-        'std': score_indices_by_std,
-        'rms': score_indices_by_rms,
+        'std':  score_indices_by_std,
+        'rms':  score_indices_by_rms,
+        'mean': score_indices_by_mean,
     }
     return scoring_map[key]
 
