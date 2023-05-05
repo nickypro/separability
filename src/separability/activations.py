@@ -183,7 +183,7 @@ def get_midlayer_activations( opt: Model,
                     text_activations=text_activations ).detach()
 
                 # Get activations of self attention
-                if do_attn and attn_mode == "pre-out" or attn_mode == "pre-out-head":
+                if do_attn and attn_mode == "pre-out":
                     attn_activations = opt.get_attn_pre_out_activations(
                         text_activations=text_activations, reshape=True ).detach()
                     attn_activations = einops.rearrange(attn_activations,
@@ -337,6 +337,8 @@ def prune_and_evaluate( opt: Model,
     do_attn = attn_prune_frac > 0
     if not do_ff and not do_attn:
         raise ValueError("Must prune at least one of FF or Attention")
+    if do_attn and attn_mode not in ["pre-out", "value"]:
+        raise NotImplementedError("attn_mode must be 'pre-out' or 'value'")
 
     # Get midlayer activations of FF and ATTN
     datasets = [focus, cripple]
@@ -361,23 +363,23 @@ def prune_and_evaluate( opt: Model,
         if do_attn_mean_offset:
             means = focus_out["attn"]["mean"]
 
-        # get criteria and prune if using full heads
-        if attn_mode == "pre-out-head":
+        # get criteria for "neurons", or for "heads" if using full heads
+        if attn_prune_heads:
             attn_head_scoring_fn = choose_attn_heads_by(attn_prune_heads)
             attn_criteria, attn_threshold = \
                 attn_head_scoring_fn(opt, attn_scores, attn_prune_frac)
-            opt.delete_attn_pre_out_heads( attn_criteria, means )
+        else:
+            attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_prune_frac)
+            _shape = (opt.cfg.n_layers, opt.cfg.n_heads*opt.cfg.d_head)
+            attn_criteria = attn_criteria.reshape(_shape)
 
         # get criteria and prune if using only attention neurons
         if attn_mode == "pre-out":
-            attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_prune_frac)
-            _shape = (opt.cfg.n_layers, opt.cfg.n_heads*opt.cfg.d_head)
-            opt.delete_attn_pre_out( attn_criteria.reshape(_shape), means )
-
-        if attn_mode == "values":
-            attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_prune_frac)
-            _shape = (opt.cfg.n_layers, opt.cfg.n_heads*opt.cfg.d_head)
-            opt.delete_attn_values( attn_criteria.reshape(_shape), means )
+            opt.delete_attn_pre_out( attn_criteria, means )
+        elif attn_mode == "value":
+            opt.delete_attn_values( attn_criteria, means )
+        else:
+            raise NotImplementedError(attn_mode)
 
     # Save the removals to file
     tensor_data = {

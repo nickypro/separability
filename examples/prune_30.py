@@ -30,6 +30,7 @@ parser.add_argument('-r', '--reverse', action='store_true')
 parser.add_argument('--svd', action='store_true')
 parser.add_argument('-f', '--ff_scoring', type=str, default="rms")
 parser.add_argument('-s', '--attn_scoring', type=str, default="abs")
+parser.add_argument('--attn_mode', type=str, default="pre-out")
 parser.add_argument('--prune_heads', type=str, default=False) # mean, median
 parser.add_argument('--project', type=str, default=project)
 parser.add_argument('--svd_combine_biases', action='store_true')
@@ -62,6 +63,7 @@ c.update({
     "svd_attn": svd_attn,
     "do_attn_mean_offset": False,
     "attn_scoring": args.attn_scoring,
+    "attn_mode": args.attn_mode,
     "ff_scoring": args.ff_scoring,
     "attn_prune_heads": args.prune_heads,
     "svd_combine_biases": args.svd_combine_biases,
