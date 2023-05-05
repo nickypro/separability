@@ -651,7 +651,7 @@ def score_indices_by_std( opt: Model,
         focus_out (Dict[str, Tensor]): focus dataset neuron activations
         cripple_out (Dict[str, Tensor]): cripple dataset neuron activations
         top_frac (float): Fraction of neurons to return
-        eps (float): Epislon for numerical stability
+        eps (float): Epsilon for numerical stability
 
     Returns:
         removal_indices (Tensor)
@@ -736,7 +736,7 @@ def delete_attn_and_evaluate( opt: Model,
         frac_removed (float): The fraction of attention heads removed from the model
         sample_size (int, optional): token sample size to collect data for.
             Defaults to 1e5.
-        eval_size (int, optional): token sample size to use for evaluating the m"]odel.
+        eval_size (int, optional): token sample size to use for evaluating the model.
         eps (float, optional): epsilon for numerical stability. Defaults to 1e-6.
         pile_out (Dict[str, Tensor], optional): pile activations output from
             running get_attn_activations. Defaults to None (i.e: compute here).
