@@ -540,14 +540,14 @@ class Model():
             layer_index (int): Layer of attention in which out_proj is being pruned.
             indices (Tensor): a tensor of size (d_model) or (n_heads, d_head) which
                 has value True at each index which will be pruned.
-            mean_values (Optional[Tensor], optional): The value to offset the output
+            mean_activation (Optional[Tensor], optional): The value to offset the output
                 by to compensate for the fact it is no longer in service.
                 Defaults to None.
         """
         if isinstance(remove_indices, np.ndarray):
             remove_indices = torch.tensor(remove_indices, dtype=torch.bool)
-        if isinstance(mean_values,    np.ndarray):
-            mean_values = torch.tensor(mean_values, dtype=torch.float32)
+        if isinstance(mean_activation,    np.ndarray):
+            mean_activation = torch.tensor(mean_activation, dtype=torch.float32)
 
         # NOTE: in this case, we need to modify both the input and the output
         #       of the attention pre_out (ie: v_proj and out_proj) layers
@@ -569,7 +569,7 @@ class Model():
 
             # 1. Adjust the biases out of the out_proj layer to compensate for
             #    the deletion of the weights
-            if (mean_values is not None):
+            if (mean_activation is not None):
                 # TODO: Make compatible with ModelMap
                 mlp_adjust_biases( out_proj, remove_indices, mean_activation )
 
@@ -593,13 +593,13 @@ class Model():
             mean_activation: Tensor = None,
         ):
         """Delete effect of attn_pre_out for neurons at indices {remove_indices}.
-        Optionally offset the output my some mean activation {mean_values}.
+        Optionally offset the output my some mean activation {mean_activation}.
 
         Args:
             remove_indices (Tensor): Tensor of type [n_layer, n_heads, d_head] or
                 [n_layer, d_model] with value True for nodes of attn_pre_out to
                 prune / make inactive.
-            mean_values (Tensor, optional): Mean activation to adjust the bias to
+            mean_activation (Tensor, optional): Mean activation to adjust the bias to
                 compensate for the deletion of the attn_pre_out interactions.
                 Defaults to None.
 
