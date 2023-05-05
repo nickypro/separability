@@ -513,10 +513,13 @@ class Model():
                 attn_in_layer: Tensor,
                 layer_index: int,
             ):
-        # TODO: Make more general
-        v_proj = self.layers[layer_index]["attn.v_proj"]
-        values = v_proj( attn_in_layer )
-        return values
+        layer = self.layers[layer_index]
+        if "attn.v_proj" in layer:
+            return layer["attn.v_proj"]( attn_in_layer )
+
+        # TODO: Make more general (ie: work on multiple GPUs)
+        W_V, b_V = layer["attn.W_V"], layer["attn.b_V"]
+        return torch.matmul( W_V, attn_in_layer ) + b_V
 
     def calculate_attn_value(self, attn_in: Tensor):
         """Given the inputs to the attention layers, calculate the values
