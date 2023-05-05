@@ -141,6 +141,8 @@ def get_midlayer_activations( opt: Model,
     dataset, label, skip_eval = prepare( dataset_name )
     do_ff   = calculate_ff   or collect_ff
     do_attn = calculate_attn or collect_attn
+    if attn_mode not in ["pre-out", "value"]:
+        raise NotImplementedError("attn_mode must be 'pre-out' or 'value'")
 
     # ff activation collector
     if do_ff:
@@ -368,6 +370,7 @@ def prune_and_evaluate( opt: Model,
             attn_head_scoring_fn = choose_attn_heads_by(attn_prune_heads)
             attn_criteria, attn_threshold = \
                 attn_head_scoring_fn(opt, attn_scores, attn_prune_frac)
+            attn_criteria = opt.expand_remove_heads_to_remove_indices(attn_criteria)
         else:
             attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_prune_frac)
             _shape = (opt.cfg.n_layers, opt.cfg.n_heads*opt.cfg.d_head)

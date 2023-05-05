@@ -623,6 +623,14 @@ class Model():
         """Does the same thing as delete_attn_pre_out"""
         return self.delete_attn_pre_out( remove_indices, mean_activation )
 
+    def expand_remove_heads_to_remove_indices( self, remove_heads ):
+        # Check that the size for remove_heads is correct
+        if remove_heads.size() != torch.Size([ self.cfg.n_layers, self.cfg.n_heads ]):
+            raise ValueError( "Removals must have dimension [n_layers, n_heads]" )
+        remove_indices = remove_heads.unsqueeze(-1).expand([
+            self.cfg.n_layers, self.cfg.n_heads, self.cfg.d_head])
+        return remove_indices
+
     def delete_attn_pre_out_heads( self,
             remove_heads: Tensor,
             means: Tensor = None,
@@ -636,13 +644,7 @@ class Model():
             means (Tensor, optional): tensor of means to offset activations by.
                 Defaults to None.
         """
-        # Check that the size for remove_heads is correct
-        if remove_heads.size() != torch.Size([ self.cfg.n_layers, self.cfg.n_heads ]):
-            raise ValueError( "Removals must have dimension [n_layers, n_heads]" )
-
-        # Convert 'heads' tensor into 'individual neurons' tensor
-        remove_indices = remove_heads.unsqueeze(-1).expand([
-            self.cfg.n_layers, self.cfg.n_heads, self.cfg.d_head])
+        remove_indices = self.expand_remove_heads_to_remove_indices(remove_heads)
 
         # delete heads in each layer
         for layer in range(self.cfg.n_layers):
