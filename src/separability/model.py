@@ -582,7 +582,8 @@ class Model():
             # 2. Delete the weights and biases going into neuron (v_proj)
             #  so it never activates in the first place
             W_V, b_V = layer["attn.W_V"], layer["attn.b_V"]
-            for row_index in range(len(W_V)):
+            n_rows = len(W_V)
+            for row_index in range(n_rows):
                 if remove_indices[row_index]:
                     W_V[row_index] = torch.zeros_like(W_V[row_index])
                     b_V[row_index] = torch.zeros_like(b_V[row_index])
@@ -807,7 +808,7 @@ class Model():
         """Evaluates performance with top-1 and top-k token predictions.
 
         Args:
-            text (str, optional): The text to evaluat.
+            text (str, optional): The text to evaluate.
             input_ids (Tensor, optional): The input IDs from text to evaluate.
             logits (Tensor, optional): The pre-computed logits from text to evaluate.
             k (int): the number of tokens to consider.
@@ -890,7 +891,7 @@ class Model():
         """Cross entropy loss for predicting the next token
 
         Args:
-            text (str, optional): The text to evaluat.
+            text (str, optional): The text to evaluate.
             input_ids (Tensor, optional): The input IDs from text to evaluate.
             logits (Tensor, optional): The pre-computed logits from text to evaluate.
 
@@ -945,13 +946,13 @@ class Model():
             ):
         """An evaluation of next-token prediction accuracy for an iterable Dataset,
         which includes options for topk evaluation as well as skipping the most
-        commonly occuring tokens.
+        commonly occurring tokens.
 
         Args:
             dataset (datasets.Dataset): the Datset object to iterate over.
             dataset_text_label (str, optional): The label for the dataset text.
                 eg: 'text'. 'content'. Defaults to 'content'.
-            k (int, optional): Number of topk tokens to look at when asessing
+            k (int, optional): Number of topk tokens to look at when assessing
                 the accuracy of the model (in addition to top1). Defaults to 10.
             start_index (int, optional): The index of the first token to evaluate.
                 Defaults to 1.
@@ -968,7 +969,7 @@ class Model():
 
         Returns:
             dict: A dictionary which contains counts of #predictions and #accurate
-                accross various the various possible combinations of outputs,
+                across various the various possible combinations of outputs,
                 as well as a sub dict 'percent' which contains percentage accuracy.
         """
 
