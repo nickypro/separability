@@ -18,7 +18,7 @@ pre_removals = []
 # Removals parameters
 ff_frac,   ff_eps   = 0.02, 0.001
 attn_frac, attn_eps = 0.000, 1e-4
-focus, cripple      = "pile", "code"
+focus, cripple      = "pile_codeless", "code"
 project             = "pile-code-attn"
 datasets            = list(sorted([focus, cripple]))
 
@@ -33,10 +33,10 @@ parser.add_argument('-s', '--attn_scoring', type=str, default="abs")
 parser.add_argument('--prune_heads', type=str, default=False) # mean, median
 parser.add_argument('--project', type=str, default=project)
 parser.add_argument('--svd_combine_biases', action='store_true')
-parser.add_argument('-n', "--name", type=str, default=None)
-parser.add_argument('--ff_frac', type=float, default=ff_frac)
-parser.add_argument('--attn_frac', type=float, default=attn_frac)
-parser.add_argument('--n_steps', type=str, default=None)
+parser.add_argument('-n', "--name", type=str,   default=None)
+parser.add_argument('--ff_frac',    type=float, default=ff_frac)
+parser.add_argument('--attn_frac',  type=float, default=attn_frac)
+parser.add_argument('--n_steps',    type=str,   default=None)
 
 # Parse the argument
 args = parser.parse_args()
@@ -52,9 +52,9 @@ c.update({
     "model_size"  : model_size,
     "token_limit" : token_limit,
     "run_pre_test": run_pre_test,
-    "ff_frac"  : ff_frac,
+    "ff_frac"  : args.ff_frac,
     "ff_eps"   : ff_eps,
-    "attn_frac": attn_frac,
+    "attn_frac": args.attn_frac,
     "attn_eps" : attn_eps,
     "cripple": cripple,
     "focus"  : focus,
