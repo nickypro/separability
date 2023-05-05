@@ -189,8 +189,8 @@ def get_midlayer_activations( opt: Model,
                     attn_activations = einops.rearrange(attn_activations,
                         'layer token head pos -> token layer head pos')
 
-                if do_attn and attn_mode == "values":
-                    attn_activations = opt.get_attn_values_activations(
+                if do_attn and attn_mode == "value":
+                    attn_activations = opt.get_attn_value_activations(
                         text_activations=text_activations, reshape=True ).detach()
                     attn_activations = einops.rearrange(attn_activations,
                         'layer token (head pos) -> token layer head pos',

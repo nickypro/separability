@@ -402,7 +402,7 @@ class Model():
                 inputs_embeds, text_activations, limit, **kwargs )
 
         attn_inputs = residual_stream[0:-1:2]
-        attn_values = self.calculate_attn_values( attn_inputs.to(self.device) )
+        attn_values = self.calculate_attn_value( attn_inputs.to(self.device) )
         return attn_values
 
     # Functions for calculating attention
@@ -509,7 +509,7 @@ class Model():
         return self.out_stack( out )
 
 
-    def calculate_attn_values_layer( self,
+    def calculate_attn_value_layer( self,
                 attn_in_layer: Tensor,
                 layer_index: int,
             ):
@@ -518,20 +518,20 @@ class Model():
         values = v_proj( attn_in_layer )
         return values
 
-    def calculate_attn_values(self, attn_in: Tensor):
+    def calculate_attn_value(self, attn_in: Tensor):
         """Given the inputs to the attention layers, calculate the values
         """
         out = []
         assert len(attn_in) == self.cfg.n_layers
         for layer in range(self.cfg.n_layers):
-            values = self.calculate_attn_values_layer(attn_in[layer], layer)
+            values = self.calculate_attn_value_layer(attn_in[layer], layer)
             out.append(values)
         return self.out_stack(out)
 
     def delete_attn_pre_out_layer( self,
             layer_index: int,
             remove_indices: Tensor,
-            mean_values: Optional[Tensor] = None
+            mean_activation: Optional[Tensor] = None
             ):
         """
         A function that deletes the impact that the pre_out layer has on the model
@@ -571,7 +571,7 @@ class Model():
             #    the deletion of the weights
             if (mean_values is not None):
                 # TODO: Make compatible with ModelMap
-                mlp_adjust_biases( out_proj, remove_indices, mean_values )
+                mlp_adjust_biases( out_proj, remove_indices, mean_activation )
 
             # Optionally, delete the weights going out of a neuron
             # more of a sanity check than actually being useful
@@ -590,7 +590,7 @@ class Model():
 
     def delete_attn_pre_out( self,
             remove_indices: Tensor,
-            mean_values: Tensor = None,
+            mean_activation: Tensor = None,
         ):
         """Delete effect of attn_pre_out for neurons at indices {remove_indices}.
         Optionally offset the output my some mean activation {mean_values}.
@@ -606,22 +606,22 @@ class Model():
         Returns:
             self (Model)
         """
-        use_means = not (mean_values is None)
+        use_means = not (mean_activation is None)
         if use_means:
             # TODO: test this is fine?
-            assert torch.tensor(mean_values.size()).prod() \
+            assert torch.tensor(mean_activation.size()).prod() \
                 == torch.tensor(remove_indices.size()).prod()
 
         for layer_index in range(self.cfg.n_layers):
-            mean_values_layer = mean_values[layer_index] if use_means else None
+            layer_mean_activation = mean_activation[layer_index] if use_means else None
             self.delete_attn_pre_out_layer( layer_index,
-                remove_indices[layer_index], mean_values_layer )
+                remove_indices[layer_index], layer_mean_activation )
 
         return self
 
-    def delete_attn_values( self, remove_indices, mean_values ):
+    def delete_attn_values( self, remove_indices, mean_activation ):
         """Does the same thing as delete_attn_pre_out"""
-        return self.delete_attn_pre_out( remove_indices, mean_values )
+        return self.delete_attn_pre_out( remove_indices, mean_activation )
 
     def delete_attn_pre_out_heads( self,
             remove_heads: Tensor,
