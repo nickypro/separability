@@ -25,19 +25,19 @@ datasets            = list(sorted([focus, cripple]))
 parser = argparse.ArgumentParser()
 
 # Add an argument
-parser.add_argument('repo', type=str)
-parser.add_argument('-r', '--reverse', action='store_true')
-parser.add_argument('--svd', action='store_true')
-parser.add_argument('-f', '--ff_scoring', type=str, default="rms")
-parser.add_argument('-s', '--attn_scoring', type=str, default="abs")
-parser.add_argument('--attn_mode', type=str, default="pre-out")
-parser.add_argument('--prune_heads', type=str, default=False) # mean, median
-parser.add_argument('--project', type=str, default=project)
-parser.add_argument('--svd_combine_biases', action='store_true')
+parser.add_argument('repo', type=str) # model repo
 parser.add_argument('-n', "--name", type=str,   default=None)
-parser.add_argument('--ff_frac',    type=float, default=ff_frac)
+parser.add_argument('--project',    type=str, default=project)
+parser.add_argument('-a', '--attn_scoring', type=str, default="abs")
 parser.add_argument('--attn_frac',  type=float, default=attn_frac)
+parser.add_argument('--attn_mode',  type=str,   default="pre-out")
+parser.add_argument('--prune_heads',type=str,   default=False) # mean, median
+parser.add_argument('-f', '--ff_scoring',   type=str, default="abs")
+parser.add_argument('--ff_frac',    type=float, default=ff_frac)
 parser.add_argument('--n_steps',    type=str,   default=None)
+parser.add_argument('--svd', action='store_true')
+parser.add_argument('--svd_combine_biases', action='store_true')
+parser.add_argument('-r', '--reverse', action='store_true', help="cripple <--> focus")
 
 # Parse the argument
 args = parser.parse_args()
