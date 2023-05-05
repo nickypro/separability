@@ -226,7 +226,7 @@ class Model():
     def get_recent_activations( self ) -> List[ Tuple[str, Tensor, Tensor, Tensor] ]:
         """
         Returns a list of output tuples \
-        ( "##-attention", output, key_values, attention_output ) \
+        ( "##-attention", output, attn_weights, key_values ) \
         from each attention block
         """
         layers = []
@@ -388,12 +388,29 @@ class Model():
 
         return pre_outs
 
+    def get_attn_value_activations( self,
+                text: Optional[str] = None,
+                input_ids: Optional[Tensor] = None,
+                inputs_embeds: Optional[Tensor] = None,
+                text_activations: Optional[List[Tensor]] = None,
+                residual_stream: Optional[Tensor] = None,
+                limit: Optional[int] = None,
+                **kwargs
+            ) -> Tensor:
+        if residual_stream is None:
+            residual_stream = self.get_residual_stream( text, input_ids,
+                inputs_embeds, text_activations, limit, **kwargs )
+
+        attn_inputs = residual_stream[0:-1:2]
+        attn_values = self.calculate_attn_values( attn_inputs.to(self.device) )
+        return attn_values
+
     # Functions for calculating attention
     # Brief description of attention mechanism with OPTAttention reference:
     # input: x_i
     # then: x_i -> k_i, q_i, v_i
     # then: k_i, q_j            -> attention a_ij  "attn_weights"
-    # then: sum_i( a_ij * v_j ) ->                 "attn_pre_out"
+    # then: sum_j( a_ij * v_j ) ->                 "attn_pre_out"
     # then: W_o * pre_out       -> output          "attn_out"
     # output: attn_out, attn_weights, (k_i, v_i)
 
@@ -491,6 +508,26 @@ class Model():
             out.append( pre_out)
         return self.out_stack( out )
 
+
+    def calculate_attn_values_layer( self,
+                attn_in_layer: Tensor,
+                layer_index: int,
+            ):
+        # TODO: Make more general
+        v_proj = self.layers[layer_index]["attn.v_proj"]
+        values = v_proj( attn_in_layer )
+        return values
+
+    def calculate_attn_values(self, attn_in: Tensor):
+        """Given the inputs to the attention layers, calculate the values
+        """
+        out = []
+        assert len(attn_in) == self.cfg.n_layers
+        for layer in range(self.cfg.n_layers):
+            values = self.calculate_attn_values_layer(attn_in[layer], layer)
+            out.append(values)
+        return self.out_stack(out)
+
     def delete_attn_pre_out_layer( self,
             layer_index: int,
             remove_indices: Tensor,
@@ -529,7 +566,6 @@ class Model():
             # layer
             layer = self.layers[layer_index]
             out_proj = layer["attn.out_proj"]
-            v_proj   = layer["attn.v_proj"]
 
             # 1. Adjust the biases out of the out_proj layer to compensate for
             #    the deletion of the weights
@@ -582,6 +618,10 @@ class Model():
                 remove_indices[layer_index], mean_values_layer )
 
         return self
+
+    def delete_attn_values( self, remove_indices, mean_values ):
+        """Does the same thing as delete_attn_pre_out"""
+        return self.delete_attn_pre_out( remove_indices, mean_values )
 
     def delete_attn_pre_out_heads( self,
             remove_heads: Tensor,

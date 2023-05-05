@@ -83,6 +83,7 @@ def evaluate_all( opt: Model,
 def get_midlayer_activations( opt: Model,
         dataset_name: str,
         sample_size: int = 10000,
+        attn_mode: str = "pre-out",
         check_accuracy: bool = False,
         k: int = 10,
         check_skips: bool = False,
@@ -181,12 +182,19 @@ def get_midlayer_activations( opt: Model,
                 residual_stream = opt.get_residual_stream(
                     text_activations=text_activations ).detach()
 
-                # Get activations of self attention pre_out layer
-                if do_attn:
-                    attn_pre_out = opt.get_attn_pre_out_activations(
+                # Get activations of self attention
+                if do_attn and attn_mode == "pre-out" or attn_mode == "pre-out-head":
+                    attn_activations = opt.get_attn_pre_out_activations(
                         text_activations=text_activations, reshape=True ).detach()
-                    attn_pre_out = einops.rearrange(attn_pre_out,
+                    attn_activations = einops.rearrange(attn_activations,
                         'layer token head pos -> token layer head pos')
+
+                if do_attn and attn_mode == "values":
+                    attn_activations = opt.get_attn_values_activations(
+                        text_activations=text_activations, reshape=True ).detach()
+                    attn_activations = einops.rearrange(attn_activations,
+                        'layer token (head pos) -> token layer head pos',
+                        head=opt.cfg.n_heads, pos=opt.cfg.d_head)
 
                 # Get activations of FF mid layer
                 if do_ff:
@@ -221,7 +229,7 @@ def get_midlayer_activations( opt: Model,
 
             # Count the number of activations in Self-Attention
             if do_attn:
-                for token_index, attn_activation in enumerate(attn_pre_out):
+                for token_index, attn_activation in enumerate(attn_activations):
                     if not criteria[token_index]:
                         continue
                     attn_data.add( attn_activation )
@@ -299,6 +307,7 @@ def prune_and_evaluate( opt: Model,
         eval_size: int = 1e5,
         ff_scoring: str = "freq",
         attn_scoring: str = "abs",
+        attn_mode: str = "pre-out",
         attn_prune_heads: Optional[str] = False,
         do_attn_mean_offset: bool = False,
         save: bool = False,
@@ -331,8 +340,8 @@ def prune_and_evaluate( opt: Model,
 
     # Get midlayer activations of FF and ATTN
     datasets = [focus, cripple]
-    focus_out   = get_midlayer_activations( opt, focus, sample_size, **kwargs )
-    cripple_out = get_midlayer_activations( opt, cripple, sample_size, **kwargs )
+    focus_out   = get_midlayer_activations( opt, focus, sample_size, attn_mode, **kwargs )
+    cripple_out = get_midlayer_activations( opt, cripple, sample_size, attn_mode, **kwargs )
 
     # Get the top fraction FF activations and prune
     if do_ff > 0:
@@ -348,22 +357,27 @@ def prune_and_evaluate( opt: Model,
         attn_scores = attn_scoring_fn(opt, focus_out["attn"], cripple_out["attn"], attn_eps)
 
         # offset by means if desired (probably bad?)
-        means = focus_out["attn"]["mean"]
-        if not do_attn_mean_offset:
-            means = None
+        means = None
+        if do_attn_mean_offset:
+            means = focus_out["attn"]["mean"]
 
         # get criteria and prune if using full heads
-        if attn_prune_heads:
+        if attn_mode == "pre-out-head":
             attn_head_scoring_fn = choose_attn_heads_by(attn_prune_heads)
             attn_criteria, attn_threshold = \
                 attn_head_scoring_fn(opt, attn_scores, attn_prune_frac)
             opt.delete_attn_pre_out_heads( attn_criteria, means )
 
         # get criteria and prune if using only attention neurons
-        else:
+        if attn_mode == "pre-out":
             attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_prune_frac)
             _shape = (opt.cfg.n_layers, opt.cfg.n_heads*opt.cfg.d_head)
             opt.delete_attn_pre_out( attn_criteria.reshape(_shape), means )
+
+        if attn_mode == "values":
+            attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_prune_frac)
+            _shape = (opt.cfg.n_layers, opt.cfg.n_heads*opt.cfg.d_head)
+            opt.delete_attn_values( attn_criteria.reshape(_shape), means )
 
     # Save the removals to file
     tensor_data = {
