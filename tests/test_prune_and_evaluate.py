@@ -54,7 +54,7 @@ class TestPruneAndEvaluate:
     def test_prune_attn_value_and_evaluate(self, model_repo):
         opt = Model(model_repo, limit=1000, use_accelerator=False)
         data = prune_and_evaluate(opt, 0.1, 0.1, 0.001, 1e4, 1e4,
-                do_attn_mean_offset=False, attn_mode="values")
+                do_attn_mean_offset=False, attn_mode="value")
 
         pile_loss = data.loss_data['pile']['loss']
         code_loss = data.loss_data['code']['loss']
