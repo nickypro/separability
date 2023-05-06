@@ -7,91 +7,74 @@ import matplotlib.pyplot as plt
 import wandb
 
 from separability import Model
-from separability.data_classes import RunDataHistory
+from separability.data_classes import RunDataHistory, PruningConfig
 from separability.activations import prune_and_evaluate, evaluate_all
 
+# Wandb config
+project   = "pile-code-attn"
+
 # Configure initial model and tests
-model_size, token_limit  = "facebook/opt-1.3b", 1000
-run_pre_test             = True
+c = PruningConfig(
+    model_repo   = "facebook/opt-1.3b",
+    token_limit  = 1000,
+    run_pre_test = True,
+    # Removals parameters
+    ff_frac   = 0.02,
+    ff_eps    = 0.001,
+    attn_frac = 0.00,
+    attn_eps  = 1e-4,
+    focus     = "pile_codeless",
+    cripple   = "code",
+    additional_datasets=tuple(),
+)
 pre_removals = []
 
-# Removals parameters
-ff_frac,   ff_eps   = 0.02, 0.001
-attn_frac, attn_eps = 0.000, 1e-4
-focus, cripple      = "pile_codeless", "code"
-project             = "pile-code-attn"
-datasets            = list(sorted([focus, cripple]))
 
+# Build a CLI parser
 parser = argparse.ArgumentParser()
 
-# Add an argument
-parser.add_argument('repo', type=str) # model repo
-parser.add_argument('-n', "--name", type=str,   default=None)
-parser.add_argument('--project',    type=str, default=project)
-parser.add_argument('-a', '--attn_scoring', type=str, default="abs")
-parser.add_argument('--attn_frac',  type=float, default=attn_frac)
-parser.add_argument('--attn_mode',  type=str,   default="pre-out")
-parser.add_argument('--prune_heads',type=str,   default=False) # mean, median
-parser.add_argument('-f', '--ff_scoring',   type=str, default="abs")
-parser.add_argument('--ff_frac',    type=float, default=ff_frac)
-parser.add_argument('--n_steps',    type=str,   default=None)
-parser.add_argument('--svd', action='store_true')
-parser.add_argument('--svd_combine_biases', action='store_true')
+parser.add_argument('model_repo', type=str)
+parser.add_argument('--project', type=str, default=project)
+parser.add_argument('-n', "--name", type=str, default=None, help="wandb run name")
 parser.add_argument('-r', '--reverse', action='store_true', help="cripple <--> focus")
+parser.add_argument('--n_steps', type=int, default=None)
+
+args_exclude = ["model_repo", "n_steps"]
+for key, val in c.arg_items(args_exclude):
+    parser.add_argument(f'--{key}', type=type(val), default=val)
 
 # Parse the argument
 args = parser.parse_args()
-model_size = args.repo
-svd_attn = args.svd
+
+c.model_repo = args.model_repo
+for key in c.arg_keys(args_exclude):
+    c[key] = getattr(args, key)
 if args.reverse:
-    focus, cripple = cripple, focus
+    c.focus, c.cripple = c.cripple, c.focus
+# First do some pruning of the feed forward layers
+n_steps = args.n_steps
+if n_steps is None:
+    n_steps = int( 1 / max(c.ff_frac, c.attn_frac) )
+
 
 # Prepare data logging
 wandb.init(project=args.project, entity="seperability", name=args.name)
-c = wandb.config
-c.update({
-    "model_size"  : model_size,
-    "token_limit" : token_limit,
-    "run_pre_test": run_pre_test,
-    "ff_frac"  : args.ff_frac,
-    "ff_eps"   : ff_eps,
-    "attn_frac": args.attn_frac,
-    "attn_eps" : attn_eps,
-    "cripple": cripple,
-    "focus"  : focus,
-    "attn_prune_type": "pre_out",
-    "svd_attn": svd_attn,
-    "do_attn_mean_offset": False,
-    "attn_scoring": args.attn_scoring,
-    "attn_mode": args.attn_mode,
-    "ff_scoring": args.ff_scoring,
-    "attn_prune_heads": args.prune_heads,
-    "svd_combine_biases": args.svd_combine_biases,
-})
+wandb.config.update(c.to_dict())
 
 # Load model and show details about model
-history = RunDataHistory(datasets)
-opt = Model(c.model_size, limit=c.token_limit, dtype=torch.float16,
-    svd_attn=c.svd_attn)
+history = RunDataHistory(c.datasets)
+opt = Model(c.model_size, limit=c.token_limit, dtype=c._dtype, svd_attn=c.svd_attn)
 
 # Pre-pruning of model
 opt.delete_ff_keys_from_files(pre_removals)
 
 # Evaluate model before removal of any neurons
 if c.run_pre_test:
-    history.add(evaluate_all(opt, 1e5, datasets))
+    history.add(evaluate_all(opt, 1e5, c.datasets))
     print(history.df.T)
 
-# First do some pruning of the feed forward layers
-n_steps = args.n_steps
-if n_steps is None:
-    n_steps = int( 1 / max(c.ff_frac, c.attn_frac) )
-
 for i in range(n_steps):
-    data = prune_and_evaluate(opt, c.ff_frac, c.attn_frac, c.ff_eps, c.attn_eps,
-        cripple=c.cripple, focus=c.focus,
-        ff_scoring=c.ff_scoring, attn_scoring=c.attn_scoring,
-        do_attn_mean_offset=c.do_attn_mean_offset, attn_prune_heads=c.attn_prune_heads)
+    data = prune_and_evaluate(opt, c)
     history.add(data)
 
 print(history.history[-1])

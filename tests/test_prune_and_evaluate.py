@@ -5,20 +5,20 @@ import torch
 import pytest
 from separability.model_repos import test_model_repos
 from separability import Model
+from separability.data_classes import PruningConfig
 from separability.activations import prune_and_evaluate, evaluate_all
 
 class TestPruneAndEvaluate:
-    @pytest.mark.parametrize("model_repo", test_model_repos)
-    def test_prune_and_evaluate_accelerate(self, model_repo):
-        print( "# Running Test: test_prune_and_evaluate_accelerate" )
+    pruning_config = PruningConfig("facebook/opt-125m",
+        attn_mode="pre-out", do_attn_mean_offset=False, use_accelerator=False,
+        ff_frac=0.1, ff_eps=0.1, attn_frac=0.001, attn_eps=1e4,
+        token_limit=1000, focus="pile", cripple="code")
 
-        opt = Model(model_repo, limit=1000, use_accelerator=True)
-
-        if torch.cuda.device_count() <= 1:
-            warnings.warn( "Multi-gpu not available", category=UserWarning )
-            return
-
-        data = prune_and_evaluate(opt, 0.05, 0.05, 0.001, 1e4, 1e4)
+    def __run_testing(self, _pruning_config: PruningConfig):
+        c = _pruning_config
+        opt = Model(c.model_repo, limit=c.token_limit,
+                    use_accelerator=c.use_accelerator)
+        data = prune_and_evaluate(opt, c)
 
         pile_loss = data.loss_data['pile']['loss']
         code_loss = data.loss_data['code']['loss']
@@ -27,36 +27,48 @@ class TestPruneAndEvaluate:
 
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_prune_and_evaluate(self, model_repo):
-        opt = Model(model_repo, limit=1000, use_accelerator=False)
-        data = prune_and_evaluate(opt, 0.1, 0.1, 0.001, 1e4, 1e4,
-                                  do_attn_mean_offset=False)
+        c = self.pruning_config
+        c.model_repo          = model_repo
+        c.attn_mode           = "pre-out"
+        c.use_accelerator     = False
+        c.do_attn_mean_offset = False
 
-        pile_loss = data.loss_data['pile']['loss']
-        code_loss = data.loss_data['code']['loss']
-        assert pile_loss > 1
-        assert code_loss > 1
+        self.__run_testing(c)
+
+
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_prune_and_evaluate_accelerate(self, model_repo):
+        print( "# Running Test: test_prune_and_evaluate_accelerate" )
+        c = self.pruning_config
+        c.model_repo          = model_repo
+        c.attn_mode           = "pre-out"
+        c.use_accelerator     = True
+        c.do_attn_mean_offset = False
+
+        if torch.cuda.device_count() <= 1:
+            warnings.warn( "Multi-gpu not available", category=UserWarning )
+            return
+
+        self.__run_testing(c)
 
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_prune_and_evaluate_mean_offset(self, model_repo):
-        # TODO: Fix mean offset
         return
-        opt = Model(model_repo, limit=1000, use_accelerator=False)
-        data = prune_and_evaluate(opt, 0.1, 0.1, 0.001, 1e4, 1e4,
-                                  do_attn_mean_offset=True)
+        # TODO: Fix mean offset
+        c = self.pruning_config
+        c.model_repo          = model_repo
+        c.attn_mode           = "pre-out"
+        c.use_accelerator     = False
+        c.do_attn_mean_offset = True
 
-        pile_loss = data.loss_data['pile']['loss']
-        code_loss = data.loss_data['code']['loss']
-        assert pile_loss > 1
-        assert code_loss > 1
-
+        self.__run_testing(c)
 
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_prune_attn_value_and_evaluate(self, model_repo):
-        opt = Model(model_repo, limit=1000, use_accelerator=False)
-        data = prune_and_evaluate(opt, 0.1, 0.1, 0.001, 1e4, 1e4,
-                do_attn_mean_offset=False, attn_mode="value")
+        c = self.pruning_config
+        c.model_repo          = model_repo
+        c.attn_mode           = "value"
+        c.use_accelerator     = False
+        c.do_attn_mean_offset = False
 
-        pile_loss = data.loss_data['pile']['loss']
-        code_loss = data.loss_data['code']['loss']
-        assert pile_loss > 1
-        assert code_loss > 1
+        self.__run_testing(c)

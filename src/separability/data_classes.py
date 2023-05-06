@@ -1,4 +1,5 @@
 from typing import List, Tuple, Union
+from dataclasses import dataclass
 
 import torch
 import pandas as pd
@@ -243,3 +244,96 @@ class ActivationCollector:
             'neg_var': self.neg.var_s.to(dtype=dtype),
             'pos_count': self.pos_counter / self.n_points,
         }
+
+######################################################################################
+# Pruning Config Data Class
+######################################################################################
+
+@dataclass
+class PruningConfig:
+    model_repo: str
+    token_limit: int = None
+    ff_frac: float = 0.1
+    ff_eps: float = 0.001
+    attn_frac: float = 0.0
+    attn_eps: float = 1e-4
+    dtype: str = "fp16"
+    use_accelerator: bool = True
+
+    collection_sample_size: int = 1e5
+    eval_sample_size: int = 1e5
+    topk = 10
+
+    ff_scoring: str = "std"
+
+    attn_scoring: str = "abs"
+    attn_mode: str = "pre-out"
+    svd_attn: bool = False
+    attn_prune_heads: bool = False
+    attn_prune_heads_mode: str = "mean"
+    do_attn_mean_offset: bool = False
+    svd_combine_biases: bool = False
+
+    focus: str = "pile_codeless"
+    cripple: str = "code"
+    additional_datasets: Tuple[str] = tuple()
+    run_pre_test: bool = True
+    recalculate_activations: bool = True
+
+    @property
+    def model_size(self): # legacy code
+        return self.model_repo
+
+    @property
+    def datasets(self):
+        _datasets = list(set([
+            *list(sorted([self.focus, self.cripple])),
+            *self.additional_datasets
+        ]))
+        return _datasets
+
+    @property
+    def _dtype(self):
+        dtype_map = {
+            "int8": torch.int8,
+            "fp16": torch.float16,
+            "fp32": torch.float32,
+            "fp64": torch.float64,
+        }
+        return dtype_map[self.dtype]
+
+    def to_dict(self):
+        obj = {}
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+            if attr_name.startswith("_"):
+                continue
+            if callable(attr):
+                continue
+            obj[attr_name] = attr
+        return obj
+
+    def arg_keys(self, exclude=None):
+        if exclude is None:
+            exclude = []
+        filters = set([*exclude, "model_size", "datasets"])
+        keys = []
+        for key, value in self.to_dict().items():
+            if key in filters:
+                continue
+            keys.append(key)
+        return keys
+
+    def arg_items(self, exclude=None):
+        keys = self.arg_keys(exclude)
+        return [ (key, getattr(self, key)) for key in keys ]
+
+    def __setitem__(self, key, value):
+        assert hasattr(self, key)
+        setattr(self, key, value)
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __str__(self):
+        return str(self.to_dict())
