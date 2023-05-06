@@ -324,9 +324,9 @@ def build_gpt_neox_layer_map(cfg):
         qkv_head.load_state_dict(params)
 
     gpt_neox_layer_map = {
-        "ln1"       : "ln1.input_layernorm",
-        "ln1.w"     : "ln1.input_layernorm.weight",
-        "ln1.b"     : "ln1.input_layernorm.weight",
+        "ln1"       : "input_layernorm",
+        "ln1.w"     : "input_layernorm.weight",
+        "ln1.b"     : "input_layernorm.bias",
 
         "attn"      : "attention",
         "attn.q_proj"   : None,
