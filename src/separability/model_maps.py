@@ -25,6 +25,8 @@ class ConfigClass:
     parallel_attn_mlp: bool = False
     positional_embedding_type: str = "standard"
     rotary_dim: Optional[int] = None
+    final_rms: bool = False
+    gated_mlp: bool = False
 
 def convert_hf_model_config(official_model_name: str):
     """
