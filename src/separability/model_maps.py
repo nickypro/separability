@@ -431,6 +431,9 @@ class ModelLayerMap:
         self.layer = layer
         self.key_map = get_layer_key_map(cfg)
 
+    def __contains__(self, __name):
+        return (__name in self.key_map)
+
     def __getitem__(self, __name):
         key = self.key_map[__name]
 
