@@ -38,8 +38,9 @@ parser.add_argument('--project', type=str, default=project)
 parser.add_argument('-n', "--name", type=str, default=None, help="wandb run name")
 parser.add_argument('-r', '--reverse', action='store_true', help="cripple <--> focus")
 parser.add_argument('--n_steps', type=int, default=None)
+parser.add_argument('--model_device', type=str, default=None)
 
-args_exclude = ["model_repo", "n_steps"]
+args_exclude = ["model_repo", "n_steps", "model_device"]
 for key, val in c.arg_items(args_exclude):
     parser.add_argument(f'--{key}', type=type(val), default=val)
 
@@ -47,6 +48,7 @@ for key, val in c.arg_items(args_exclude):
 args = parser.parse_args()
 
 c.model_repo = args.model_repo
+c.model_device = args.model_device
 for key in c.arg_keys(args_exclude):
     c[key] = getattr(args, key)
 if args.reverse:
@@ -63,7 +65,8 @@ wandb.config.update(c.to_dict())
 
 # Load model and show details about model
 history = RunDataHistory(c.datasets)
-opt = Model(c.model_size, limit=c.token_limit, dtype=c._dtype, svd_attn=c.svd_attn)
+opt = Model(c.model_size, limit=c.token_limit, dtype=c._dtype, svd_attn=c.svd_attn,
+            use_accelerator=c.use_accelerator, model_device=c.model_device)
 
 # Pre-pruning of model
 opt.delete_ff_keys_from_files(pre_removals)

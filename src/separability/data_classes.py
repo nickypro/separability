@@ -1,4 +1,4 @@
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 from dataclasses import dataclass
 
 import torch
@@ -259,6 +259,7 @@ class PruningConfig:
     attn_eps: float = 1e-4
     dtype: str = "fp16"
     use_accelerator: bool = True
+    model_device: Optional[str] = None
 
     collection_sample_size: int = 1e5
     eval_sample_size: int = 1e5
