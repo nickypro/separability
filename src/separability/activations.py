@@ -448,10 +448,10 @@ def prune_random( opt: Model,
     if ff_pruned is None:
         ff_pruned = np.zeros( (opt.cfg.n_layers, opt.cfg.d_mlp), dtype=np.bool_ )
     if attn_pruned is None:
-        attn_pruned = np.zeros( (opt.cfg.n_layers, opt.cfg.n_heads ), dtype=np.bool_ )
+        attn_pruned = np.zeros( (opt.cfg.n_layers, opt.cfg.d_model ), dtype=np.bool_ )
 
     n_ff_to_prune   = int( ff_frac   * opt.cfg.d_mlp )
-    n_attn_to_prune = int( attn_frac * opt.cfg.n_heads )
+    n_attn_to_prune = int( attn_frac * opt.cfg.d_model )
 
     # First prune the FF
     if not ff_frac == 0:
@@ -472,7 +472,7 @@ def prune_random( opt: Model,
             attn_pruned[layer][random_indices] = 1
 
         # Prune the model
-        opt.delete_ff_keys( attn_pruned )
+        opt.delete_attn_pre_out( attn_pruned )
 
     data_out = {
         "ff_del": n_ff_to_prune*opt.cfg.n_layers,
