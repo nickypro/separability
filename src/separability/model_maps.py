@@ -221,6 +221,7 @@ opt_model_map = {
     "embed.W_E"       : "model.decoder.embed_tokens.weight",
     "pos_embed.W_pos" : "model.decoder.embed_positions",
     # in OPT, ln_final is only added for backwards compatibility
+    "ln_final"        : "model.decoder.final_layer_norm",
     "ln_final.w"      : "model.decoder.final_layer_norm.weight",
     "ln_final.b"      : "model.decoder.final_layer_norm.bias",
     "unembed.W_U"     : "lm_head.weight.T",
@@ -277,13 +278,14 @@ gpt_neox_model_map = {
     "embed"           : "base_model.embed_in",
     "embed.W_E"       : "base_model.embed_in.weight",
     "pos_embed.W_pos" : "base_model.embed_pos.weight",
+    "ln_final"        : "base_model.final_layer_norm",
     "ln_final.w"      : "base_model.final_layer_norm.weight",
     "ln_final.b"      : "base_model.final_layer_norm.bias",
     "unembed.W_U"     : "base_model.embed_out.weight",
     "unembed.b_U"     : "base_model.embed_out.bias",
 }
 
-def build_gpt_neox_layer_map(cfg):
+def build_gpt_neox_layer_map(cfg: ConfigClass):
     def gpt_neox_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
         qkv_heads = layer.attention.query_key_value
         W = qkv_heads.weight
@@ -364,6 +366,97 @@ def build_gpt_neox_layer_map(cfg):
     }
     return gpt_neox_layer_map
 
+# GPT2 Models
+#############
+
+gpt2_model_map = {
+    "model"           : "transformer",
+    "layers"          : "transformer.h",
+    "embed"           : "transformer.wte",
+    "embed.W_E"       : "transformer.wte.weight",
+    "pos_embed.W_pos" : "transformer.wpe",
+    "ln_final"        : "transformer.ln_f",
+    "ln_final.w"      : "transformer.ln_f.weight",
+    "ln_final.b"      : "transformer.ln_f.bias",
+    "unembed.W_U"     : "lm_head.weight.T",
+    "unembed.b_U"     : None,
+}
+
+def build_gpt2_layer_map(cfg: ConfigClass):
+    def gpt2_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
+        qkv_heads = layer.attn.c_attn
+        #W_Q, W_K, W_V = torch.tensor_split(W, 3, dim=1)
+        #W_Q = einops.rearrange(W_Q, "m (i h)->i m h", i=cfg.n_heads)
+        W = qkv_heads.weight
+        W = einops.rearrange(W, "m qkv (i h) -> qkv m (i h)", i=cfg.n_heads, qkv=3)
+        qkv_map = {"q": 0, "k": 1, "v": 2}
+        index = qkv_map[key]
+
+        # Get mode
+        if inpt is None:
+            return W[index]
+
+        # Set mode
+        params = qkv_heads.state_dict()
+        W[index] = inpt
+        W = einops.rearrange(W, "qkv i m h -> (i qkv h) m", i=cfg.n_heads, qkv=3)
+        params["weight"] = W
+        qkv_heads.load_state_dict(params)
+
+    def gpt2_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
+        qkv_heads = layer.attn.c_attn
+        qkv_bias = qkv_heads.bias
+        qkv_bias = einops.rearrange(qkv_bias, "(qkv index head)->qkv (index head)")
+        qkv_map = {"q": 0, "k": 1, "v": 2}
+        index = qkv_map[key]
+
+        # Get mode
+        if inpt is None:
+            return qkv_bias[index]
+
+        # Set mode
+        params = qkv_heads.state_dict()
+        qkv_bias[index] = inpt
+        qkv_bias = einops.rearrange(
+            qkv_bias, "qkv (index head) -> (qkv index head)",
+            qkv=3, index=cfg.n_heads, head=cfg.d_head,
+        )
+        params["bias"] = qkv_bias
+        qkv_heads.load_state_dict(params)
+
+    gpt2_layer_map = {
+        "ln1"       : "ln_1",
+        "ln1.w"     : "ln_1.weight",
+        "ln1.b"     : "ln_1.bias",
+        "attn"      : "attn",
+        "attn.q_proj"   : None,
+        "attn.k_proj"   : None,
+        "attn.v_proj"   : None,
+        "attn.W_Q"  : lambda layer, inpt=None: gpt2_qkv_weight(layer, "q", inpt),
+        "attn.W_K"  : lambda layer, inpt=None: gpt2_qkv_weight(layer, "k", inpt),
+        "attn.W_V"  : lambda layer, inpt=None: gpt2_qkv_weight(layer, "v", inpt),
+        "attn.b_Q"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
+        "attn.b_K"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
+        "attn.b_V"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
+        "attn.out_proj" : "c_proj",
+        "attn.W_O"      : "c_proj.weight",
+        "attn.b_O"      : "c_proj.bias",
+        "attn.inv_out_proj" : "inv_out_proj",
+        "attn.W_O_inv"      : "inv_out_proj.weight",
+        "attn.b_O_inv"      : "inv_out_proj.bias",
+        "ln2"       : "ln_2",
+        "ln2.w"     : "ln_2.weight",
+        "ln2.b"     : "ln_2.bias",
+        "fc1"       : "mlp.c_fc",
+        "fc2"       : "mlp.c_proj",
+        "mlp.W_in"  : "mlp.c_fc.weight",
+        "mlp.W_out" : "mlp.c_proj.weight",
+        "mlp.b_in"  : "mlp.c_fc.bias",
+        "mlp.b_out" : "mlp.c_proj.bias",
+        "activation_fn" : "mlp.act",
+    }
+    return gpt2_layer_map
+
 #####################################################################################
 # Build Model Layer Map interfaces
 #####################################################################################
@@ -378,22 +471,26 @@ def get_attrs(obj, attr_string):
         current_attr = getattr(current_attr, attr_name)
     return current_attr
 
-def get_model_key_map(config):
+def get_model_key_map(config: ConfigClass):
     architecture = config.architecture
     if architecture == "OPTForCausalLM":
         return opt_model_map
     if architecture == "GPTNeoXForCausalLM":
         return gpt_neox_model_map
+    if architecture == "GPT2LMHeadModel":
+        return gpt2_model_map
 
     raise NotImplementedError(f"Architecture {architecture} not implemented")
 
-def get_layer_key_map(config):
+def get_layer_key_map(config: ConfigClass):
     architecture = config.architecture
 
     if architecture == "OPTForCausalLM":
         return opt_layer_map
     if architecture == "GPTNeoXForCausalLM":
         return build_gpt_neox_layer_map(config)
+    if architecture == "GPT2LMHeadModel":
+        return build_gpt2_layer_map(config)
 
     raise NotImplementedError(f"Architecture {architecture} not implemented")
 
