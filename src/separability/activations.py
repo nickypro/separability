@@ -332,7 +332,6 @@ def prune_and_evaluate(opt: Model, pruning_config: PruningConfig):
         raise NotImplementedError("attn_mode must be 'pre-out' or 'value'")
 
     # Get midlayer activations of FF and ATTN
-    datasets = [pruning_config.focus, pruning_config.cripple]
     focus_out   = get_midlayer_activations( opt, pruning_config.focus,
         pruning_config.collection_sample_size, pruning_config.attn_mode )
     cripple_out = get_midlayer_activations( opt, pruning_config.cripple,
@@ -344,7 +343,7 @@ def prune_and_evaluate(opt: Model, pruning_config: PruningConfig):
     # Evaluate the model
     texts_to_skip = max(focus_out["texts_viewed"], cripple_out["texts_viewed"] )
     data.update(
-        evaluate_all(opt, pruning_config.eval_sample_size, datasets,
+        evaluate_all(opt, pruning_config.eval_sample_size, pruning_config.datasets,
                      texts_to_skip=texts_to_skip)
     )
 
