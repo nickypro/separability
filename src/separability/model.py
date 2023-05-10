@@ -170,7 +170,7 @@ class Model():
             attn.register_forward_hook( self.get_activation_of( name ) )
             attention_index += 1
             continue
-        print( f" - Registered {attention_index} OPT Attention Layers" )
+        print( f" - Registered {attention_index} Attention Layers" )
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
@@ -474,6 +474,8 @@ class Model():
 
         # reshape into the shape it was before W_out
         if reshape:
+            if len(attn_out.shape) == 1: # fix for single token inputs
+                attn_out = attn_out.reshape(1, -1)
             [ tgt_len, _embed_dim ] = attn_out.size() # see OPTAttention
             pre_out = pre_out.view(tgt_len, self.cfg.n_heads, self.cfg.d_head)
 
@@ -749,9 +751,18 @@ class Model():
         if limit:
             input_ids = input_ids[0][:limit].reshape(1, -1)
 
+        attn_mask = None
+        if hasattr(self.tokenizer, "pad_token_id"):
+            attn_mask = torch.ones_like(input_ids).bool()
+            for index, _id in enumerate(attn_mask[0]):
+                if _id == self.tokenizer.pad_token_id:
+                    attn_mask[index] = 0
+
+
         new_len = len(input_ids[0])+num
         generate_ids = self.predictor.generate( input_ids, max_length=new_len,
-            do_sample=do_sample, temperature=temperature, **kwargs)
+            do_sample=do_sample, temperature=temperature,
+            attention_mask=attn_mask, **kwargs)
         #import inspect
         #print(inspect.getsource(self.predictor.generate))
         #print(temperature)
