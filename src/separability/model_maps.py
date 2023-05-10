@@ -424,6 +424,17 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         params["bias"] = qkv_bias
         qkv_heads.load_state_dict(params)
 
+    def gpt2_out_weight(layer, inpt=None):
+        # GPT2 Conv1D instead of Linear, so we must get the transpose
+        out_proj = layer.attn.c_proj
+
+        if inpt is None:
+            return out_proj.weight.T
+
+        params = out_proj.state_dict()
+        params["weight"] = inpt.T
+        out_proj.load_state_dict(params)
+
     gpt2_layer_map = {
         "ln1"       : "ln_1",
         "ln1.w"     : "ln_1.weight",
@@ -438,12 +449,12 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         "attn.b_Q"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
         "attn.b_K"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
         "attn.b_V"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
-        "attn.out_proj" : "c_proj",
-        "attn.W_O"      : "c_proj.weight",
-        "attn.b_O"      : "c_proj.bias",
-        "attn.inv_out_proj" : "inv_out_proj",
-        "attn.W_O_inv"      : "inv_out_proj.weight",
-        "attn.b_O_inv"      : "inv_out_proj.bias",
+        "attn.out_proj" : "attn.c_proj",
+        "attn.W_O"      : lambda layer, inpt=None: gpt2_out_weight(layer, inpt),
+        "attn.b_O"      : "attn.c_proj.bias",
+        "attn.inv_out_proj" : "attn.inv_out_proj",
+        "attn.W_O_inv"      : "attn.inv_out_proj.weight",
+        "attn.b_O_inv"      : "attn.inv_out_proj.bias",
         "ln2"       : "ln_2",
         "ln2.w"     : "ln_2.weight",
         "ln2.b"     : "ln_2.bias",
