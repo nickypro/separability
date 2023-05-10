@@ -9,7 +9,6 @@ import time
 from torch import Tensor
 from accelerate import Accelerator
 from datasets import Dataset
-from transformers.models.opt.modeling_opt import OPTAttention
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
@@ -843,6 +842,9 @@ class Model():
 
         # Count top-k prediction accuracy
         input_ids = input_ids.squeeze()
+        # Edge case: if input_ids is a single token, convert it back into a list
+        if len(input_ids.size()) == 0:
+            input_ids = torch.tensor([ input_ids ])
         num_predictions = 0
         num_accurate = 0
         num_topk_accurate = 0
