@@ -180,6 +180,11 @@ def get_midlayer_activations( opt: Model,
             with torch.no_grad():
                 input_ids = opt.get_ids( text ).detach()
                 ids = input_ids.squeeze().detach()
+
+                # Skip if there is only 1 token
+                if len(ids.shape) == 0:
+                    continue
+
                 text_activations = opt.get_text_activations( input_ids=input_ids )
                 residual_stream = opt.get_residual_stream(
                     text_activations=text_activations ).detach()
