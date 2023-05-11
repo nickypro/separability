@@ -63,7 +63,7 @@ def prepare_toxic():
     return high_toxicity_dataset['train'], 'text', most_common_pile_tokens
 
 def prepare_wiki():
-    _dataset = load_dataset("Graphcore/gpt2-wikitext-103")
+    _dataset = load_dataset("wikitext", "wikitext-103-raw-v1", streaming=True)
     return _dataset["train"], "text", most_common_pile_tokens
 
 
