@@ -385,7 +385,7 @@ def score_and_prune( opt: Model,
         # get criteria for "neurons", or for "heads" if using full heads
         if pruning_config.attn_prune_heads:
             attn_head_scoring_fn = \
-                choose_attn_heads_by(pruning_config.attn_prune_heads)
+                choose_attn_heads_by(pruning_config.attn_prune_heads_mode)
             attn_criteria, attn_threshold = \
                 attn_head_scoring_fn(opt, attn_scores, attn_frac)
             attn_criteria = opt.expand_remove_heads_to_remove_indices(attn_criteria)
