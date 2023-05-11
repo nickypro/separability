@@ -26,7 +26,7 @@ c = PruningConfig(
     attn_eps  = 1e-4,
     focus     = "civil",
     cripple   = "toxic",
-    additional_datasets=tuple(['pile']),
+    additional_datasets=tuple(['wiki']),
 )
 pre_removals = []
 
