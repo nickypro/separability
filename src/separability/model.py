@@ -882,6 +882,8 @@ class Model():
         # Keep track of most used tokens
         token_counts = np.zeros( token_dictionary_size )
         for input_id in input_ids:
+            if input_id > token_dictionary_size:
+                continue # Not sure why I need this, but for some reason I do
             token_counts[input_id] += 1
 
         output = {
