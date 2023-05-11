@@ -11,7 +11,7 @@ from separability.data_classes import RunDataHistory, PruningConfig
 from separability.activations import prune_and_evaluate, evaluate_all
 
 # Wandb config
-project   = "pile-code-attn"
+project   = "method-compare"
 
 # Configure initial model and tests
 c = PruningConfig(
@@ -40,7 +40,7 @@ parser.add_argument('-r', '--reverse', action='store_true', help="cripple <--> f
 parser.add_argument('--n_steps', type=int, default=None)
 parser.add_argument('--model_device', type=str, default=None)
 
-args_exclude = ["model_repo", "n_steps", "model_device"]
+args_exclude = ["model_repo", "n_steps", "model_device", "additional_datasets"]
 for key, val in c.arg_items(args_exclude):
     parser.add_argument(f'--{key}', type=type(val), default=val)
 
