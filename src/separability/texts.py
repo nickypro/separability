@@ -62,6 +62,11 @@ def prepare_toxic():
     high_toxicity_dataset = _dataset.filter(filter_toxicity)
     return high_toxicity_dataset['train'], 'text', most_common_pile_tokens
 
+def prepare_wiki():
+    _dataset = load_dataset("graphcore/gpt2-wikitext-103")
+    return _dataset["train"], "text", most_common_pile_tokens
+
+
 def prepare( dataset_name ):
     if dataset_name == 'pile_codeless':
         return prepare_pile_codeless()
@@ -81,6 +86,9 @@ def prepare( dataset_name ):
 
     if dataset_name[:5] == 'toxic':
         return prepare_toxic()
+
+    if dataset_name[:4] == 'wiki':
+        return prepare_wiki()
 
     raise ValueError( f"Unknown dataset: {dataset_name}" )
 
