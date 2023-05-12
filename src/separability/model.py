@@ -22,7 +22,7 @@ import matplotlib as mpl
 # Import from inside module
 from .model_repos import supported_model_repos
 from .nn import InverseLinear, mlp_delete_rows, mlp_adjust_biases, \
-    mlp_delete_columns, mlp_svd_two_layer
+    mlp_delete_columns, mlp_svd_two_layer_raw
 from .model_maps import convert_hf_model_config, ModelMap
 
 mpl.rcParams['figure.dpi'] = 300
@@ -186,15 +186,24 @@ class Model():
 
             layer["attn.inv_out_proj"] = inv_out_proj
 
-    def svd_attention_layers( self ):
+    def svd_attention_layers( self, combine_biases=False ):
         # Rewrite the v_proj and out_proj matrices using SVD
         t0 = time.time()
         for layer in self.layers:
-            v_proj   = layer["attn.v_proj"]
-            out_proj = layer["attn.out_proj"]
-            inv_out_proj = mlp_svd_two_layer(v_proj, out_proj, self.cfg.d_head)
-            inv_out_proj = inv_out_proj.to(dtype=self.dtype)
+            W_in, W_out = layer["attn.W_K"], layer["attn.W_V"]
+            b_in, b_out = layer["attn.b_K"], layer["attn.b_V"]
+
+            inv_out_proj, updated_weights = mlp_svd_two_layer_raw(
+                W_in, W_out, b_in, b_out, self.cfg.d_head,
+                combine_biases=combine_biases )
+
+            layer["attn.W_K"] = updated_weights["W_in"]
+            layer["attn.W_V"] = updated_weights["W_out"]
+            layer["attn.b_K"] = updated_weights["b_in"]
+            layer["attn.b_V"] = updated_weights["b_out"]
+
             layer["attn.inv_out_proj"] = inv_out_proj.to(self.output_device)
+
         t = time.time() - t0
         print( f" - SVD Attention Layers in {t:.1f} seconds" )
 
