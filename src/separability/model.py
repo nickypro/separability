@@ -190,19 +190,20 @@ class Model():
         # Rewrite the v_proj and out_proj matrices using SVD
         t0 = time.time()
         for layer in self.layers:
-            W_in, W_out = layer["attn.W_K"], layer["attn.W_V"]
-            b_in, b_out = layer["attn.b_K"], layer["attn.b_V"]
+            with torch.no_grad():
+                W_in, W_out = layer["attn.W_K"], layer["attn.W_V"]
+                b_in, b_out = layer["attn.b_K"], layer["attn.b_V"]
 
-            inv_out_proj, updated_weights = mlp_svd_two_layer_raw(
-                W_in, W_out, b_in, b_out, self.cfg.d_head,
-                combine_biases=combine_biases )
+                inv_out_proj, updated_weights = mlp_svd_two_layer_raw(
+                    W_in, W_out, b_in, b_out, self.cfg.d_head,
+                    combine_biases=combine_biases )
 
-            layer["attn.W_K"] = updated_weights["W_in"]
-            layer["attn.W_V"] = updated_weights["W_out"]
-            layer["attn.b_K"] = updated_weights["b_in"]
-            layer["attn.b_V"] = updated_weights["b_out"]
+                layer["attn.W_K"] = updated_weights["W_in"]
+                layer["attn.W_V"] = updated_weights["W_out"]
+                layer["attn.b_K"] = updated_weights["b_in"]
+                layer["attn.b_V"] = updated_weights["b_out"]
 
-            layer["attn.inv_out_proj"] = inv_out_proj.to(self.output_device)
+                layer["attn.inv_out_proj"] = inv_out_proj.to(self.output_device)
 
         t = time.time() - t0
         print( f" - SVD Attention Layers in {t:.1f} seconds" )

@@ -235,7 +235,7 @@ def mlp_svd_two_layer_raw(
     # Get new biases in original format
     # Use inverse linear to reconstruct new biases for layer_1
     inv_out = InverseLinear(
-        original_weights=W_out, original_biases=B_out
+        original_weights=W_out, original_biases=b_out
         ).to(dtype=dtype).to(device)
 
     if combine_biases:
