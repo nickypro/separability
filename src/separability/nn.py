@@ -16,9 +16,19 @@ class InverseLinear(torch.nn.Module):
     Args:
         original: The original Linear layer we are getting the inverse of
     """
-    def __init__(self, original: torch.nn.Linear):
+    def __init__(self,
+            original: torch.nn.Linear=None,
+            original_weights: Tensor=None,
+            original_biases: Tensor=None,
+        ):
         super(InverseLinear, self).__init__()
-        weights, bias = original.parameters()
+        if original is not None:
+            weights, bias = original.parameters()
+        elif original_weights is not None:
+            weights = original_weights
+            bias    = original_biases
+        else:
+            raise ValueError("Either original or original_weights must be provided")
 
         # Check that the original transformation is square
         original_size = weights.size()
@@ -26,6 +36,8 @@ class InverseLinear(torch.nn.Module):
             raise ValueError("Original Linear Layer must be square")
 
         # Define the Inverse Bias vector
+        if bias is None:
+            bias = torch.zeros(weights.shape[0], device=weights.device)
         self.inverse_bias = -bias
 
         # Define the Inverse Linear Layer
@@ -222,7 +234,9 @@ def mlp_svd_two_layer_raw(
 
     # Get new biases in original format
     # Use inverse linear to reconstruct new biases for layer_1
-    inv_out = InverseLinear(W_out).to(dtype=dtype).to(device)
+    inv_out = InverseLinear(
+        original_weights=W_out, original_biases=B_out
+        ).to(dtype=dtype).to(device)
 
     if combine_biases:
         # Combine the biases of layer_1 into layer_2
