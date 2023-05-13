@@ -1,7 +1,7 @@
 """ This file contains utils for working with single layers of dense neural networks.
 """
 
-from typing import Optional, Union
+from typing import Any, Mapping, Optional, Union
 from torch import Tensor
 import torch
 
@@ -67,6 +67,33 @@ class InverseLinear(torch.nn.Module):
             self.inverse_bias = self.inverse_bias.to( dtype=dtype, **kwargs )
             self.fc = self.fc.to( dtype=dtype, **kwargs )
         return self
+
+    def __getitem__(self, key):
+        if key == "weight":
+            return self.fc.weight
+        if key == "bias":
+            return self.inverse_bias
+        raise ValueError("InverseLinear only has weight and bias")
+
+    def __setitem__(self, key, inpt):
+        # Pre-check
+        original = self["key"]
+        assert torch.equal(inpt.shape, original.shape), "Input shape must match original"
+
+        if key == "weight":
+            params = self.fc.state_dict()
+            params["weight"] = inpt
+            self.fc.load_state_dict(params)
+        if key == "bias":
+            self.inverse_bias = inpt
+        raise ValueError("InverseLinear only has weight and bias")
+
+    def state_dict(self):
+        return {"weight": self["weight"], "bias": self["bias"]}
+
+    def load_state_dict(self, state_dict):
+        self["weight"] = state_dict["weight"]
+        self["bias"]   = state_dict["bias"]
 
 def mlp_delete_rows(mlp:
         torch.nn.Linear,
