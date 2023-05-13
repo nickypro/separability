@@ -38,7 +38,7 @@ class InverseLinear(torch.nn.Module):
         # Define the Inverse Bias vector
         if bias is None:
             bias = torch.zeros(weights.shape[0], device=weights.device)
-        self.inverse_bias = -bias
+        self.inverse_bias = - bias
 
         # Define the Inverse Linear Layer
         _dtype, _device = weights.dtype, weights.device
@@ -68,7 +68,11 @@ class InverseLinear(torch.nn.Module):
             self.fc = self.fc.to( dtype=dtype, **kwargs )
         return self
 
-def mlp_delete_rows(mlp: torch.nn.Linear, deletion_indices: Tensor):
+def mlp_delete_rows(mlp:
+        torch.nn.Linear,
+        deletion_indices: Tensor,
+        delete_biases:bool = True,
+    ):
     """Deletes (in place) the weights and biases of rows of the MLP that
     are marked True in deletion_rows
 
@@ -86,7 +90,8 @@ def mlp_delete_rows(mlp: torch.nn.Linear, deletion_indices: Tensor):
     for row_index in range(n_rows):
         if deletion_indices[row_index]:
             weights[row_index] = torch.zeros_like(weights[row_index])
-            biases[row_index]  = torch.zeros_like(biases[row_index])
+            if delete_biases:
+                biases[row_index]  = torch.zeros_like(biases[row_index])
 
     # Update the model to have the deleted rows
     params.update({'weight': weights, 'bias': biases})
@@ -285,11 +290,11 @@ def mlp_svd_two_layer(
         W_in, W_out, B_in, B_out, d_head, svd_dtype, combine_biases )
 
     params_1["weight"] = updated_weights["W_in"]
-    params_1["bias"]   = updated_weights["B_in"]
+    params_1["bias"]   = updated_weights["b_in"]
     layer_1.load_state_dict(params_1)
 
     params_2["weight"] = updated_weights["W_out"]
-    params_2["bias"]   = updated_weights["B_out"]
+    params_2["bias"]   = updated_weights["b_out"]
     layer_2.load_state_dict(params_2)
 
     return inv_out
