@@ -38,7 +38,7 @@ class InverseLinear(torch.nn.Module):
         # Define the Inverse Bias vector
         if bias is None:
             bias = torch.zeros(weights.shape[0], device=weights.device)
-        self.inverse_bias = - bias
+        self.inverse_bias = - bias.clone()
 
         # Define the Inverse Linear Layer
         _dtype, _device = weights.dtype, weights.device
@@ -136,17 +136,15 @@ def mlp_adjust_biases(
 
     return mlp
 
-def mlp_delete_columns(mlp: torch.nn.Linear, deletion_indices: Tensor):
+def mlp_delete_columns_raw(weights: Tensor, deletion_indices: Tensor):
     """Deletes (in place) the columns of weights in the MLP that are
     marked as True in deletion_indices
 
     Args:
-        mlp (torch.nn.Linear): The Multi-Layer Perceptron to delete columns from
+        weights (Tensor): The MLP Weights to delete columns from
         deletion_indices (Tensor): The indices of the columns to delete
     """
     # Load parameters
-    params = mlp.state_dict()
-    weights: Tensor = params['weight']
     device = weights.device
 
     # Transpose the weights, then delete row by row
@@ -157,6 +155,22 @@ def mlp_delete_columns(mlp: torch.nn.Linear, deletion_indices: Tensor):
             weights_t[row_index] = torch.zeros_like(weights_t[row_index])
 
     weights = weights_t.transpose(0, 1)
+
+    return weights
+
+def mlp_delete_columns(mlp: torch.nn.Linear, deletion_indices: Tensor):
+    """Deletes (in place) the columns of weights in the MLP that are
+    marked as True in deletion_indices
+
+    Args:
+        mlp (torch.nn.Linear): The Multi-Layer Perceptron to delete columns from
+        deletion_indices (Tensor): The indices of the columns to delete
+    """
+    # Load parameters
+    params = mlp.state_dict()
+
+    # Delete the columns
+    weights = mlp_delete_columns_raw(params['weight'], deletion_indices)
 
     # Update the model to have the deleted columns
     params.update({'weight': weights})

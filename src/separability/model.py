@@ -22,7 +22,7 @@ import matplotlib as mpl
 # Import from inside module
 from .model_repos import supported_model_repos
 from .nn import InverseLinear, mlp_delete_rows, mlp_adjust_biases, \
-    mlp_delete_columns, mlp_svd_two_layer_raw
+    mlp_delete_columns, mlp_svd_two_layer_raw, mlp_delete_columns_raw
 from .model_maps import convert_hf_model_config, ModelMap
 
 mpl.rcParams['figure.dpi'] = 300
@@ -191,17 +191,17 @@ class Model():
         t0 = time.time()
         for layer in self.layers:
             with torch.no_grad():
-                W_in, W_out = layer["attn.W_K"], layer["attn.W_V"]
-                b_in, b_out = layer["attn.b_K"], layer["attn.b_V"]
+                W_in,  b_in  = layer["attn.W_V"], layer["attn.b_V"]
+                W_out, b_out = layer["attn.W_O"], layer["attn.b_O"]
 
                 inv_out_proj, updated_weights = mlp_svd_two_layer_raw(
                     W_in, W_out, b_in, b_out, self.cfg.d_head,
                     combine_biases=combine_biases )
 
-                layer["attn.W_K"] = updated_weights["W_in"]
-                layer["attn.W_V"] = updated_weights["W_out"]
-                layer["attn.b_K"] = updated_weights["b_in"]
-                layer["attn.b_V"] = updated_weights["b_out"]
+                layer["attn.W_V"] = updated_weights["W_in"]
+                layer["attn.W_O"] = updated_weights["W_out"]
+                layer["attn.b_V"] = updated_weights["b_in"]
+                layer["attn.b_O"] = updated_weights["b_out"]
 
                 layer["attn.inv_out_proj"] = inv_out_proj.to(self.output_device)
 
@@ -588,10 +588,15 @@ class Model():
                 mlp_adjust_biases( out_proj, remove_indices, mean_activation )
 
             # Optionally, delete the weights going out of a neuron
-            # more of a sanity check than actually being useful
+            # more of a sanity check.
             if not self.use_accelerator:
-                # TODO: Make compatible with ModelMap
-                mlp_delete_columns( out_proj, remove_indices )
+                W_O = layer["attn.W_O"]
+                W_O = mlp_delete_columns_raw( W_O, remove_indices )
+                layer["attn.W_O"] = W_O
+
+            # Additionally, delete inv_out_proj weights (keep track)
+            mlp_delete_rows(layer["attn.inv_out_proj"], remove_indices,
+                            delete_biases=False)
 
             # 2. Delete the weights and biases going into neuron (v_proj)
             #  so it never activates in the first place
@@ -602,6 +607,8 @@ class Model():
                     W_V[row_index] = torch.zeros_like(W_V[row_index])
                     b_V[row_index] = torch.zeros_like(b_V[row_index])
             layer["attn.W_V"], layer["attn.b_V"] = W_V, b_V
+
+
 
     def delete_attn_pre_out( self,
             remove_indices: Tensor,
