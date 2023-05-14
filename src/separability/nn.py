@@ -5,6 +5,10 @@ from typing import Any, Mapping, Optional, Union
 from torch import Tensor
 import torch
 
+######################################################################################
+# Define InverseLinear Layer Class
+######################################################################################
+
 class InverseLinear(torch.nn.Module):
     """_summary_
     Produces a torch layer which undoes what the "original" linear layer does.
@@ -99,6 +103,10 @@ class InverseLinear(torch.nn.Module):
     def load_state_dict(self, state_dict):
         self["weight"] = state_dict["weight"]
         self["bias"]   = state_dict["bias"]
+
+######################################################################################
+# Define MLP Deletion functions
+######################################################################################
 
 def mlp_delete_rows(mlp:
         torch.nn.Linear,
@@ -209,6 +217,10 @@ def mlp_delete_columns(mlp: torch.nn.Linear, deletion_indices: Tensor):
     mlp.load_state_dict(params)
 
     return mlp
+
+######################################################################################
+# Define MLP SVD functions
+######################################################################################
 
 def mlp_svd_two_layer_raw(
         W_in: Tensor,
