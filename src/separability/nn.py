@@ -78,14 +78,19 @@ class InverseLinear(torch.nn.Module):
     def __setitem__(self, key, inpt):
         # Pre-check
         original = self["key"]
-        assert torch.equal(inpt.shape, original.shape), "Input shape must match original"
+        assert torch.equal(inpt.shape, original.shape), \
+            "Input shape must match original"
 
         if key == "weight":
             params = self.fc.state_dict()
             params["weight"] = inpt
             self.fc.load_state_dict(params)
+            return
+
         if key == "bias":
             self.inverse_bias = inpt
+            return
+
         raise ValueError("InverseLinear only has weight and bias")
 
     def state_dict(self):
