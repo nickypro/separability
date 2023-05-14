@@ -4,7 +4,7 @@
 import pytest
 from separability.model_repos import test_model_repos
 from separability import Model
-from separability.activations import evaluate, evaluate_all
+from separability.eval import evaluate, evaluate_all
 
 class TestEvaluate:
     @pytest.mark.parametrize("model_repo", test_model_repos)

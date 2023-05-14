@@ -9,7 +9,8 @@ import wandb
 
 from separability import Model
 from separability.data_classes import RunDataHistory
-from separability.activations import prune_random_and_evaluate, evaluate_all
+from separability.activations import prune_random_and_evaluate
+from separability.eval import evaluate_all
 
 # Configure initial model and tests
 model_size, token_limit  = "facebook/opt-1.3b", 1000
@@ -17,8 +18,8 @@ run_pre_test             = True
 pre_removals = []
 
 # Removals parameters
-ff_frac,   ff_eps   = 0.1, 0.001
-attn_frac, attn_eps = 0.00, 1e-4
+ff_frac,   ff_eps   = 0.0, 0.001
+attn_frac, attn_eps = 0.1, 1e-4
 focus, cripple      = "pile", "code"
 project             = "pile-code-attn"
 datasets            = list(sorted([focus, cripple]))

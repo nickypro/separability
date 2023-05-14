@@ -1,7 +1,7 @@
 import torch
 from separability import Model
 from separability.data_classes import RunDataItem, RunDataHistory
-from separability.activations import evaluate_all
+from separability.eval import evaluate_all
 import wandb
 
 global_state = {'init': False}

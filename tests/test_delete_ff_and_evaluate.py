@@ -3,7 +3,8 @@
 import pytest
 from separability.model_repos import test_model_repos
 from separability import Model
-from separability.activations import count_ff_key_activations, evaluate_all
+from separability.activations import count_ff_key_activations
+from separability.eval import evaluate_all
 
 class TestDeleteFFKeys:
     @pytest.mark.parametrize("model_repo", test_model_repos)

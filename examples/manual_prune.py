@@ -1,8 +1,9 @@
 import torch
 from separability import Model
 from separability.data_classes import RunDataItem
-from separability.activations import get_midlayer_activations, evaluate_all, \
+from separability.activations import get_midlayer_activations, \
     get_top_frac, get_attn_crossover
+from separability.eval import evaluate_all
 
 def manual_prune_and_evaluate(model_name):
     sample_size, eval_size = 1e4, 1e4

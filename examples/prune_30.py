@@ -8,7 +8,8 @@ import wandb
 
 from separability import Model
 from separability.data_classes import RunDataHistory, PruningConfig
-from separability.activations import prune_and_evaluate, evaluate_all
+from separability.activations import prune_and_evaluate
+from separability.eval import evaluate_all
 
 # Wandb config
 project   = "method-compare"

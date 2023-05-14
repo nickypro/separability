@@ -8,8 +8,8 @@ import wandb
 
 from separability import Model
 from separability.data_classes import RunDataHistory, PruningConfig
-from separability.activations import prune_and_evaluate, evaluate, evaluate_all
-from separability.eval import evaluate_toxicity
+from separability.activations import prune_and_evaluate
+from separability.eval import evaluate_toxicity, evaluate, evaluate_all
 
 # Wandb config
 project = "civil-toxic"

@@ -10,7 +10,8 @@ For a full example, see `src/separability.ipynb`.
 The simple example is:
 ```
 from model import Model
-from activations import prune_and_evaluate, evaluate_all
+from activations import prune_and_evaluate
+from separability.eval import evaluate_all
 
 # Load and Evaluate Model on Pile and Code
 

@@ -3,7 +3,7 @@ with additional methods for inspecting the activations of the model.
 """
 
 # import types for typed python
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Callable
 import warnings
 import time
 from torch import Tensor
@@ -967,14 +967,23 @@ class Model():
             percent = { k: ( "%.2f" % v ) for k, v in percent.items() }
         return percent
 
+    def default_generator(self, dataset, dataset_text_label):
+        token_limit = self.limit
+        for data in dataset:
+            # predict next token from text
+            text = data[ dataset_text_label ]
+            with torch.no_grad():
+                input_ids = self.get_ids( text, token_limit )
+                logits = self.get_all_logits( input_ids )
+
+            yield (input_ids, logits)
+
     def evaluate_dataset( self,
-            dataset: Dataset,
-            dataset_text_label: str = 'content',
+            generator: Callable,
             k: int = 10,
             start_index: int = 1,
             skip_eval: Optional[List[str]] = None,
             sample_size: int = 1e5,
-            token_limit: Optional[int] = None,
             count_tokens: bool = False,
             num_top_tokens: int = 50,
             loading_bar_desc: str = "Acc",
@@ -1025,13 +1034,7 @@ class Model():
         with tqdm(total=sample_size) as pbar:
 
             # Loop over the dataset
-            for data in dataset:
-                # predict next token from text
-                text = data[ dataset_text_label ]
-                with torch.no_grad():
-                    input_ids = self.get_ids( text, token_limit )
-                    logits = self.get_all_logits( input_ids )
-
+            for (input_ids, logits) in generator:
                 # perform evaluations
                 topk =  self.evaluate_top_k_performance( k, input_ids=input_ids,
                     logits=logits, start_index=start_index, skip_strings=skip_eval )
