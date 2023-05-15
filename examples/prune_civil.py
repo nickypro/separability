@@ -89,7 +89,6 @@ if c.run_pre_test:
 
 for i in range(n_steps):
     data = prune_and_evaluate(opt, c)
-    history.add(data)
 
     # Get toxicity evaluations
     ratio_toxic, toxicity_mean = evaluate_toxicity(opt, 1000)
