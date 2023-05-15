@@ -21,7 +21,7 @@ import matplotlib as mpl
 
 # Import from inside module
 from .model_repos import supported_model_repos
-from .nn import InverseLinear, mlp_delete_rows, mlp_adjust_biases, \
+from .nn import InverseLinear, mlp_delete_rows, mlp_delete_rows_raw, mlp_adjust_biases, \
     mlp_delete_columns, mlp_svd_two_layer_raw, mlp_delete_columns_raw
 from .model_maps import convert_hf_model_config, ModelMap
 
@@ -725,10 +725,12 @@ class Model():
 
     # functions for 'deleting' neurons from the MLP mid layers
     def delete_ff_keys( self, layer_key_map: Tensor ):
-        for layer, key_map in enumerate(layer_key_map):
-            # 2. Delete the weights going into ff key so it never activates
-            ff_in = self.layers[ layer ]["fc1"]
-            mlp_delete_rows(ff_in, key_map)
+        for layer_index, key_map in enumerate(layer_key_map):
+            # Delete the weights going into ff key so it never activates
+            layer = self.layers[layer_index]
+            W_in, b_in = layer["mlp.W_in"], layer["mlp.b_in"]
+            W_in, b_in = mlp_delete_rows_raw(key_map, W_in, b_in)
+            layer["mlp.W_in"], layer["mlp.b_in"] = W_in, b_in
 
         return self
 
