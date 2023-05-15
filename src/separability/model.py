@@ -597,8 +597,11 @@ class Model():
                 layer["attn.W_O"] = W_O
 
             # Additionally, delete inv_out_proj weights (keep track)
-            mlp_delete_rows(layer["attn.inv_out_proj"], remove_indices,
-                            delete_biases=False)
+            params = layer["attn.inv_out_proj"].state_dict()
+            W_inv = params["weight"]
+            W_inv, _ = mlp_delete_rows_raw(remove_indices, W_inv)
+            params["weight"] = W_inv
+            layer["attn.inv_out_proj"].load_state_dict(params)
 
             # 2. Delete the weights and biases going into neuron (v_proj)
             #  so it never activates in the first place
