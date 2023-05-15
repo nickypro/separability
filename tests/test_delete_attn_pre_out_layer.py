@@ -98,5 +98,6 @@ class TestDeleteAttnPreOutLayer:
             print( '- new vec  :', new_vec_out[:5] )
 
             assert torch.equal( old_vec_out*keep_tensor, new_vec_out )
+            assert not torch.equal( old_vec_out, new_vec_out )
 
             print("Test Passed")
