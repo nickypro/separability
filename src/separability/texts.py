@@ -90,27 +90,3 @@ def prepare( dataset_name ):
         return prepare_wiki()
 
     raise ValueError( f"Unknown dataset: {dataset_name}" )
-
-if __name__ == "__main__":
-    # syntax: python texts.py model_size dataset
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model_size', type=str, default='125m',
-        help='model size options: 125m 350m 1.3b 2.7b 6.7b 13b  30b 66b 175b')
-    parser.add_argument('--dataset', type=str, default='pile')
-    parser.add_argument('--count_tokens', type=bool, default=False)
-    parser.add_argument('--start_index', type=int, default=1)
-    args = parser.parse_args()
-
-    if args.dataset == 'code':
-        dataset, label, skip_eval = prepare_code()
-
-    elif args.dataset == 'pile':
-        dataset, label, skip_eval = prepare_pile()
-
-    else:
-        raise ValueError( f"Unknown dataset: {args.dataset}" )
-
-    opt = Model( args.model_size )
-
-    opt.evaluate_dataset(dataset, token_limit=1000, k=1, start_index=args.start_index,
-        skip_eval=skip_eval, dataset_text_label=label, count_tokens=False )
