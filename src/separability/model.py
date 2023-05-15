@@ -175,7 +175,9 @@ class Model():
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
         for layer in self.layers:
-            inv_out_proj = InverseLinear(layer["attn.out_proj"])
+            inv_out_proj = InverseLinear(
+                original_weights=layer["attn.W_O"],
+                original_biases=layer["attn.b_O"])
             inv_out_proj = inv_out_proj.to(dtype=self.dtype)
 
             if self.use_accelerator:
