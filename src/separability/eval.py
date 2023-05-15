@@ -34,17 +34,16 @@ def evaluate_wikitext(opt: Model,
     ):
     _dataset, label, skip_eval = prepare('wiki')
     dataset = _dataset.skip( dataset_texts_to_skip )
-    id_generator = sliding_window_dataset(opt.tokenizer, _dataset,
+    wiki_id_generator = sliding_window_dataset(opt.tokenizer, _dataset,
         buffer_size=1024, step_size=512, max_tokens=sample_size)
 
-    def generator():
-        for ids in id_generator:
-            ids = torch.tensor([ids], opt.device)
+    def wiki_generator():
+        for ids in wiki_id_generator:
+            ids = torch.tensor([ids], device=opt.device)
             logits = opt.get_all_logits(ids)
             yield (ids, logits)
 
-    generator = opt.default_generator(dataset, label)
-    out = opt.evaluate_dataset( generator, k=topk, start_index=512,
+    out = opt.evaluate_dataset( wiki_generator(), k=topk, start_index=512,
         sample_size=sample_size, skip_eval=skip_eval, count_tokens=False,
         loading_bar_desc="wiki" )
 
@@ -68,7 +67,7 @@ def evaluate( opt: Model,
         verbose: bool = False,
         dataset_texts_to_skip: int = 0,
     ):
-    if dataset_name == "wikitext":
+    if dataset_name == "wiki":
         return evaluate_wikitext(opt, sample_size, topk, dataset_texts_to_skip)
     dataset, label, skip_eval = prepare( dataset_name )
     dataset = dataset.skip( dataset_texts_to_skip )
