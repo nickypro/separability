@@ -433,7 +433,7 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         module.load_state_dict(params)
 
     def gpt2_out_weight(layer, inpt=None):
-        return conv1d_weight(layer.mlp.c_proj, inpt)
+        return conv1d_weight(layer.attn.c_proj, inpt)
 
     def gpt2_mlp_in_weight(layer, inpt=None):
         return conv1d_weight(layer.mlp.c_fc, inpt)
