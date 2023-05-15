@@ -14,7 +14,7 @@ def not_equal(t0, t1):
 def is_zero(t):
     return torch.equal(t, torch.zeros_like(t))
 
-class TestAttnCrossoverDelete:
+class TestAttnUtils:
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_svd(self, model_repo):
         with torch.no_grad():
