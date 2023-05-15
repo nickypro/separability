@@ -424,16 +424,23 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         params["bias"] = qkv_bias
         qkv_heads.load_state_dict(params)
 
-    def gpt2_out_weight(layer, inpt=None):
-        # GPT2 Conv1D instead of Linear, so we must get the transpose
-        out_proj = layer.attn.c_proj
-
+    # GPT2 uses Conv1D instead of Linear, so we must get the transpose
+    def conv1d_weight(module, inpt=None):
         if inpt is None:
-            return out_proj.weight.T
-
-        params = out_proj.state_dict()
+            return module.weight.T
+        params = module.state_dict()
         params["weight"] = inpt.T
-        out_proj.load_state_dict(params)
+        module.load_state_dict(params)
+
+    def gpt2_out_weight(layer, inpt=None):
+        return conv1d_weight(layer.mlp.c_proj, inpt)
+
+    def gpt2_mlp_in_weight(layer, inpt=None):
+        return conv1d_weight(layer.mlp.c_fc, inpt)
+
+    def gpt2_mlp_out_weight(layer, inpt=None):
+        return conv1d_weight(layer.mlp.c_proj, inpt)
+
 
     gpt2_layer_map = {
         "ln1"       : "ln_1",
@@ -460,8 +467,8 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         "ln2.b"     : "ln_2.bias",
         "fc1"       : "mlp.c_fc",
         "fc2"       : "mlp.c_proj",
-        "mlp.W_in"  : "mlp.c_fc.weight",
-        "mlp.W_out" : "mlp.c_proj.weight",
+        "mlp.W_in"  : lambda layer, inpt=None: gpt2_mlp_in_weight(layer, inpt),
+        "mlp.W_out" : lambda layer, inpt=None: gpt2_mlp_out_weight(layer, inpt),
         "mlp.b_in"  : "mlp.c_fc.bias",
         "mlp.b_out" : "mlp.c_proj.bias",
         "activation_fn" : "mlp.act",
