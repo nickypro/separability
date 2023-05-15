@@ -3,7 +3,7 @@ import torch
 from welford_torch import Welford
 from tqdm import tqdm
 from .model import Model
-from .texts import prepare, sliding_window_dataset
+from .texts import prepare
 
 def evaluate_toxicity(opt: Model, n_samples: int = 1000):
     from detoxify import Detoxify
@@ -26,6 +26,41 @@ if __name__ == "__main__":
     opt = Model("facebook/opt-125m")
     results = evaluate_toxicity(opt, 1000)
     print( results )
+
+def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_tokens):
+    buffer_tokens = []  # Initialize the buffer
+    token_count = 0  # Initialize the token counter
+
+    for sample in _dataset:
+        if token_count >= max_tokens:
+            break  # Stop iterating if max_tokens have been processed
+
+        text = sample['text']
+
+        # Tokenize the text and add tokens to the buffer
+        tokenized_text = tokenizer.tokenize(text)
+        buffer_tokens.extend(tokenized_text)
+
+        # Check if buffer has more tokens than the buffer size
+        while len(buffer_tokens) >= buffer_size:
+            if token_count >= max_tokens:
+                break  # Stop iterating if max_tokens have been processed
+
+            # Yield the first part of the tokenized text
+            yield tokenizer.convert_tokens_to_ids(buffer_tokens[:buffer_size])
+            token_count += step_size  # Increase the token counter
+
+            # Remove step_size tokens from the buffer
+            buffer_tokens = buffer_tokens[step_size:]
+
+        # Add a newline character token at the end of each sample
+        #buffer_tokens.extend(tokenizer.tokenize("\n"))
+
+    # Yield any remaining part of the buffer
+    while buffer_tokens and token_count < max_tokens:
+        yield tokenizer.convert_tokens_to_ids(buffer_tokens[:buffer_size])
+        token_count += step_size
+        buffer_tokens = buffer_tokens[step_size:]
 
 def evaluate_wikitext(opt: Model,
         sample_size: int = 1024,

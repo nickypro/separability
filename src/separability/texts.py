@@ -66,42 +66,6 @@ def prepare_wiki():
     _dataset = load_dataset("wikitext", "wikitext-103-raw-v1", streaming=True)
     return _dataset["train"], "text", most_common_pile_tokens
 
-def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_tokens):
-    buffer_tokens = []  # Initialize the buffer
-    token_count = 0  # Initialize the token counter
-
-    for sample in _dataset:
-        if token_count >= max_tokens:
-            break  # Stop iterating if max_tokens have been processed
-
-        text = sample['text']
-
-        # Tokenize the text and add tokens to the buffer
-        tokenized_text = tokenizer.tokenize(text)
-        buffer_tokens.extend(tokenized_text)
-
-        # Check if buffer has more tokens than the buffer size
-        while len(buffer_tokens) >= buffer_size:
-            if token_count >= max_tokens:
-                break  # Stop iterating if max_tokens have been processed
-
-            # Yield the first part of the tokenized text
-            yield tokenizer.convert_tokens_to_ids(buffer_tokens[:buffer_size])
-            token_count += step_size  # Increase the token counter
-
-            # Remove step_size tokens from the buffer
-            buffer_tokens = buffer_tokens[step_size:]
-
-        # Add a newline character token at the end of each sample
-        buffer_tokens.extend(tokenizer.tokenize("\n"))
-
-    # Yield any remaining part of the buffer
-    while buffer_tokens and token_count < max_tokens:
-        yield tokenizer.convert_tokens_to_ids(buffer_tokens[:buffer_size])
-        token_count += step_size
-        buffer_tokens = buffer_tokens[step_size:]
-
-
 def prepare( dataset_name ):
     if dataset_name == 'pile_codeless':
         return prepare_pile_codeless()
