@@ -581,12 +581,12 @@ class Model():
             # We change both (1) the inputs and (2) the outputs of the pre_out
             # layer
             layer = self.layers[layer_index]
-            out_proj = layer["attn.out_proj"]
 
             # 1. Adjust the biases out of the out_proj layer to compensate for
             #    the deletion of the weights
             if (mean_activation is not None):
                 # TODO: Make compatible with ModelMap
+                out_proj = layer["attn.out_proj"]
                 mlp_adjust_biases( out_proj, remove_indices, mean_activation )
 
             # Optionally, delete the weights going out of a neuron
