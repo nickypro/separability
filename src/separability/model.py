@@ -725,10 +725,11 @@ class Model():
 
     # functions for 'deleting' neurons from the MLP mid layers
     def delete_ff_keys( self, layer_key_map: Tensor ):
-        for layer, key_map in enumerate(layer_key_map):
-            # 2. Delete the weights going into ff key so it never activates
-            ff_in = self.layers[ layer ]["fc1"]
-            mlp_delete_rows(ff_in, key_map)
+        with torch.no_grad():
+            for layer, key_map in enumerate(layer_key_map):
+                # 2. Delete the weights going into ff key so it never activates
+                ff_in = self.layers[ layer ]["fc1"]
+                mlp_delete_rows(ff_in, key_map)
 
         return self
 
