@@ -108,6 +108,21 @@ class InverseLinear(torch.nn.Module):
 # Define MLP Deletion functions
 ######################################################################################
 
+def mlp_delete_rows_raw(
+        deletion_indices: Tensor,
+        weights: Tensor,
+        biases: Optional[Tensor] = None,
+    ):
+    # Delete the weights and biases from the rows
+    n_rows = len(weights)
+    for row_index in range(n_rows):
+        if deletion_indices[row_index]:
+            weights[row_index] = torch.zeros_like(weights[row_index])
+            if biases is not None:
+                biases[row_index]  = torch.zeros_like(biases[row_index])
+    return weights, biases
+
+
 def mlp_delete_rows(mlp:
         torch.nn.Linear,
         deletion_indices: Tensor,
@@ -126,12 +141,8 @@ def mlp_delete_rows(mlp:
     biases: Tensor  = params['bias']
 
     # Delete the weights and biases from the rows
-    n_rows = len(weights)
-    for row_index in range(n_rows):
-        if deletion_indices[row_index]:
-            weights[row_index] = torch.zeros_like(weights[row_index])
-            if delete_biases:
-                biases[row_index]  = torch.zeros_like(biases[row_index])
+    weights, biases = mlp_delete_rows_raw(deletion_indices,
+            weights, biases if delete_biases else None)
 
     # Update the model to have the deleted rows
     params.update({'weight': weights, 'bias': biases})
