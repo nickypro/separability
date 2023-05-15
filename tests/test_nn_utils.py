@@ -9,7 +9,7 @@ from separability.nn import mlp_svd_two_layer, mlp_delete_columns, mlp_delete_ro
 def not_equal(t0, t1):
     return not torch.equal(t0, t1)
 
-class TestAttnCrossoverDelete:
+class TestNNUtils:
     def test_deletions(self):
         with torch.no_grad():
             _dtype = torch.float32
