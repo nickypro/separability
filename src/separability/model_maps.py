@@ -406,7 +406,7 @@ def build_gpt2_layer_map(cfg: ConfigClass):
     def gpt2_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
         qkv_heads = layer.attn.c_attn
         qkv_bias = qkv_heads.bias
-        qkv_bias = einops.rearrange(qkv_bias, "(qkv index head)->qkv (index head)")
+        qkv_bias = einops.rearrange(qkv_bias, "(qkv index head)->qkv (index head)", index=cfg.n_heads, qkv=3)
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
 

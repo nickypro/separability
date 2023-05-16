@@ -12,6 +12,7 @@ from datasets import Dataset
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+import torch.nn.functional as F
 import numpy as np
 from welford_torch import Welford
 from tqdm import tqdm
@@ -532,7 +533,7 @@ class Model():
 
         # TODO: Make more general (ie: work on multiple GPUs)
         W_V, b_V = layer["attn.W_V"], layer["attn.b_V"]
-        return torch.matmul( W_V, attn_in_layer ) + b_V
+        return F.linear(input=attn_in_layer, weight=W_V, bias=b_V)
 
     def calculate_attn_value(self, attn_in: Tensor):
         """Given the inputs to the attention layers, calculate the values
