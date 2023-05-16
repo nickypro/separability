@@ -527,7 +527,7 @@ class Model():
                 layer_index: int,
             ):
         layer = self.layers[layer_index]
-        if "attn.v_proj" in layer:
+        if "attn.v_proj" in layer and layer["attn.v_proj"] is not None:
             return layer["attn.v_proj"]( attn_in_layer )
 
         # TODO: Make more general (ie: work on multiple GPUs)
