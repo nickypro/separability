@@ -388,7 +388,7 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         #W_Q, W_K, W_V = torch.tensor_split(W, 3, dim=1)
         #W_Q = einops.rearrange(W_Q, "m (i h)->i m h", i=cfg.n_heads)
         W = qkv_heads.weight
-        W = einops.rearrange(W, "m qkv (i h) -> qkv m (i h)", i=cfg.n_heads, qkv=3)
+        W = einops.rearrange(W, "m (qkv i h) -> qkv m (i h)", i=cfg.n_heads, qkv=3)
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
 
@@ -399,7 +399,7 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         # Set mode
         params = qkv_heads.state_dict()
         W[index] = inpt
-        W = einops.rearrange(W, "qkv i m h -> (i qkv h) m", i=cfg.n_heads, qkv=3)
+        W = einops.rearrange(W, "qkv m (i h) -> m (qkv i h)", i=cfg.n_heads, qkv=3)
         params["weight"] = W
         qkv_heads.load_state_dict(params)
 
