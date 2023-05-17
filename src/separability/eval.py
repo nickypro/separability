@@ -68,7 +68,7 @@ def evaluate_wikitext(opt: Model,
         dataset_texts_to_skip: int = 0
     ):
     _dataset, label, skip_eval = prepare('wiki')
-    dataset = _dataset.skip( dataset_texts_to_skip )
+    _dataset = _dataset.skip( dataset_texts_to_skip )
     wiki_id_generator = sliding_window_dataset(opt.tokenizer, _dataset,
         buffer_size=1024, step_size=512)
         #, max_tokens=sample_size)
