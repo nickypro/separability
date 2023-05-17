@@ -13,7 +13,7 @@ from separability.activations import prune_and_evaluate, \
 from separability.eval import evaluate_all
 
 # Wandb config
-project   = "pile-code-attn"
+project   = "method-compare"
 
 # Configure initial model and tests
 c = PruningConfig(
@@ -21,14 +21,14 @@ c = PruningConfig(
     token_limit  = 1000,
     run_pre_test = True,
     # Removals parameters
-    ff_frac   = 0.05,
+    ff_frac   = 0.00,
     ff_eps    = 0.001,
-    attn_frac = 0.00,
+    attn_frac = 0.05,
     attn_eps  = 1e-4,
     focus     = "pile_codeless",
     cripple   = "code",
     additional_datasets=tuple(),
-    collection_sample_size=1e6,
+    collection_sample_size=1e5,
 )
 pre_removals = []
 
