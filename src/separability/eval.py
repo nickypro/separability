@@ -27,12 +27,12 @@ if __name__ == "__main__":
     results = evaluate_toxicity(opt, 1000)
     print( results )
 
-def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_tokens):
+def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_tokens=None):
     buffer_tokens = []  # Initialize the buffer
     token_count = 0  # Initialize the token counter
 
     for sample in _dataset:
-        if token_count >= max_tokens:
+        if max_tokens is not None and token_count >= max_tokens:
             break  # Stop iterating if max_tokens have been processed
 
         text = sample['text']
@@ -70,7 +70,8 @@ def evaluate_wikitext(opt: Model,
     _dataset, label, skip_eval = prepare('wiki')
     dataset = _dataset.skip( dataset_texts_to_skip )
     wiki_id_generator = sliding_window_dataset(opt.tokenizer, _dataset,
-        buffer_size=1024, step_size=512, max_tokens=sample_size)
+        buffer_size=1024, step_size=512)
+        #, max_tokens=sample_size)
 
     def wiki_generator():
         for ids in wiki_id_generator:
