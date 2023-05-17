@@ -249,9 +249,9 @@ opt_layer_map = {
     "attn.W_O"      : "self_attn.out_proj.weight",
     "attn.b_O"      : "self_attn.out_proj.bias",
 
-    "attn.inv_out_proj" : "self_attn.out_proj",
+    "attn.inv_out_proj" : "self_attn.inv_out_proj",
     "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
-    "attn.b_O_inv"  : "self_attn.inv_out_proj.bias",
+    "attn.b_O_inv"  : "self_attn.inv_out_proj.inverse_bias",
 
     "ln2"           : "final_layer_norm",
     "ln2.w"         : "final_layer_norm.weight",
@@ -350,7 +350,7 @@ def build_gpt_neox_layer_map(cfg: ConfigClass):
 
         "attn.inv_out_proj" : "attention.inv_out_proj",
         "attn.W_O_inv"      : "attention.inv_out_proj.weight",
-        "attn.b_O_inv"      : "attention.inv_out_proj.bias",
+        "attn.b_O_inv"      : "attention.inv_out_proj.inverse_bias",
 
         "ln2"       : "post_attention_layernorm",
         "ln2.w"     : "post_attention_layernorm.weight",
@@ -461,7 +461,7 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         "attn.b_O"      : "attn.c_proj.bias",
         "attn.inv_out_proj" : "attn.inv_out_proj",
         "attn.W_O_inv"      : "attn.inv_out_proj.weight",
-        "attn.b_O_inv"      : "attn.inv_out_proj.bias",
+        "attn.b_O_inv"      : "attn.inv_out_proj.inverse_bias",
         "ln2"       : "ln_2",
         "ln2.w"     : "ln_2.weight",
         "ln2.b"     : "ln_2.bias",
@@ -569,7 +569,7 @@ class ModelLayerMap:
         # Get the module and attribute name
         keys = key.split('.')
         module = get_attrs(self.layer, ".".join(keys[:-1]))
-        attr = keys[-1]
+        attr   = keys[-1]
 
         if attr == "inv_out_proj":
             setattr(module, attr, __value)

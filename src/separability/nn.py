@@ -46,7 +46,7 @@ class InverseLinear(torch.nn.Module):
 
         # Define the Inverse Linear Layer
         _dtype, _device = weights.dtype, weights.device
-        inverse_weights = weights.cpu().to(dtype=torch.float64).inverse()
+        inverse_weights = weights.clone().cpu().to(dtype=torch.float64).inverse()
         inverse_weights = inverse_weights.to(dtype=_dtype).to(_device)
         size = inverse_weights.size()
         self.fc = torch.nn.Linear( size[0], size[1], bias=False )
