@@ -43,7 +43,7 @@ def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_toke
 
         # Check if buffer has more tokens than the buffer size
         while len(buffer_tokens) >= buffer_size:
-            if token_count >= max_tokens:
+            if max_tokens is not None and token_count >= max_tokens:
                 break  # Stop iterating if max_tokens have been processed
 
             # Yield the first part of the tokenized text
