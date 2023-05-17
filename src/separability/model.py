@@ -585,24 +585,24 @@ class Model():
 
             # 1. Adjust the biases out of the out_proj layer to compensate for
             #    the deletion of the weights
-            if (mean_activation is not None):
-                # TODO: Make compatible with ModelMap
-                out_proj = layer["attn.out_proj"]
-                mlp_adjust_biases( out_proj, remove_indices, mean_activation )
+            #if (mean_activation is not None):
+            #    # TODO: Make compatible with ModelMap
+            #    out_proj = layer["attn.out_proj"]
+            #    mlp_adjust_biases( out_proj, remove_indices, mean_activation )
 
             # Optionally, delete the weights going out of a neuron
             # more of a sanity check.
-            if not self.use_accelerator:
-                W_O = layer["attn.W_O"]
-                W_O = mlp_delete_columns_raw( W_O, remove_indices )
-                layer["attn.W_O"] = W_O
+            #if not self.use_accelerator:
+            #    W_O = layer["attn.W_O"]
+            #    W_O = mlp_delete_columns_raw( W_O, remove_indices )
+            #    layer["attn.W_O"] = W_O
 
             # Additionally, delete inv_out_proj weights (keep track)
-            params = layer["attn.inv_out_proj"].state_dict()
-            W_inv = params["weight"]
-            W_inv, _ = mlp_delete_rows_raw(remove_indices, W_inv)
-            params["weight"] = W_inv
-            layer["attn.inv_out_proj"].load_state_dict(params)
+            #params = layer["attn.inv_out_proj"].state_dict()
+            #W_inv = params["weight"]
+            #W_inv, _ = mlp_delete_rows_raw(remove_indices, W_inv)
+            #params["weight"] = W_inv
+            #layer["attn.inv_out_proj"].load_state_dict(params)
 
             # 2. Delete the weights and biases going into neuron (v_proj)
             #  so it never activates in the first place
