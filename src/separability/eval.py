@@ -57,7 +57,7 @@ def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_toke
         #buffer_tokens.extend(tokenizer.tokenize("\n"))
 
     # Yield any remaining part of the buffer
-    while buffer_tokens and token_count is not None and token_count < max_tokens:
+    while buffer_tokens and max_tokens is not None and token_count < max_tokens:
         yield tokenizer.convert_tokens_to_ids(buffer_tokens[:buffer_size])
         token_count += step_size
         buffer_tokens = buffer_tokens[step_size:]
