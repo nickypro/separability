@@ -24,6 +24,7 @@ then
 fi
 # Dependencies (using Poetry rather than pip)
 apt install python3.8 python3-pip vim -y
+sudo ln -s /usr/bin/python3 /usr/bin/python
 curl -sSL https://install.python-poetry.org | python3.8 -
 poetry config virtualenvs.in-project true
 poetry install
