@@ -16,10 +16,10 @@ run_pre_test             = True
 pre_removals = []
 
 # Removals parameters
-ff_frac,   ff_eps   = 0.02, 0.001
+ff_frac,   ff_eps   = 0.05, 0.001
 attn_frac, attn_eps = 0.000, 1e-4
 focus, cripple      = "pile_codeless", "code"
-project             = "pile-code-attn"
+project             = "method-compare"
 datasets            = list(sorted([focus, cripple]))
 
 parser = argparse.ArgumentParser()
@@ -61,7 +61,7 @@ c.update({
     "focus"  : focus,
     "attn_prune_type": "pre_out",
     "svd_attn": svd_attn,
-    "do_attn_mean_offset": False,
+    "do_attn_mean_offset": True,
     "attn_scoring": args.attn_scoring,
     "attn_mode": args.attn_mode,
     "ff_scoring": args.ff_scoring,
