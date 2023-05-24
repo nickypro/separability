@@ -110,7 +110,7 @@ def mlp_adjust_biases(
     # adjust bias of out_proj by mean activations
     mean_activations  = mean_activations.detach().clone().to(device)
     mean_activations *= deletion_indices.to(device).reshape(mean_activations.shape)
-    bias_adjustement = mlp( mean_activations )
+    bias_adjustement = torch.matmul( mlp.weight, mean_activations )
     biases += bias_adjustement
 
     # Place biases back into the MLP, with adjustements from above

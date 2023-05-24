@@ -574,7 +574,8 @@ class Model():
             #    the deletion of the weights
             if (mean_activation is not None):
                 # TODO: Make compatible with ModelMap
-                mlp_adjust_biases( out_proj, remove_indices, mean_activation )
+                mean_act_flat = mean_activation.reshape(self.cfg.d_model)
+                mlp_adjust_biases( out_proj, remove_indices, mean_act_flat )
 
             # Optionally, delete the weights going out of a neuron
             # more of a sanity check than actually being useful
