@@ -61,7 +61,7 @@ c.update({
     "focus"  : focus,
     "attn_prune_type": "pre_out",
     "svd_attn": svd_attn,
-    "do_attn_mean_offset": True,
+    "do_attn_mean_offset": False,
     "attn_scoring": args.attn_scoring,
     "attn_mode": args.attn_mode,
     "ff_scoring": args.ff_scoring,
