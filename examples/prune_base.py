@@ -29,6 +29,7 @@ c = PruningConfig(
     cripple   = "code",
     additional_datasets=tuple(),
     collection_sample_size=1e5,
+    recalculate_activations=False,
 )
 pre_removals = []
 
