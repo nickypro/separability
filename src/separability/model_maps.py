@@ -282,7 +282,7 @@ def build_opt_layer_map(cfg: ConfigClass):
             return W
 
         # Set mode
-        W = einops.rearrange(W, f"{my_shape} -> {their_shape}", **sizes)
+        W = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
         update_param(attn_proj, "weight", W)
 
     def opt_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
