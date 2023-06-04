@@ -178,7 +178,9 @@ class Model():
         for layer in self.layers:
             inv_out_proj = InverseLinear(
                 original_weights=layer["attn.W_O"],
-                original_biases=layer["attn.b_O"])
+                original_biases=layer["attn.b_O"],
+                n_heads=self.cfg.n_heads,
+            )
             inv_out_proj = inv_out_proj.to(dtype=self.dtype)
 
             if self.use_accelerator:
@@ -571,47 +573,51 @@ class Model():
         #       since we have the option of offset by the mean value
 
         with torch.no_grad():
-            # check tensor sizes are correct
             size = remove_indices.size()
-            if size[-1] == self.cfg.d_head:
-                remove_indices = remove_indices.reshape( (*size[:-2], -1) )
-                size = remove_indices.size()
-            assert remove_indices.size() == torch.Size([self.cfg.d_model])
 
-            # get the attention that we are changing.
-            # We change both (1) the inputs and (2) the outputs of the pre_out
-            # layer
+            # Get flat remove indices, needed for out weight changing
+            flat_remove_indices = remove_indices
+            if size[-1] == self.cfg.d_head:
+                flat_remove_indices = remove_indices.reshape( (*size[:-2], -1) )
+
+            # check tensor sizes are correct
+            assert flat_remove_indices.size() == torch.Size([self.cfg.d_model])
+
+            # We change both the inputs and the outputs of the pre_out layer
             layer = self.layers[layer_index]
 
-            # 1. Adjust the biases out of the out_proj layer to compensate for
-            #    the deletion of the weights
+            # 1. Optionally, adjust the biases out of the out_proj layer to
+            #    compensate for the deletion of the weights
             #if (mean_activation is not None):
             #    # TODO: Make compatible with ModelMap
             #    out_proj = layer["attn.out_proj"]
             #    mlp_adjust_biases( out_proj, remove_indices, mean_activation )
 
-            # Optionally, delete the weights going out of a neuron
-            # more of a sanity check.
-            #if not self.use_accelerator:
-            #    W_O = layer["attn.W_O"]
-            #    W_O = mlp_delete_columns_raw( W_O, remove_indices )
-            #    layer["attn.W_O"] = W_O
 
-            # Additionally, delete inv_out_proj weights (keep track)
-            #params = layer["attn.inv_out_proj"].state_dict()
-            #W_inv = params["weight"]
-            #W_inv, _ = mlp_delete_rows_raw(remove_indices, W_inv)
-            #params["weight"] = W_inv
-            #layer["attn.inv_out_proj"].load_state_dict(params)
+            # 2. Optionally, delete the weights going out of a neuron
+            #    ( more of a sanity check. )
+            if not self.use_accelerator:
+                W_O = layer["attn.W_O"]
+                W_O = mlp_delete_columns_raw( W_O, flat_remove_indices )
+                layer["attn.W_O"] = W_O
 
-            # 2. Delete the weights and biases going into neuron (v_proj)
-            #  so it never activates in the first place
+            # Additionally, delete inv_out_proj weights (to better keep track)
+            params = layer["attn.inv_out_proj"].state_dict()
+            W_inv = params["weight"]
+            W_inv, _ = mlp_delete_rows_raw(flat_remove_indices, W_inv)
+            params["weight"] = W_inv
+            layer["attn.inv_out_proj"].load_state_dict(params)
+
+
+            # 3. Delete the weights and biases going into neuron (v_proj)
+            #    so it never activates in the first place
             W_V, b_V = layer["attn.W_V"], layer["attn.b_V"]
-            n_rows = len(W_V)
-            for row_index in range(n_rows):
-                if remove_indices[row_index]:
-                    W_V[row_index] = torch.zeros_like(W_V[row_index])
-                    b_V[row_index] = torch.zeros_like(b_V[row_index])
+            for i_head in range(self.cfg.n_heads):
+                for i_row in range(self.cfg.d_head):
+                    if not remove_indices[i_head][i_row]:
+                        continue
+                    W_V[i_head][i_row] = torch.zeros_like(W_V[i_head][i_row])
+                    b_V[i_head][i_row] = torch.zeros_like(b_V[i_head][i_row])
             layer["attn.W_V"], layer["attn.b_V"] = W_V, b_V
 
 

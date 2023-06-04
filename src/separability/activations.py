@@ -336,7 +336,8 @@ def score_and_prune( opt: Model,
             attn_criteria = opt.expand_remove_heads_to_remove_indices(attn_criteria)
         else:
             attn_criteria, attn_threshold = get_top_frac(attn_scores, attn_frac)
-            _shape = (opt.cfg.n_layers, opt.cfg.n_heads*opt.cfg.d_head)
+            print(attn_criteria.shape)
+            _shape = (opt.cfg.n_layers, opt.cfg.n_heads, opt.cfg.d_head)
             attn_criteria = attn_criteria.reshape(_shape)
 
         # get criteria and prune if using only attention neurons
