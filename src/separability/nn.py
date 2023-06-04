@@ -24,6 +24,7 @@ class InverseLinear(torch.nn.Module):
             original: torch.nn.Linear=None,
             original_weights: Tensor=None,
             original_biases: Tensor=None,
+            n_heads: int = 1,
         ):
         super(InverseLinear, self).__init__()
         if original is not None:
@@ -36,6 +37,7 @@ class InverseLinear(torch.nn.Module):
 
         # Check that the original transformation is square
         original_size = weights.size()
+        self.n_heads = n_heads
         if original_size[0] != original_size[1]:
             raise ValueError("Original Linear Layer must be square")
 
@@ -55,7 +57,7 @@ class InverseLinear(torch.nn.Module):
     def forward(self, x):
         y = x + self.inverse_bias
         y = self.fc( y )
-        return y
+        return y.reshape([ *x.shape[:-1], self.n_heads, -1 ])
 
     # pylint: disable=arguments-differ
     def to(self,
@@ -292,7 +294,7 @@ def mlp_svd_two_layer_raw(
     # Get new biases in original format
     # Use inverse linear to reconstruct new biases for layer_1
     inv_out = InverseLinear(
-        original_weights=W_out, original_biases=b_out
+        original_weights=W_out, original_biases=b_out, n_heads=n_heads,
         ).to(dtype=dtype).to(device)
 
     if combine_biases:

@@ -211,6 +211,39 @@ def convert_hf_model_config(official_model_name: str):
 # Define Architecture Maps
 #####################################################################################
 
+def generate_attn_qkv_functions(weight_fn, bias_fn):
+    return {
+        "attn.W_Q"  : lambda layer, inpt=None: weight_fn(layer, "q", inpt),
+        "attn.W_K"  : lambda layer, inpt=None: weight_fn(layer, "k", inpt),
+        "attn.W_V"  : lambda layer, inpt=None: weight_fn(layer, "v", inpt),
+        "attn.b_Q"  : lambda layer, inpt=None: bias_fn(layer, "q", inpt),
+        "attn.b_K"  : lambda layer, inpt=None: bias_fn(layer, "k", inpt),
+        "attn.b_V"  : lambda layer, inpt=None: bias_fn(layer, "v", inpt),
+    }
+
+def update_param(module, param_key, new_param):
+    params = module.state_dict()
+    assert param_key in params
+    params[param_key] = new_param
+    module.load_state_dict(params)
+
+def generate_sizes_dict(einops_str, cfg):
+    sizes_dict = {}
+    if "qkv" in einops_str:
+        sizes_dict["qkv"] = 3
+    if "d_head" in einops_str:
+        sizes_dict["d_head"] = cfg.d_head
+    if "n_heads" in einops_str:
+        sizes_dict["n_heads"] = cfg.n_heads
+    if "d_model" in einops_str:
+        sizes_dict["d_model"] = cfg.d_model
+    if "d_mlp" in einops_str:
+        sizes_dict["d_mlp"] = cfg.d_mlp
+    if "n_layers" in einops_str:
+        sizes_dict["n_layers"] = cfg.n_layers
+    return sizes_dict
+
+
 # Meta OPT and Galactica Models
 ###############################
 
@@ -228,45 +261,85 @@ opt_model_map = {
     "unembed.b_U"     : None,
 }
 
-opt_layer_map = {
-    "ln1"           : "self_attn_layer_norm",
-    "ln1.w"         : "self_attn_layer_norm.weight",
-    "ln1.b"         : "self_attn_layer_norm.bias",
 
-    "attn"          : "self_attn",
-    "attn.q_proj"   : "self_attn.q_proj",
-    "attn.k_proj"   : "self_attn.k_proj",
-    "attn.v_proj"   : "self_attn.v_proj",
+def build_opt_layer_map(cfg: ConfigClass):
+    attn_proj_map = {"q": "q_proj", "v": "v_proj", "o": "out_proj"}
 
-    "attn.W_Q"      : "self_attn.q_proj.weight",
-    "attn.W_K"      : "self_attn.k_proj.weight",
-    "attn.W_V"      : "self_attn.v_proj.weight",
-    "attn.b_Q"      : "self_attn.q_proj.bias",
-    "attn.b_K"      : "self_attn.k_proj.bias",
-    "attn.b_V"      : "self_attn.v_proj.bias",
+    def opt_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
+        # Prepare shape changing
+        their_shape = "(n_heads d_head) d_model"
+        my_shape    = "n_heads d_head d_model"
+        sizes = generate_sizes_dict(my_shape, cfg)
 
-    "attn.out_proj" : "self_attn.out_proj",
-    "attn.W_O"      : "self_attn.out_proj.weight",
-    "attn.b_O"      : "self_attn.out_proj.bias",
+        # Get attn proj module
+        attn = layer.self_attn
+        attn_proj = get_attrs(attn, attn_proj_map[key])
 
-    "attn.inv_out_proj" : "self_attn.inv_out_proj",
-    "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
-    "attn.b_O_inv"  : "self_attn.inv_out_proj.inverse_bias",
+        # Get mode
+        if inpt is None:
+            W = attn_proj.weight
+            W = einops.rearrange(W, f"{their_shape} -> {my_shape}", **sizes)
+            return W
 
-    "ln2"           : "final_layer_norm",
-    "ln2.w"         : "final_layer_norm.weight",
-    "ln2.b"         : "final_layer_norm.bias",
+        # Set mode
+        W = einops.rearrange(W, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(attn_proj, "weight", W)
 
-    "fc1"           : "fc1",
-    "mlp.W_in"      : "fc1.weight",
-    "mlp.b_in"      : "fc1.bias",
+    def opt_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
+        # Prepare shape changing
+        their_shape = "(n_heads d_head)"
+        my_shape    = "n_heads d_head"
+        sizes = generate_sizes_dict(my_shape, cfg)
 
-    "activation_fn" : "activation_fn",
+        # Get attn proj module
+        attn = layer.self_attn
+        attn_proj = get_attrs(attn, attn_proj_map[key])
 
-    "fc2"           : "fc2",
-    "mlp.W_out"     : "fc2.weight",
-    "mlp.b_out"     : "fc2.bias",
-}
+        if inpt is None:
+            b = attn_proj.bias
+            b = einops.rearrange(b, f"{their_shape} -> {my_shape}", **sizes)
+            return b
+
+        # Set mode
+        b = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(attn_proj, "bias", b)
+
+
+    opt_layer_map = {
+        "ln1"           : "self_attn_layer_norm",
+        "ln1.w"         : "self_attn_layer_norm.weight",
+        "ln1.b"         : "self_attn_layer_norm.bias",
+
+        "attn"          : "self_attn",
+        "attn.q_proj"   : "self_attn.q_proj",
+        "attn.k_proj"   : "self_attn.k_proj",
+        "attn.v_proj"   : "self_attn.v_proj",
+
+        **generate_attn_qkv_functions(opt_qkv_weight, opt_qkv_bias),
+
+        "attn.out_proj" : "self_attn.out_proj",
+        "attn.W_O"      : "self_attn.out_proj.weight",
+        "attn.b_O"      : "self_attn.out_proj.bias",
+
+        "attn.inv_out_proj" : "self_attn.inv_out_proj",
+        "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
+        "attn.b_O_inv"  : "self_attn.inv_out_proj.inverse_bias",
+
+        "ln2"           : "final_layer_norm",
+        "ln2.w"         : "final_layer_norm.weight",
+        "ln2.b"         : "final_layer_norm.bias",
+
+        "fc1"           : "fc1",
+        "mlp.W_in"      : "fc1.weight",
+        "mlp.b_in"      : "fc1.bias",
+
+        "activation_fn" : "activation_fn",
+
+        "fc2"           : "fc2",
+        "mlp.W_out"     : "fc2.weight",
+        "mlp.b_out"     : "fc2.bias",
+    }
+    return opt_layer_map
 
 
 # GPT NEO X and Pythia Models
@@ -287,45 +360,48 @@ gpt_neox_model_map = {
 
 def build_gpt_neox_layer_map(cfg: ConfigClass):
     def gpt_neox_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
-        qkv_heads = layer.attention.query_key_value
-        W = qkv_heads.weight
-        #W = einops.rearrange(W, "(i qkv h) m->qkv i m h", i=cfg.n_heads, qkv=3)
-        W = einops.rearrange(W, "(i qkv h) m->qkv m (i h)", i=cfg.n_heads, qkv=3)
+        # Prepare shape changing
+        their_shape = "(n_heads qkv d_head) d_model"
+        my_shape    = "qkv n_heads d_head d_model"
+        sizes = generate_sizes_dict(my_shape, cfg)
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
+
+        # Get the head weights
+        qkv_heads = layer.attention.query_key_value
+        W = qkv_heads.weight
+        W = einops.rearrange(W, f"{their_shape} -> {my_shape}", **sizes)
 
         # Get mode
         if inpt is None:
             return W[index]
 
         # Set mode
-        params = qkv_heads.state_dict()
         W[index] = inpt
-        W = einops.rearrange(W, "qkv m (i h) -> (i qkv h) m", i=cfg.n_heads, qkv=3)
-        params["weight"] = W
-        qkv_heads.load_state_dict(params)
+        W = einops.rearrange(W, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(qkv_heads, "weight", W)
 
     def gpt_neox_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
-        qkv_head = layer.attention.query_key_value
-        qkv_bias = qkv_head.bias
-        qkv_bias = einops.rearrange(
-            qkv_bias, "(index qkv head)->qkv (index head)", qkv=3, index=cfg.n_heads,
-        )
+        # Prepare shape changing
+        their_shape = "(n_heads qkv d_head)"
+        my_shape    = "qkv n_heads d_head"
+        sizes = generate_sizes_dict(my_shape, cfg)
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
+
+        # Get the head biases
+        qkv_head = layer.attention.query_key_value
+        qkv_bias = qkv_head.bias
+        qkv_bias = einops.rearrange(qkv_bias, f"{their_shape} -> {my_shape}", **sizes)
 
         # Get mode
         if inpt is None:
             return qkv_bias[index]
 
         # Set mode
-        params = qkv_head.state_dict()
         qkv_bias[index] = inpt
-        qkv_bias = einops.rearrange(
-            qkv_bias, "qkv (index head) -> (index qkv head)", qkv=3, index=cfg.n_heads,
-        )
-        params["bias"] = qkv_bias
-        qkv_head.load_state_dict(params)
+        qkv_bias = einops.rearrange(qkv_bias, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(qkv_head, "bias", qkv_bias)
 
     gpt_neox_layer_map = {
         "ln1"       : "input_layernorm",
@@ -337,12 +413,7 @@ def build_gpt_neox_layer_map(cfg: ConfigClass):
         "attn.k_proj"   : None,
         "attn.v_proj"   : None,
 
-        "attn.W_Q"  : lambda layer, inpt=None: gpt_neox_qkv_weight(layer, "q", inpt),
-        "attn.W_K"  : lambda layer, inpt=None: gpt_neox_qkv_weight(layer, "k", inpt),
-        "attn.W_V"  : lambda layer, inpt=None: gpt_neox_qkv_weight(layer, "v", inpt),
-        "attn.b_Q"  : lambda layer, inpt=None: gpt_neox_qkv_bias(layer, "q", inpt),
-        "attn.b_K"  : lambda layer, inpt=None: gpt_neox_qkv_bias(layer, "q", inpt),
-        "attn.b_V"  : lambda layer, inpt=None: gpt_neox_qkv_bias(layer, "q", inpt),
+        **generate_attn_qkv_functions(gpt_neox_qkv_weight, gpt_neox_qkv_bias),
 
         "attn.out_proj" : "attention.dense",
         "attn.W_O"      : "attention.dense.weight",
@@ -384,45 +455,46 @@ gpt2_model_map = {
 
 def build_gpt2_layer_map(cfg: ConfigClass):
     def gpt2_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
-        qkv_heads = layer.attn.c_attn
-        #W_Q, W_K, W_V = torch.tensor_split(W, 3, dim=1)
-        #W_Q = einops.rearrange(W_Q, "m (i h)->i m h", i=cfg.n_heads)
-        W = qkv_heads.weight
-        W = einops.rearrange(W, "m (qkv i h) -> qkv m (i h)", i=cfg.n_heads, qkv=3)
+        their_shape = "d_model (qkv n_heads d_head)"
+        my_shape    = "qkv n_heads d_head d_model"
+        sizes = generate_sizes_dict(my_shape, cfg)
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
+
+        # Get the head weights
+        qkv_heads = layer.attn.c_attn
+        W = qkv_heads.weight
+        W = einops.rearrange(W, f"{their_shape} -> {my_shape}", **sizes)
 
         # Get mode
         if inpt is None:
             return W[index]
 
         # Set mode
-        params = qkv_heads.state_dict()
         W[index] = inpt
-        W = einops.rearrange(W, "qkv m (i h) -> m (qkv i h)", i=cfg.n_heads, qkv=3)
-        params["weight"] = W
-        qkv_heads.load_state_dict(params)
+        W = einops.rearrange(W, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(qkv_heads, "weight", W)
 
     def gpt2_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
-        qkv_heads = layer.attn.c_attn
-        qkv_bias = qkv_heads.bias
-        qkv_bias = einops.rearrange(qkv_bias, "(qkv index head)->qkv (index head)", index=cfg.n_heads, qkv=3)
+        their_shape = "d_model (qkv n_heads d_head)"
+        my_shape    = "qkv n_heads d_head d_model"
+        sizes = generate_sizes_dict(my_shape, cfg)
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
+
+        # Get the head biases
+        qkv_heads = layer.attn.c_attn
+        qkv_bias = qkv_heads.bias
+        qkv_bias = einops.rearrange(qkv_bias, f"{their_shape} -> {my_shape}", **sizes)
 
         # Get mode
         if inpt is None:
             return qkv_bias[index]
 
         # Set mode
-        params = qkv_heads.state_dict()
         qkv_bias[index] = inpt
-        qkv_bias = einops.rearrange(
-            qkv_bias, "qkv (index head) -> (qkv index head)",
-            qkv=3, index=cfg.n_heads, head=cfg.d_head,
-        )
-        params["bias"] = qkv_bias
-        qkv_heads.load_state_dict(params)
+        qkv_bias = einops.rearrange(qkv_bias, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(qkv_heads, "bias", qkv_bias)
 
     # GPT2 uses Conv1D instead of Linear, so we must get the transpose
     def conv1d_weight(module, inpt=None):
@@ -450,12 +522,7 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         "attn.q_proj"   : None,
         "attn.k_proj"   : None,
         "attn.v_proj"   : None,
-        "attn.W_Q"  : lambda layer, inpt=None: gpt2_qkv_weight(layer, "q", inpt),
-        "attn.W_K"  : lambda layer, inpt=None: gpt2_qkv_weight(layer, "k", inpt),
-        "attn.W_V"  : lambda layer, inpt=None: gpt2_qkv_weight(layer, "v", inpt),
-        "attn.b_Q"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
-        "attn.b_K"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
-        "attn.b_V"  : lambda layer, inpt=None: gpt2_qkv_bias(layer, "q", inpt),
+        **generate_attn_qkv_functions(gpt2_qkv_weight, gpt2_qkv_bias),
         "attn.out_proj" : "attn.c_proj",
         "attn.W_O"      : lambda layer, inpt=None: gpt2_out_weight(layer, inpt),
         "attn.b_O"      : "attn.c_proj.bias",
@@ -504,7 +571,7 @@ def get_layer_key_map(config: ConfigClass):
     architecture = config.architecture
 
     if architecture == "OPTForCausalLM":
-        return opt_layer_map
+        return build_opt_layer_map(config)
     if architecture == "GPTNeoXForCausalLM":
         return build_gpt_neox_layer_map(config)
     if architecture == "GPT2LMHeadModel":
