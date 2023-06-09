@@ -790,6 +790,10 @@ class Model():
                 if _id == self.tokenizer.pad_token_id:
                     attn_mask[index] = 0
 
+        # Hard code GPT2 Tokeniser pad_token_id to avoid warnings
+        if self.cfg.architecture == "GPT2LMHeadModel":
+            if not "pad_token_id" in kwargs:
+                kwargs["pad_token_id"] = 50256
 
         new_len = len(input_ids[0])+num
         generate_ids = self.predictor.generate( input_ids, max_length=new_len,
