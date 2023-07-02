@@ -3,6 +3,7 @@
 
 from typing import Any, Mapping, Optional, Union
 from torch import Tensor
+import torch.nn.functional as F
 import torch
 
 ######################################################################################
@@ -126,8 +127,11 @@ def mlp_delete_rows(mlp:
     biases: Tensor  = params['bias']
 
     # Delete the weights and biases from the rows
-    weights, biases = mlp_delete_rows_raw(deletion_indices,
-            weights, biases if delete_biases else None)
+    if delete_biases:
+        weights, biases = mlp_delete_rows_raw(deletion_indices, weights, biases)
+    else:
+        weights, _ = mlp_delete_rows_raw(deletion_indices, weights, None)
+
 
     # Update the model to have the deleted rows
     params.update({'weight': weights, 'bias': biases})
@@ -218,46 +222,26 @@ def mlp_delete_columns(mlp: torch.nn.Linear, deletion_indices: Tensor):
 # Define MLP SVD functions
 ######################################################################################
 
-def mlp_svd_two_layer_raw(
-        W_in: Tensor,
-        W_out: Tensor,
-        b_in: Tensor,
-        b_out: Tensor,
-        d_head: float,
-        svd_dtype: torch.dtype = torch.float32,
-        combine_biases: bool = False,
+def svd_two_layer_raw_heads(
+        W_in_heads: Tensor,  # [n_heads, d_head, d_model]
+        W_out_heads: Tensor, # [d_model, n_heads, d_head]
+        svd_dtype: torch.dtype
     ):
-    """Calculates the SVD of the two layers, and alters the weights of the
-    layers to be sqrt(S)*U and sqrt(S)*V, and alters the biases of layer_1
-    so that it always gives the same output. Only works if there is no
-    activation function between the two layers.
+    """
+    Performs (in-place) SVD on attn matrices already separated into heads.
 
     Args:
-        layer_1 (torch.nn.Linear): The first layer of the MLP
-        layer_2 (torch.nn.Linear): The second layer of the MLP
-        d_head (float): The dimension of the head
-        svd_dtype (torch.dtype, optional): The dtype to use for the SVD.
-            Defaults to torch.float32.
+        W_in_heads (Tensor): [n_heads, d_head, d_model]
+        W_out_heads (Tensor): [d_model, n_heads, d_head]
+        svd_dtype (torch.dtype): dtype to use for SVD
 
-    Returns:
-        inv_out (InverseLinear): The inverse of the new layer_2
+    Output:
+        W_in_heads (Tensor): [n_heads, d_head, d_model]
+        W_out_heads (Tensor): [d_model, n_heads, d_head]
     """
-    # Get the parameters from the MLP
-    orig_shape = W_in.shape
-    assert orig_shape[0] % d_head == 0, "d_head must divide d_model"
-
-    n_heads = orig_shape[0] // d_head
-    d_model = orig_shape[1]
-
-    # pre-compute the effect of the layer 1 biases, so that we can reconstruct
-    # the bias again in the new basis later
-    b_in_effect = torch.matmul(W_out, b_in)
-
-    # Get layer 1 and layer 2 weights in correct shapes for SVD
-    W_in_heads  = W_in.reshape((n_heads, d_head, d_model))
-    W_out_heads = W_out.reshape((d_model, n_heads, d_head))
-
-    dtype, device = W_in.dtype, W_in.device
+    # Get meta information
+    dtype = W_in_heads.dtype
+    (n_heads, d_head, _d_model) = W_in_heads.shape
 
     # perform SVD using only the weights
     for head in range(n_heads):
@@ -287,38 +271,81 @@ def mlp_svd_two_layer_raw(
         W_in_heads[head] = in_weights
         W_out_heads[:, head] = out_weights
 
-    # Get new weights in original format
-    W_in  = W_in_heads.reshape(orig_shape)
-    W_out = W_out_heads.reshape(orig_shape)
+    return W_in_heads, W_out_heads
 
-    # Get new biases in original format
-    # Use inverse linear to reconstruct new biases for layer_1
+def mlp_svd_two_layer_raw(
+        W_in: Tensor,
+        W_out: Tensor,
+        b_in: Tensor,
+        b_out: Tensor,
+        n_heads: Optional[int] = None,
+        svd_dtype: torch.dtype = torch.float32,
+    ):
+    """Calculates the SVD of the two layers, and alters the weights of the
+    layers to be sqrt(S)*U and sqrt(S)*V, and alters the biases of layer_1
+    so that it always gives the same output. Only works if there is no
+    non-linear activation function between the two layers.
+
+    Args:
+        W_in (Tensor): [n_heads, d_head, d_model] OR [d_mid, d_model]
+        W_out (Tensor): [d_model, d_mid]
+        b_in (Tensor): [n_heads, d_head] OR [d_mid]
+        b_out (Tensor): [d_model]
+        n_heads (Optional, int): The number of heads to split the [d_mid] into.
+        svd_dtype (torch.dtype): dtype to use for SVD
+
+    Output:
+        inv_out (InverseLinear): The inverse of the new layer_2
+        updated_weights (dict): Dict of updated weights
+    """
+
+    # Sort out shapes
+    orig_shape_in, orig_shape_out = W_in.shape, W_out.shape
+    preshaped = (len(orig_shape_in) == 3)
+    dtype, device = W_out.dtype, W_out.device
+
+    if preshaped: # Get the parameters from the MLP
+        assert n_heads is None
+        (n_heads, d_head, d_model) = orig_shape_in
+
+    else: # Reshape and get parameters
+        assert n_heads is not None
+        assert orig_shape_in[0] % n_heads == 0, "n_heads must divide d_model"
+        d_head  = orig_shape_in[0] // n_heads
+        d_model = orig_shape_in[1]
+
+    # pre-compute the effect of layer 1 biases to reconstruct biases later
+    # Get layer 1 and layer 2 weights in correct shapes for SVD
+    b_in_effect = F.linear(input=b_in.flatten(), weight=W_out, bias=None)
+    W_in_heads  = W_in.reshape((n_heads, d_head, d_model))
+    W_out_heads = W_out.reshape((d_model, n_heads, d_head))
+
+    # perform SVD using only the (correctly shaped) weights
+    svd_two_layer_raw_heads(W_in_heads, W_out_heads, svd_dtype)
+
+    # Get new weights in original format
+    W_in  = W_in_heads.reshape(orig_shape_in)
+    W_out = W_out_heads.reshape(orig_shape_out)
+
+    # Use inverse linear to reconstruct new biases for W_in
     inv_out = InverseLinear(
-        original_weights=W_out, original_biases=b_out, n_heads=n_heads,
+            original_weights=W_out, original_biases=b_out, n_heads=n_heads,
         ).to(dtype=dtype).to(device)
 
-    if combine_biases:
-        # Combine the biases of layer_1 into layer_2
-        b_out = b_out + b_in_effect
-        b_in = torch.zeros_like(b_in)
+    b_in = inv_out.fc(b_in_effect).reshape(orig_shape_in[:-1])
 
-    else:
-        # otherwise, reconstruct the biases for layer_1, keep layer_2 unchanged
-        b_in = inv_out.fc(b_in_effect)
-
+    # Package together new parameters into dict
     updated_weights = {
         "W_in": W_in, "W_out": W_out, "b_in": b_in, "b_out": b_out,
     }
 
     return inv_out, updated_weights
 
-
 def mlp_svd_two_layer(
         layer_1: torch.nn.Linear,
         layer_2: torch.nn.Linear,
-        d_head: float,
+        n_heads: int = 1,
         svd_dtype: torch.dtype = torch.float32,
-        combine_biases: bool = False,
     ):
     """Calculates the SVD of the two layers, and alters the weights of the
     layers to be sqrt(S)*U and sqrt(S)*V, and alters the biases of layer_1
@@ -341,7 +368,9 @@ def mlp_svd_two_layer(
     W_out, B_out = layer_2.weight, layer_2.bias
 
     inv_out, updated_weights = mlp_svd_two_layer_raw(
-        W_in, W_out, B_in, B_out, d_head, svd_dtype, combine_biases )
+        W_in, W_out, B_in, B_out, n_heads, svd_dtype )
+
+    print("updated weights", updated_weights)
 
     params_1["weight"] = updated_weights["W_in"]
     params_1["bias"]   = updated_weights["b_in"]
