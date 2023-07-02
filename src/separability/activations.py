@@ -289,7 +289,7 @@ def prune_and_evaluate(opt: Model, pruning_config: PruningConfig):
     texts_to_skip = max(focus_out["texts_viewed"], cripple_out["texts_viewed"] )
     data.update(
         evaluate_all(opt, pruning_config.eval_sample_size, pruning_config.datasets,
-                     texts_to_skip=texts_to_skip)
+                     dataset_tokens_to_skip=pruning_config.collection_sample_size)
     )
 
     return data
@@ -448,7 +448,7 @@ def prune_random_and_evaluate( opt: Model,
 
     # Evaluate the model
     data.update(
-        evaluate_all( opt, eval_size, datasets )
+        evaluate_all( opt, eval_size, datasets, dataset_tokens_to_skip=1 )
     )
 
     data.update({'deletions': data_out })
@@ -717,6 +717,8 @@ def delete_attn_and_evaluate( opt: Model,
         data: Dict of data from the evaluation after removing attention heads.
 
     """
+    print("Warning: deprecated, use prune_and_evaluate instead")
+
     if pile_out is None:
         pile_out = get_attn_activations(opt, 'pile', sample_size, **kwargs)
     if code_out is None:
