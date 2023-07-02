@@ -95,7 +95,7 @@ class TestNNUtils:
 
 
             # SVD, returning biases to middle
-            mlp_svd_two_layer(FF_in, FF_out, d_mid, combine_biases=False)
+            mlp_svd_two_layer(FF_in, FF_out, d_mid)
 
             # Check matrices are correct
             W_full = torch.matmul(W_out, W_in)
@@ -107,20 +107,6 @@ class TestNNUtils:
             assert not_equal(FF_in.bias,  b_in)
             assert not_equal(FF_out.weight, W_out)
             assert torch.equal(FF_out.bias, b_out)
-
-            # Example Output
-            assert torch.allclose(out_0, FF_out(FF_in(in_0)), 1e-3)
-
-
-
-            # SVD, moving biases to output
-            mlp_svd_two_layer(FF_in, FF_out, d_mid, combine_biases=True)
-
-            # Check things were changed
-            assert not_equal(FF_in.weight,  W_in)
-            assert torch.equal(FF_in.bias,  torch.zeros_like(b_in))
-            assert not_equal(FF_out.weight, W_out)
-            assert not_equal(FF_out.bias, b_out)
 
             # Example Output
             assert torch.allclose(out_0, FF_out(FF_in(in_0)), 1e-3)
