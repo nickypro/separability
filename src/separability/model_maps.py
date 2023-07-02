@@ -31,7 +31,7 @@ class ConfigClass:
 def convert_hf_model_config(official_model_name: str):
     """
     Returns the model config for a HuggingFace model, converted to a dictionary
-    in the HookedTransformerConfig format.
+    in the fig format.
 
     Takes the official_model_name as an input.
     """
@@ -476,8 +476,8 @@ def build_gpt2_layer_map(cfg: ConfigClass):
         update_param(qkv_heads, "weight", W)
 
     def gpt2_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
-        their_shape = "d_model (qkv n_heads d_head)"
-        my_shape    = "qkv n_heads d_head d_model"
+        their_shape = "(qkv n_heads d_head)"
+        my_shape    = "qkv n_heads d_head"
         sizes = generate_sizes_dict(my_shape, cfg)
         qkv_map = {"q": 0, "k": 1, "v": 2}
         index = qkv_map[key]
