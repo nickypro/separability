@@ -24,7 +24,8 @@ def load_code(test=0, _name=None):
     _dataset = load_dataset(repo, name, streaming=True)
     if test:
         skip_n = int(test//100)
-        print(f"Warning: no 'test' split, using 'train' but skipping {skip_n} texts")
+        print( "Warning: 'code' has no 'test' split.",
+              f"Using 'train' split and skipping {skip_n} texts instead.")
         return _dataset['train'].skip(skip_n) # Conservative skip limit
     return _dataset['train']
 
