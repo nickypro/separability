@@ -141,8 +141,8 @@ class TestAttnUtils:
 
             # TODO: Check this in more detail.
             # Probably noise from zero values in out_proj
-            i = torch.argmax(v_1/v_0.flatten())
-            print(i, v_1[i], v_0.flatten()[i])
+            i = torch.argmax(v_1.flatten()/v_0.flatten())
+            print(i, v_1.flatten()[i], v_0.flatten()[i])
             # assert torch.allclose(v_0.flatten(), v_1, 1e-1, 1e-3)
 
 
