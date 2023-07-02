@@ -191,7 +191,7 @@ class Model():
 
             layer["attn.inv_out_proj"] = inv_out_proj
 
-    def svd_attention_layers( self, combine_biases=False ):
+    def svd_attention_layers( self ):
         # Rewrite the v_proj and out_proj matrices using SVD
         t0 = time.time()
         for layer in self.layers:
@@ -199,9 +199,8 @@ class Model():
                 W_in,  b_in  = layer["attn.W_V"], layer["attn.b_V"]
                 W_out, b_out = layer["attn.W_O"], layer["attn.b_O"]
 
-                inv_out_proj, updated_weights = mlp_svd_two_layer_raw(
-                    W_in, W_out, b_in, b_out, self.cfg.d_head,
-                    combine_biases=combine_biases )
+                inv_out_proj, updated_weights = \
+                    mlp_svd_two_layer_raw(W_in, W_out, b_in, b_out)
 
                 layer["attn.W_V"] = updated_weights["W_in"]
                 layer["attn.W_O"] = updated_weights["W_out"]
