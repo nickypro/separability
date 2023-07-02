@@ -65,10 +65,8 @@ def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_toke
 def evaluate_wikitext(opt: Model,
         sample_size: int = 1024,
         topk: int = 10,
-        dataset_texts_to_skip: int = 0
     ):
-    _dataset, label, skip_eval = prepare('wiki')
-    _dataset = _dataset.skip( dataset_texts_to_skip )
+    _dataset, label, skip_eval = prepare('wiki', test=1)
     wiki_id_generator = sliding_window_dataset(opt.tokenizer, _dataset,
         buffer_size=1024, step_size=512)
         #, max_tokens=sample_size)
@@ -101,12 +99,15 @@ def evaluate( opt: Model,
         sample_size: int = 1e5,
         topk: int = 10,
         verbose: bool = False,
-        dataset_texts_to_skip: int = 0,
+        dataset_tokens_to_skip: int = 0,
     ):
     if dataset_name == "wiki":
-        return evaluate_wikitext(opt, sample_size, topk, dataset_texts_to_skip)
-    dataset, label, skip_eval = prepare( dataset_name )
-    dataset = dataset.skip( dataset_texts_to_skip )
+        return evaluate_wikitext(opt, sample_size, topk)
+
+    if dataset_tokens_to_skip == 0:
+        print("Warning: detaset_tokens_to_skip NOT DEFINED. Using sample_size")
+        dataset_tokens_to_skip = sample_size
+    dataset, label, skip_eval = prepare( dataset_name, test=dataset_tokens_to_skip )
     generator = opt.default_generator(dataset, label)
     out = opt.evaluate_dataset( generator, k=topk, start_index=1,
         sample_size=sample_size, skip_eval=skip_eval, count_tokens=False,
@@ -135,16 +136,18 @@ def evaluate( opt: Model,
 def evaluate_all( opt: Model,
         sample_size: int = 1e5,
         datasets = None,
+        dataset_tokens_to_skip: int = 0,
         topk: int = 10,
         verbose: bool = False,
-        texts_to_skip: int = 0,
+
     ):
     if datasets is None:
         datasets = ['pile', 'code']
 
     out = { 'loss_data': {}, 'accuracy': {} }
     for dataset in datasets:
-        dataset_out = evaluate(opt, dataset, sample_size, topk, verbose, texts_to_skip)
+        dataset_out = evaluate(opt, dataset, sample_size, topk, verbose,
+                               dataset_tokens_to_skip)
 
         out['loss_data'].update({ dataset: dataset_out['loss_data'] })
         out['accuracy'].update({  dataset: dataset_out['percent'] })
