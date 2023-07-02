@@ -12,7 +12,7 @@ from separability.activations import prune_and_evaluate
 from separability.eval import evaluate_all
 
 # Wandb config
-project   = "method-compare"
+project   = "new-method-compare"
 
 # Configure initial model and tests
 c = PruningConfig(
@@ -74,7 +74,7 @@ opt.delete_ff_keys_from_files(pre_removals)
 
 # Evaluate model before removal of any neurons
 if c.run_pre_test:
-    history.add(evaluate_all(opt, 1e5, c.datasets))
+    history.add(evaluate_all(opt, 1e5, c.datasets, c.collection_sample_size))
     print(history.df.T)
 
 for i in range(n_steps):

@@ -74,7 +74,7 @@ opt.delete_ff_keys_from_files(pre_removals)
 
 # Evaluate model before removal of any neurons
 if c.run_pre_test:
-    data = evaluate_all(opt, 1e5, c.datasets)
+    data = evaluate_all(opt, 1e5, c.datasets, c.collection_sample_size)
 
     # Get toxicity evaluations
     ratio_toxic, toxicity_mean = evaluate_toxicity(opt, 1000)
