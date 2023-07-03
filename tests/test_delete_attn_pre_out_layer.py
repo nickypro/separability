@@ -14,33 +14,38 @@ from separability import Model
 class TestDeleteAttnPreOutLayer:
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_delete_attn_pre_out_layer(self, model_repo):
+        # Test deleting the output of the attention layers
         print("# Running Test: test_delete_attn_pre_out_layer")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         opt = Model(model_repo, limit=1000)
 
         with torch.no_grad():
-            d_model = opt.cfg.d_model
+            n_heads, d_head, d_model = \
+                opt.cfg.n_heads, opt.cfg.d_head, opt.cfg.d_model
 
             # Define vectors for testing
-            vec : Tensor = torch.tensor(
-                np.random.random(d_model), dtype=torch.float32
+            #vec_in: Tensor  = torch.tensor(
+            #    np.random.random(d_model), dtype=torch.float32
+            #).to( device )
+            vec_mid: Tensor = torch.tensor(
+                np.random.random((n_heads, d_head)), dtype=torch.float32
             ).to( device )
 
             # Define a vector that is changed at certain indices
-            vec_plus_1 : Tensor = copy.deepcopy( vec )
-            vec_plus_2 : Tensor = copy.deepcopy( vec )
-            removed_indices   = [0, 10, 100]
-            unremoved_indices = [1, 3, 69]
+            vec_mid_d0 : Tensor = copy.deepcopy( vec_mid )
+            vec_mid_d1 : Tensor = copy.deepcopy( vec_mid )
+            removed_indices   = [(0, 0), (0, 10), (1, 10), (5, 63)]
+            unremoved_indices = [(0, 1), (1, 0),  (5, 62)]
 
-            removal_tensor = torch.zeros_like(vec_plus_1, dtype=torch.bool)
-            keep_tensor    = torch.ones_like(vec_plus_1, dtype=torch.bool)
-            for index in removed_indices:
-                vec_plus_1[index] = 100
-                removal_tensor[index] = True
-                keep_tensor[index] = False
+            removal_tensor = torch.zeros_like(vec_mid_d0, dtype=torch.bool)
+            keep_tensor    = torch.ones_like(vec_mid_d1, dtype=torch.bool)
+            for (i_head, i_pos) in removed_indices:
+                vec_mid_d0[i_head][i_pos] = 100
+                removal_tensor[i_head][i_pos] = True
+                keep_tensor[i_head][i_pos] = False
 
-            for i in unremoved_indices:
-                vec_plus_2[i] = 100
+            for i_head, i_pos in unremoved_indices:
+                vec_mid_d1[i_head][i_pos] = 100
 
             # Start tests
             for add_mean in [True, False]:
@@ -51,17 +56,17 @@ class TestDeleteAttnPreOutLayer:
                 out_proj = opt.model.decoder.layers[LAYER].self_attn.out_proj
 
                 # Test that the old outputs do care about changes to all indices
-                old_vec_out = out_proj(vec)
-                old_vec_plus_out = out_proj(vec_plus_1)
+                old_vec_out = out_proj(vec_mid.flatten())
+                old_vec_out_d0 = out_proj(vec_mid_d0.flatten())
                 print( '- vec      :', old_vec_out[:5] )
-                print( '- vec+ (1) :', old_vec_plus_out[:5] )
-                assert not torch.equal( old_vec_out, old_vec_plus_out )
+                print( '- vec+ (1) :', old_vec_out_d0[:5] )
+                assert not torch.equal( old_vec_out, old_vec_out_d0 )
 
                 # Run the deletion
                 print('deleting indices:', removed_indices,
                         '' if add_mean else 'NOT', 'adding mean activation')
                 if add_mean:
-                    opt.delete_attn_pre_out_layer( LAYER, removal_tensor, vec )
+                    opt.delete_attn_pre_out_layer( LAYER, removal_tensor, vec_mid )
                 else:
                     opt.delete_attn_pre_out_layer( LAYER, removal_tensor )
 
@@ -69,35 +74,66 @@ class TestDeleteAttnPreOutLayer:
 
                 # Test that new outputs do not care about changes to deleted indices
                 # but still care about changes to undeleted indices.
-                new_vec_out = out_proj(vec)
-                new_vec_plus_out_1 = out_proj(vec_plus_1)
-                new_vec_plus_out_2 = out_proj(vec_plus_2)
+                new_vec_out = out_proj(vec_mid.flatten())
+                new_vec_out_d0 = out_proj(vec_mid_d0.flatten())
+                new_vec_out_d1 = out_proj(vec_mid_d1.flatten())
                 print( '- vec      :', new_vec_out[:5] )
-                print( '- vec+ (1) :', new_vec_plus_out_1[:5] )
-                print( '- vec+ (2) :', new_vec_plus_out_2[:5] )
-                assert torch.equal( new_vec_out, new_vec_plus_out_1 )
-                assert not torch.equal( new_vec_plus_out_1, new_vec_plus_out_2 )
+                print( '- vec+ (1) :', new_vec_out_d0[:5] )
+                print( '- vec+ (2) :', new_vec_out_d1[:5] )
+                assert torch.equal( new_vec_out, new_vec_out_d0 )
+                assert not torch.equal( new_vec_out_d0, new_vec_out_d1 )
 
-            # Also test inward weight removals
-            print("## Testing inward weight removals")
-            opt = Model(model_repo, model_device=device, use_accelerator=False)
-            v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
+        return
+
+    @pytest.mark.parametrize("model_repo", test_model_repos)
+    def test_delete_attn_value_layer(self, model_repo):
+        print("# Running Test: test_delete_attn_value_layer")
+
+        # Define model and parameters
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        LAYER = 0
+
+        opt = Model(model_repo, model_device=device, use_accelerator=False)
+        v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
+
+        n_heads, d_head, d_model = \
+            opt.cfg.n_heads, opt.cfg.d_head, opt.cfg.d_model
+
+        # Start test
+        with torch.no_grad():
+            # Define vec in
+            vec_in: Tensor = torch.tensor(
+                np.random.random(d_model), dtype=torch.float32
+            ).to( device )
+
+            # Choose indices (head, pos) to delete
+            removed_indices = [(0, 0), (0, 10), (1, 10), (5, 63)]
+            removal_tensor  = \
+                torch.zeros((n_heads, d_head), dtype=torch.bool, device=device)
+            keep_tensor     = \
+                torch.ones((n_heads, d_head), dtype=torch.bool, device=device)
+            for (i_head, i_pos) in removed_indices:
+                removal_tensor[i_head][i_pos] = True
+                keep_tensor[i_head][i_pos]    = False
+
 
             # Get output vector before deletion
-            old_vec_out = v_proj(vec)
-            print( '- old vec  :', old_vec_out[:5] )
+            old_vec_mid = v_proj(vec_in).reshape((n_heads, d_head))
+            print( '- old vec  :', old_vec_mid[:5] )
 
             # Run the deletion
             print('deleting indices:', removed_indices)
             opt.delete_attn_pre_out_layer( LAYER, removal_tensor )
-
             v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
 
-            # Test that the new outputs do not care about changes to deleted indices
-            new_vec_out = v_proj(vec)
-            print( '- new vec  :', new_vec_out[:5] )
+            # Get output vector after deletion
+            new_vec_mid = v_proj(vec_in).reshape((n_heads, d_head))
+            print( '- new vec  :', new_vec_mid[:5] )
 
-            assert torch.equal( old_vec_out*keep_tensor, new_vec_out )
-            assert not torch.equal( old_vec_out, new_vec_out )
+            # Test that new outputs do not care about changes to deleted indices
+            assert torch.equal( old_vec_mid*keep_tensor, new_vec_mid )
+            assert not torch.equal( old_vec_mid, new_vec_mid )
 
             print("Test Passed")
+
+            return
