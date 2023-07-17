@@ -16,12 +16,12 @@ class ConfigClass:
     eps: float
     d_vocab: int
     act_fn: str
-    use_attn_scale: bool
-    use_local_attn: bool
-    scale_attn_by_inverse_layer_idx: bool
     normalization_type: str
     architecture: str
     tokenizer_name: str
+    use_attn_scale: bool = None
+    use_local_attn: bool = None
+    scale_attn_by_inverse_layer_idx: bool = None
     parallel_attn_mlp: bool = False
     positional_embedding_type: str = "standard"
     rotary_dim: Optional[int] = None
@@ -36,11 +36,12 @@ def convert_hf_model_config(official_model_name: str):
     Takes the official_model_name as an input.
     """
     # Load HuggingFace model config
-    if 'llama' not in official_model_name:
+    if 'llama' in official_model_name and 'open_llama' not in official_model_name:
+        architecture = "LLaMAForCausalLM"
+    else:
         hf_config = AutoConfig.from_pretrained(official_model_name)
         architecture = hf_config.architectures[0]
-    else:
-        architecture = "LLaMAForCausalLM"
+
     if 'llama-7b' in official_model_name:
         cfg_dict = {
             "d_model": 4096,
@@ -106,6 +107,24 @@ def convert_hf_model_config(official_model_name: str):
             "normalization_type": "RMS",
             "positional_embedding_type": "rotary",
             "rotary_dim": 8192 // 64,
+            "final_rms": True,
+            "gated_mlp": True,
+        }
+    elif architecture == "LlamaForCausalLM":
+        print(hf_config)
+        cfg_dict = {
+            "d_model": hf_config.hidden_size,
+            "d_head": hf_config.hidden_size // hf_config.num_attention_heads,
+            "n_heads": hf_config.num_attention_heads,
+            "d_mlp": hf_config.intermediate_size,
+            "n_layers": hf_config.num_hidden_layers,
+            "n_ctx": hf_config.max_position_embeddings,
+            "eps": hf_config.rms_norm_eps,
+            "d_vocab": hf_config.vocab_size,
+            "act_fn": hf_config.hidden_act,
+            "normalization_type": "RMS",
+            "positional_embedding_type": "rotary",
+            "rotary_dim": hf_config.hidden_size // hf_config.num_attention_heads, #?
             "final_rms": True,
             "gated_mlp": True,
         }
@@ -263,7 +282,7 @@ opt_model_map = {
 
 
 def build_opt_layer_map(cfg: ConfigClass):
-    attn_proj_map = {"q": "q_proj", "v": "v_proj", "o": "out_proj"}
+    attn_proj_map = {"q": "q_proj", "k": "k_proj", "v": "v_proj", "o": "out_proj"}
 
     def opt_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
         # Prepare shape changing
@@ -341,6 +360,101 @@ def build_opt_layer_map(cfg: ConfigClass):
     }
     return opt_layer_map
 
+# LLaMa Models
+##############
+
+llama_model_map = {
+    "model"           : "model",
+    "layers"          : "model.layers",
+    "embed"           : "model.embed_tokens",
+    "embed.W_E"       : "model.embed.weights",
+    "pos_embed"       : "model.embed_positions",
+    "pos_embed.W"     : "model.embed_positions.weight",
+    "ln_final"        : "model.norm",
+    "ln_final.w"      : "model.norm.weight",
+    "unembed.W_U"     : "model.lm_head.weight.T",
+    "unembed.b_U"     : None,
+}
+
+def build_llama_layer_map(cfg: ConfigClass):
+    attn_proj_map = {"q": "q_proj", "k": "k_proj", "v": "v_proj", "o": "o_proj"}
+
+    def llama_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
+        # Prepare shape changing
+        their_shape = "(n_heads d_head) d_model"
+        my_shape    = "n_heads d_head d_model"
+        sizes = generate_sizes_dict(my_shape, cfg)
+
+        # Get attn proj module
+        attn = layer.self_attn
+        attn_proj = get_attrs(attn, attn_proj_map[key])
+
+        # Get mode
+        if inpt is None:
+            W = attn_proj.weight
+            W = einops.rearrange(W, f"{their_shape} -> {my_shape}", **sizes)
+            return W
+
+        # Set mode
+        W = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(attn_proj, "weight", W)
+
+    def llama_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
+        # Prepare shape changing
+        their_shape = "(n_heads d_head)"
+        my_shape    = "n_heads d_head"
+        sizes = generate_sizes_dict(my_shape, cfg)
+
+        # Get attn proj module
+        attn = layer.self_attn
+        attn_proj = get_attrs(attn, attn_proj_map[key])
+
+        if inpt is None:
+            b = attn_proj.bias
+            b = einops.rearrange(b, f"{their_shape} -> {my_shape}", **sizes)
+            return b
+
+        # Set mode
+        b = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(attn_proj, "bias", b)
+
+
+    llama_layer_map = {
+        "ln1"           : "self_attn_layer_norm",
+        "ln1.w"         : "self_attn_layer_norm.weight",
+        "ln1.b"         : "self_attn_layer_norm.bias",
+
+        "attn"          : "self_attn",
+        "attn.q_proj"   : "self_attn.q_proj",
+        "attn.k_proj"   : "self_attn.k_proj",
+        "attn.v_proj"   : "self_attn.v_proj",
+
+        **generate_attn_qkv_functions(llama_qkv_weight, llama_qkv_bias),
+
+        "attn.out_proj" : "self_attn.o_proj",
+        "attn.W_O"      : "self_attn.o_proj.weight",
+        "attn.b_O"      : None,
+
+        "attn.inv_out_proj" : "self_attn.inv_out_proj",
+        "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
+        "attn.b_O_inv"  : None,
+
+        "ln2"           : "final_layer_norm",
+        "ln2.w"         : "final_layer_norm.weight",
+        "ln2.b"         : None,
+
+        "fc1"           : "mlp.up_proj",
+        "mlp.W_in"      : "mlp.up_proj.weight",
+        "mlp.W_gate"    : "mlp.gate_proj.weight",
+        "mlp.b_in"      : None,
+
+        "activation_fn" : "activation_fn",
+
+        "fc2"           : "mlp.down_proj",
+        "mlp.W_out"     : "fc2.weight",
+        "mlp.b_out"     : "fc2.bias",
+    }
+    return llama_layer_map
 
 # GPT NEO X and Pythia Models
 #############################
@@ -560,6 +674,8 @@ def get_model_key_map(config: ConfigClass):
     architecture = config.architecture
     if architecture == "OPTForCausalLM":
         return opt_model_map
+    if architecture == "LLaMAForCausalLM":
+        return llama_model_map
     if architecture == "GPTNeoXForCausalLM":
         return gpt_neox_model_map
     if architecture == "GPT2LMHeadModel":
@@ -572,6 +688,8 @@ def get_layer_key_map(config: ConfigClass):
 
     if architecture == "OPTForCausalLM":
         return build_opt_layer_map(config)
+    if architecture == "LLaMAForCausalLM":
+        return build_llama_layer_map(config)
     if architecture == "GPTNeoXForCausalLM":
         return build_gpt_neox_layer_map(config)
     if architecture == "GPT2LMHeadModel":
