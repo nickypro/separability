@@ -281,6 +281,10 @@ class PruningConfig:
     run_pre_test: bool = True
     recalculate_activations: bool = True
 
+    wandb_project: str = "separability-compare"
+    n_steps: int = 1
+    wandb_run_name: Optional[str] = None
+
     @property
     def model_size(self): # legacy code
         return self.model_repo
@@ -296,7 +300,7 @@ class PruningConfig:
     @property
     def _dtype(self):
         dtype_map = {
-            "int8": torch.int8,
+            "int8": torch.qint8,
             "fp16": torch.float16,
             "fp32": torch.float32,
             "fp64": torch.float64,
