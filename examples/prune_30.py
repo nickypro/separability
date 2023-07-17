@@ -1,4 +1,3 @@
-import argparse
 import torch
 import numpy as np
 import pandas as pd
@@ -10,12 +9,11 @@ from separability import Model
 from separability.data_classes import RunDataHistory, PruningConfig
 from separability.activations import prune_and_evaluate
 from separability.eval import evaluate_all
-
-# Wandb config
-project   = "new-method-compare"
+from separability.parser import cli_parser
 
 # Configure initial model and tests
 c = PruningConfig(
+    wandb_project = "new-method-compare",
     model_repo   = "facebook/opt-1.3b",
     token_limit  = 1000,
     run_pre_test = True,
@@ -32,36 +30,10 @@ pre_removals = []
 
 
 # Build a CLI parser
-parser = argparse.ArgumentParser()
-
-parser.add_argument('model_repo', type=str)
-parser.add_argument('--project', type=str, default=project)
-parser.add_argument('-n', "--name", type=str, default=None, help="wandb run name")
-parser.add_argument('-r', '--reverse', action='store_true', help="cripple <--> focus")
-parser.add_argument('--n_steps', type=int, default=None)
-parser.add_argument('--model_device', type=str, default=None)
-
-args_exclude = ["model_repo", "n_steps", "model_device", "additional_datasets"]
-for key, val in c.arg_items(args_exclude):
-    parser.add_argument(f'--{key}', type=type(val), default=val)
-
-# Parse the argument
-args = parser.parse_args()
-
-c.model_repo = args.model_repo
-c.model_device = args.model_device
-for key in c.arg_keys(args_exclude):
-    c[key] = getattr(args, key)
-if args.reverse:
-    c.focus, c.cripple = c.cripple, c.focus
-# First do some pruning of the feed forward layers
-n_steps = args.n_steps
-if n_steps is None:
-    n_steps = int( 1 / max(c.ff_frac, c.attn_frac) )
-
+c, args = cli_parser(c)
 
 # Prepare data logging
-wandb.init(project=args.project, entity="seperability", name=args.name)
+wandb.init(project=c.wandb_project, entity="seperability", name=c.wandb_run_name)
 wandb.config.update(c.to_dict())
 
 # Load model and show details about model
@@ -77,7 +49,7 @@ if c.run_pre_test:
     history.add(evaluate_all(opt, 1e5, c.datasets, c.collection_sample_size))
     print(history.df.T)
 
-for i in range(n_steps):
+for i in range(c.n_steps):
     data = prune_and_evaluate(opt, c)
     history.add(data)
 
