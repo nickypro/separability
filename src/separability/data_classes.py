@@ -7,6 +7,50 @@ import wandb
 from welford_torch import Welford
 
 ######################################################################################
+# Functional Conversion Data Classes
+######################################################################################
+
+# Class for storing dtype as string
+class DtypeMap():
+    def __init__(self, str_dtype=None, torch_dtype=None):
+        self.str_dtype = str_dtype
+        self.torch_dtype = torch_dtype
+
+    @property
+    def _dtype(self):
+        # Manual Override
+        if self.torch_dtype is not None:
+            return self.torch_dtype
+
+        # Auto type from string
+        dtype_map = {
+            "int4": torch.float16,
+            "int8": torch.float16, #torch.qint8 ?
+            "fp16": torch.float16,
+            "fp32": torch.float32,
+            "fp64": torch.float64,
+        }
+        return dtype_map[self.str_dtype]
+
+    @property
+    def _dtype_args(self):
+        dtype_key = "torch_dtype"
+
+        # Manual Override
+        if self.torch_dtype is not None:
+            return {dtype_key: self.torch_dtype}
+
+        # Auto type from string
+        args = {
+            "int4": {dtype_key: self._dtype, "load_in_4bit": True},
+            "int8": {dtype_key: self._dtype, "load_in_8bit": True},
+            "fp16": {dtype_key: self._dtype},
+            "fp32": {dtype_key: self._dtype},
+            "fp64": {dtype_key: self._dtype},
+        }
+        return args[self.str_dtype]
+
+######################################################################################
 # Data Store Classes
 ######################################################################################
 
@@ -296,16 +340,6 @@ class PruningConfig:
             *self.additional_datasets
         ]))
         return _datasets
-
-    @property
-    def _dtype(self):
-        dtype_map = {
-            "int8": torch.qint8,
-            "fp16": torch.float16,
-            "fp32": torch.float32,
-            "fp64": torch.float64,
-        }
-        return dtype_map[self.dtype]
 
     def to_dict(self):
         obj = {}

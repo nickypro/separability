@@ -25,6 +25,7 @@ from .model_repos import supported_model_repos
 from .nn import InverseLinear, mlp_delete_rows, mlp_delete_rows_raw, mlp_adjust_biases, \
     mlp_delete_columns, mlp_svd_two_layer_raw, mlp_delete_columns_raw
 from .model_maps import convert_hf_model_config, ModelMap
+from .data_classes import DtypeMap
 
 mpl.rcParams['figure.dpi'] = 300
 
@@ -56,7 +57,8 @@ class Model():
             model_device: str = None,
             output_device: str = None,
             use_accelerator: bool = True,
-            dtype: torch.dtype = torch.float32,
+            dtype: Optional[str] = None,
+            torch_dtype: Optional[torch.dtype] = None,
             svd_attn: bool = False,
         ):
         """
@@ -72,6 +74,13 @@ class Model():
         self.use_accelerator = use_accelerator and torch.cuda.device_count() > 1
         self.dtype = dtype
         self.svd_attn = svd_attn
+
+        # Handle dtype
+        if dtype is None and torch_dtype is None:
+            dtype = "fp16"
+        self.dtype_map = DtypeMap(dtype, torch_dtype)
+        self.dtype = self.dtype_map._dtype
+        self.dtype_args = self.dtype_map._dtype_args
 
         if self.use_accelerator:
             self.accelerator = Accelerator()
@@ -110,7 +119,7 @@ class Model():
         self.cfg = convert_hf_model_config(self.model_repo)
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_repo)
         self.predictor = AutoModelForCausalLM.from_pretrained(
-            self.model_repo, torch_dtype=self.dtype, device_map=device_map)
+            self.model_repo, device_map=device_map, **self.dtype_args)
 
         # Build map for working with model
         self.map = ModelMap(self.predictor, self.cfg)

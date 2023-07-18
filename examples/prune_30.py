@@ -38,7 +38,7 @@ wandb.config.update(c.to_dict())
 
 # Load model and show details about model
 history = RunDataHistory(c.datasets)
-opt = Model(c.model_size, limit=c.token_limit, dtype=c._dtype, svd_attn=c.svd_attn,
+opt = Model(c.model_size, limit=c.token_limit, dtype=c.dtype, svd_attn=c.svd_attn,
             use_accelerator=c.use_accelerator, model_device=c.model_device)
 
 # Pre-pruning of model
