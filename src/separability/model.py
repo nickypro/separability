@@ -81,7 +81,6 @@ class Model():
         self.dtype_map = DtypeMap(dtype, torch_dtype)
         self.dtype = self.dtype_map._dtype
         self.dtype_args = self.dtype_map._dtype_args
-        self.cfg.is_low_precision = self.dtype_map.is_low_precision
 
         if self.use_accelerator:
             self.accelerator = Accelerator()
@@ -116,8 +115,11 @@ class Model():
         # Initialize model (with or without accelerator)
         device_map = "auto" if self.use_accelerator else None
 
-        # Import model components
+        # Import model config
         self.cfg = convert_hf_model_config(self.model_repo)
+        self.cfg.is_low_precision = self.dtype_map.is_low_precision
+
+        # Import model components
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_repo)
         self.predictor = AutoModelForCausalLM.from_pretrained(
             self.model_repo, device_map=device_map, **self.dtype_args)

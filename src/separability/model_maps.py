@@ -675,7 +675,7 @@ def get_model_key_map(config: ConfigClass):
     architecture = config.architecture
     if architecture == "OPTForCausalLM":
         return opt_model_map
-    if architecture == "LLaMAForCausalLM":
+    if architecture in ["LLaMAForCausalLM", "LlamaForCausalLM"]:
         return llama_model_map
     if architecture == "GPTNeoXForCausalLM":
         return gpt_neox_model_map
@@ -689,7 +689,7 @@ def get_layer_key_map(config: ConfigClass):
 
     if architecture == "OPTForCausalLM":
         return build_opt_layer_map(config)
-    if architecture == "LLaMAForCausalLM":
+    if architecture in ["LLaMAForCausalLM", "LlamaForCausalLM"]:
         return build_llama_layer_map(config)
     if architecture == "GPTNeoXForCausalLM":
         return build_gpt_neox_layer_map(config)
