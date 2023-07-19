@@ -19,6 +19,7 @@ class ConfigClass:
     normalization_type: str
     architecture: str
     tokenizer_name: str
+    is_low_precision: bool = False
     use_attn_scale: bool = None
     use_local_attn: bool = None
     scale_attn_by_inverse_layer_idx: bool = None
@@ -763,6 +764,9 @@ class ModelLayerMap:
         # If setting an attribute of a module (eg: weights or biases), update
         params = module.state_dict()
         params[attr] = __value
+        print(attr)
+        print(module)
+        print(params)
         module.load_state_dict(params)
         return
 

@@ -81,6 +81,7 @@ class Model():
         self.dtype_map = DtypeMap(dtype, torch_dtype)
         self.dtype = self.dtype_map._dtype
         self.dtype_args = self.dtype_map._dtype_args
+        self.cfg.is_low_precision = self.dtype_map.is_low_precision
 
         if self.use_accelerator:
             self.accelerator = Accelerator()
@@ -127,7 +128,6 @@ class Model():
         self.layers = self.map.layers
 
         #self.predictor = OPTForCausalLM.from_pretrained(self.repo, dtype=self.dtype)
-
         self.to(self.device)
 
         print(f'- Loaded {self.model_repo}')
@@ -152,6 +152,8 @@ class Model():
 
     def to( self, device ):
         if self.use_accelerator: # If using accelerator, init handles multi-device
+            return
+        if self.dtype_map.is_low_precision: # 8bit & 4bit mode handled by accelerator
             return
         self.device = device
         self.predictor.to( device )
@@ -184,7 +186,9 @@ class Model():
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
+        print(self.predictor)
         for layer in self.layers:
+            print(layer["attn.W_O"].shape)
             inv_out_proj = InverseLinear(
                 original_weights=layer["attn.W_O"],
                 original_biases=layer["attn.b_O"],

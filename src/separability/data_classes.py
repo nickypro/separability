@@ -50,6 +50,10 @@ class DtypeMap():
         }
         return args[self.str_dtype]
 
+    @property
+    def is_low_precision(self):
+        return self.str_dtype in ["int4", "int8"]
+
 ######################################################################################
 # Data Store Classes
 ######################################################################################
