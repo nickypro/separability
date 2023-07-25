@@ -101,6 +101,27 @@ def evaluate( opt: Model,
         verbose: bool = False,
         dataset_tokens_to_skip: int = 0,
     ):
+    """Evaluate a model on a dataset.
+
+    For most datasets, "dataset_tokens_to_skip" is ignored, and the "test"
+    split of the dataset is used. In some datasets (eg "code"), "train" is used
+    instead since it is the only split, and "datset_tokens_to_skip" determines
+    how to make sure that the training and testing data do not intersect.
+
+    Args:
+        opt (Model): The model
+        dataset_name (str): The name of the dataset
+        sample_size (int, optional): The number of tokens to eval. Defaults to 1e5.
+        topk (int, optional): Check if the actual token is in the TopK
+            predictions. Defaults to 10.
+        verbose (bool, optional): Print more things. Defaults to False.
+        dataset_tokens_to_skip (int, optional): Ignored for most datasets.
+            Determines how to make sure that the training and testing data do
+            not intersect. Defaults to sample_size.
+
+    Returns:
+        _type_: _description_
+    """
     if dataset_name == "wiki":
         return evaluate_wikitext(opt, sample_size, topk)
 
