@@ -1,13 +1,15 @@
 from separability import Model
 from separability.data_classes import PruningConfig
 
+from general_headings import headings
+
 c = PruningConfig(
-    model_repo  = "openlm-research/open_llama_3b",
+    model_repo  = "openlm-research/open_llama_3b_v2",
     token_limit = 2000,
     dtype       = "fp16",
 )
 
-opt = Model(c.model_size, limit=c.token_limit, dtype=c._dtype, svd_attn=c.svd_attn)
+opt = Model(c.model_size, limit=c.token_limit, dtype=c.dtype, svd_attn=c.svd_attn)
 
 text_input_acx = """Why Is The Academic Job Market So Weird?
 18 MAY 2023
@@ -56,9 +58,18 @@ Nor"""
 text_input = text_input_poem
 text_input = "Hello World"
 
-for i in range(10):
-    inpt, output = opt.generate(text_input, num=1000, do_sample=False, temperature=0.1)
-    print(f'"{"".join(inpt)}"')
-    print(f'"{"".join(output)}"')
+outputs = []
 
+# repeat each 10 times
+for i in range(10):
+    for text_input in headings:
+        inpt, output = opt.generate(text_input, num=500, temperature=0.7)
+        print(f'"{"".join(inpt)}"')
+        print(f'"{"".join(output)}"')
+        outputs.append({"input": text_input, "output": output})
+
+# save to py file
+import json
+with open("outputs.json", "w") as f:
+    json.dump(outputs, f)
 
