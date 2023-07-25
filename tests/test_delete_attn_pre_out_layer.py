@@ -17,7 +17,7 @@ class TestDeleteAttnPreOutLayer:
         # Test deleting the output of the attention layers
         print("# Running Test: test_delete_attn_pre_out_layer")
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        opt = Model(model_repo, limit=1000)
+        opt = Model(model_repo, limit=1000, dtype="fp32")
 
         with torch.no_grad():
             n_heads, d_head, d_model = \
@@ -50,7 +50,8 @@ class TestDeleteAttnPreOutLayer:
             # Start tests
             for add_mean in [True, False]:
                 print(f"## Testing outward weight removals - add_mean={add_mean}")
-                opt = Model(model_repo, model_device=device, use_accelerator=False)
+                opt = Model(model_repo, dtype="fp32",
+                    model_device=device, use_accelerator=False)
                 LAYER = 0
 
                 out_proj = opt.model.decoder.layers[LAYER].self_attn.out_proj
@@ -93,7 +94,8 @@ class TestDeleteAttnPreOutLayer:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         LAYER = 0
 
-        opt = Model(model_repo, model_device=device, use_accelerator=False)
+        opt = Model(model_repo, dtype="fp32",
+            model_device=device, use_accelerator=False)
         v_proj = opt.model.decoder.layers[LAYER].self_attn.v_proj
 
         n_heads, d_head, d_model = \

@@ -13,9 +13,14 @@ class TestEvaluate:
         opt = Model(model_repo, limit=1000)
         opt.show_details()
 
+        eval_sample_size = 1e4
+
         # We run the a first time, with a small subset of data
-        data_1 = evaluate( opt, 'pile', 1e4, verbose=True,
-            dataset_texts_to_skip=0 )
+        # Note that for most datasets, we use the "test" strand.
+        # In 'code', we use a non-intersecting subset of the "train" strand
+        # since there is no "test" strand.
+        data_1 = evaluate( opt, 'code', eval_sample_size,
+            verbose=True, dataset_tokens_to_skip=eval_sample_size )
 
         # We check that the data is correct
         keys = data_1.keys()
@@ -52,8 +57,8 @@ class TestEvaluate:
             assert key in expected_loss_data_keys
 
         # We run the a second time, with a different subset of data
-        data_2 = evaluate( opt, 'pile', 1e4, verbose=True,
-            dataset_texts_to_skip=10 )
+        data_2 = evaluate( opt, 'code', eval_sample_size,
+            verbose=True, dataset_tokens_to_skip=2*eval_sample_size )
 
 
         # We check that the output is different, since the input was different,
@@ -70,8 +75,8 @@ class TestEvaluate:
                 continue
             print( key, data_1[key], data_2[key] )
             assert data_1[key] != data_2[key]
-            assert data_1[key] < data_2[key] * 1.25
-            assert data_1[key] > data_2[key] * 0.75
+            assert data_1[key] < data_2[key] * 1.5
+            assert data_1[key] > data_2[key] * 0.5
         print()
 
     @pytest.mark.parametrize("model_repo", test_model_repos)

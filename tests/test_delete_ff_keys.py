@@ -17,7 +17,7 @@ class TestDeleteFFKeys:
         d_ff     = 3072 # This is the value for 125m, 4*768
 
         # Initialize model
-        opt = Model(model_repo, limit=1000)
+        opt = Model(model_repo, limit=1000, dtype="fp32")
 
         # Run text
         text = "for ( var i = 0; i < 10; i++ ) { console.log(i); }"
@@ -45,7 +45,8 @@ class TestDeleteFFKeys:
         # Pre-test initialization
         # Define model
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        opt = Model(model_repo, model_device=device, use_accelerator=False)
+        opt = Model(model_repo, dtype="fp32",
+            model_device=device, use_accelerator=False)
 
         # Define input vectors for testing
         removed_indices   = [ 0, 10, 100 ]

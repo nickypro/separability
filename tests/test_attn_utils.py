@@ -20,12 +20,13 @@ class TestAttnUtils:
         with torch.no_grad():
             layer = 0
 
-            opt = Model(model_repo, use_accelerator=False, svd_attn=False)
-            d_model, device = opt.cfg.d_model, opt.device
+            opt = Model(model_repo, dtype="fp32",
+                use_accelerator=False, svd_attn=False)
+            d_model, device, dtype = opt.cfg.d_model, opt.device, opt.dtype
             attn = opt.layers[layer]["attn"]
 
             # Get example input
-            in_0 = torch.randn([1, 3, d_model], device=device)
+            in_0 = torch.randn([1, 3, d_model], device=device, dtype=dtype)
             mask = torch.tensor(
                 [[[[1, 0, 0], [1, 1, 0], [1, 1, 1]]]],
                 device=device, dtype=torch.bool
@@ -51,13 +52,15 @@ class TestAttnUtils:
             layer, h_index, i_index = 0, 11, 63
             n_tokens = 3
 
-            opt = Model(model_repo, use_accelerator=False, svd_attn=False)
-            d_model, d_head, n_heads = opt.cfg.d_model, opt.cfg.d_head, opt.cfg.n_heads
-            device = opt.device
+            opt = Model(model_repo, dtype="fp32",
+                use_accelerator=False, svd_attn=False)
+            d_model, d_head, n_heads = \
+                opt.cfg.d_model, opt.cfg.d_head, opt.cfg.n_heads
+            device, dtype = opt.device, opt.dtype
             attn = opt.layers[layer]["attn"]
 
             # Get example input
-            in_0 = torch.randn([1, n_tokens, d_model], device=device)
+            in_0 = torch.randn([1, n_tokens, d_model], device=device, dtype=dtype)
             mask = torch.tensor(
                 [[[[1, 0, 0], [1, 1, 0], [1, 1, 1]]]],
                 device=device, dtype=torch.bool
@@ -109,9 +112,11 @@ class TestAttnUtils:
             layer, h_index, i_index = 0, 11, 63
             n_tokens = 1
 
-            opt = Model(model_repo, use_accelerator=False, svd_attn=False)
-            d_model, d_head, n_heads = opt.cfg.d_model, opt.cfg.d_head, opt.cfg.n_heads
-            device = opt.device
+            opt = Model(model_repo, dtype="fp32",
+                use_accelerator=False, svd_attn=False)
+            d_model, d_head, n_heads = \
+                opt.cfg.d_model, opt.cfg.d_head, opt.cfg.n_heads
+            device, dtype = opt.device, opt.dtype
             attn = opt.layers[layer]["attn"]
 
             # Get example input
