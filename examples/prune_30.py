@@ -13,7 +13,7 @@ from separability.parser import cli_parser
 
 # Configure initial model and tests
 c = PruningConfig(
-    wandb_project = "new-method-compare",
+    wandb_project = "testing",
     model_repo   = "facebook/opt-1.3b",
     token_limit  = 1000,
     run_pre_test = True,
