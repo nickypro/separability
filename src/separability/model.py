@@ -190,7 +190,7 @@ class Model():
         # Make it possible to get the output right before out_proj
         print(self.predictor)
         for layer in self.layers:
-            print(layer["attn.W_O"].shape)
+            #print(layer["attn.W_O"].shape)
             inv_out_proj = InverseLinear(
                 original_weights=layer["attn.W_O"],
                 original_biases=layer["attn.b_O"],
