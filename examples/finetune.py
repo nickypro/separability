@@ -3,6 +3,7 @@ import random
 from pathlib import Path
 from typing import List, Union
 
+import json
 import numpy as np
 import torch
 import wandb
@@ -16,9 +17,19 @@ from transformers.utils import logging
 
 from separability import Model
 
-def create_dataset(tokenizer: AutoTokenizer,
-                   number_games: int = 10) -> Dataset:
-    """Create the dataset
+def map_to_ids(data, tokenizer):
+    start_text = data["input"]
+    full_text  = data["input"] + data["output"]
+    start_ids  = tokenizer(start_text)["input_ids"]
+    input_ids  = tokenizer(full_text)["output_ids"]
+    return {
+        "input_ids": input_ids,
+        "start_index": len(start_ids.flatten())
+    }
+
+
+def create_dataset(tokenizer: AutoTokenizer) -> Dataset:
+    """Create the dataset.
 
     This is a collection of full game prompts (tokenized).
 
@@ -29,25 +40,29 @@ def create_dataset(tokenizer: AutoTokenizer,
     Returns:
         Dataset: Full game prompts dataset
     """
+
+    # load outputs.json
+    with open('outputs_open_llama_3b_v2.json') as json_file:
+        generations = json.load(json_file)
+
+    # format as input and output dict
+    input_list, output_list = [], []
+    for gen in generations:
+        input_list.append(gen["input"])
+        output_list.append(gen["output"])
+
     # Create the dataset from a list of game strings
-    list_of_game_strings = generate_dataset(number_games)
-    dataset = Dataset.from_dict({"text": list_of_game_strings})
+    dataset = Dataset.from_dict({"input": input_list, "output": output_list})
 
     # Tokenize the text prompts (creates "input_ids" property for each dataset
     # item)
     dataset = dataset.map(
-        lambda examples: tokenizer(examples["text"]),  # type: ignore
-        batched=True
+        lambda examples: map_to_ids(examples, tokenizer),
+        batched=True,
+        batch_size=50,
     )
 
-    # Set the labels to be the same as the input IDs
-    dataset = dataset.map(
-        lambda examples: {
-            "labels": examples["input_ids"]},
-        batched=True)
-
     return dataset
-
 
 fine_tuned_checkpoint = Path(
     __file__).parent / "checkpoints" / "fine_tuned_gpt2"
@@ -68,15 +83,21 @@ def fine_tune(
 
     # Build custom loss for trainer
     class CustomTrainer(Trainer):
-        def compute_loss(self, model, inputs, return_outputs=False):
-            labels = inputs.get("labels")
-            # forward pass
-            outputs = model(**inputs)
+        def compute_loss(self, model: Model, inputs, return_outputs=False):
+            labels = inputs.get("input_ids")
+            start_indices = inputs.get("start_index")
+
+            # forward passa
+            outputs = model.predictor(**inputs)
             logits = outputs.get("logits")
 
-            # compute custom loss (suppose one has 3 labels with different weights)
-            loss_fct = nn.CrossEntropyLoss(weight=torch.tensor([1.0, 2.0, 3.0], device=model.device))
-            loss = loss_fct(logits.view(-1, self.model.config.num_labels), labels.view(-1))
+            # get the logits and labels from the start index onwards
+            logits = logits[:, start_indices:]
+            labels = labels[:, start_indices:]
+
+            # We calculate the loss only for the predicted tokens
+            loss = model.evaluate_ce_loss(input_ids=labels, logits=logits)
+
             return (loss, outputs) if return_outputs else loss
 
     # Initialise Weights & Biases
