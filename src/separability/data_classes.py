@@ -313,7 +313,7 @@ class PruningConfig:
     eval_sample_size: int = 1e5
     topk = 10
 
-    ff_scoring: str = "std"
+    ff_scoring: str = "abs"
 
     attn_scoring: str = "abs"
     attn_mode: str = "pre-out"
