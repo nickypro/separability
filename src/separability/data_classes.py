@@ -329,6 +329,7 @@ class PruningConfig:
     run_pre_test: bool = True
     recalculate_activations: bool = True
 
+    wandb_entity: str = "seperability"
     wandb_project: str = "separability-compare"
     n_steps: int = 1
     wandb_run_name: Optional[str] = None
