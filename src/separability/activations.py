@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 # Import from this project
 from .model import Model
 from .texts import prepare
-from .data_classes import RunDataItem, ActivationCollector, PruningConfig
+from .data_classes import RunDataItem, ActivationCollector
 from .eval import evaluate, evaluate_all
 
 ######################################################################################
@@ -380,71 +380,6 @@ def choose_attn_heads_by(key: str):
         'median': choose_attn_heads_by_median,
     }
     return choosing_map[key]
-
-def delete_attn_and_evaluate( opt: Model,
-        frac_removed: float,
-        sample_size: int = 1e5,
-        eval_size: int = 1e5,
-        eps: float = 1e-6,
-        pile_out: Optional[Dict[str, Tensor]] = None,
-        code_out: Optional[Dict[str, Tensor]] = None,
-        make_plots: bool = False,
-        **kwargs
-        ):
-    """Gets how much more probability mass the median activation of code has for an
-    attention head neuron compared to activations in the pile.
-
-    Args:
-        opt (Model): The model to run
-        frac_removed (float): The fraction of attention heads removed from the model
-        sample_size (int, optional): token sample size to collect data for.
-            Defaults to 1e5.
-        eval_size (int, optional): token sample size to use for evaluating the model.
-        eps (float, optional): epsilon for numerical stability. Defaults to 1e-6.
-        pile_out (Dict[str, Tensor], optional): pile activations output from
-            running get_attn_activations. Defaults to None (i.e: compute here).
-        code_out (Dict[str, Tensor], optional): code activations output from
-            running get_attn_activations. Defaults to None (i.e: compute here).
-
-    Returns:
-        data: Dict of data from the evaluation after removing attention heads.
-
-    """
-    print("Warning: deprecated, use prune_and_evaluate instead")
-
-    if pile_out is None:
-        pile_out = get_attn_activations(opt, 'pile', sample_size, **kwargs)
-    if code_out is None:
-        code_out = get_attn_activations(opt, 'code', sample_size, **kwargs)
-
-    # extract data on attention crossover from activations
-    attn_data = get_attn_crossover(opt, pile_out, code_out, eps=eps)
-
-    # Choose and delete attention heads
-    removals, threshold = get_top_frac(attn_data["crossover_multiple"], frac_removed)
-    opt.delete_attn_pre_out_heads( removals, attn_data["pile_means"] )
-
-    if make_plots:
-        # Choose Attn Heads to Remove
-        print( "min: %.2f" % float(attn_data['crossover_multiple'].min()) )
-        print( "max: %.2f" % float(attn_data['crossover_multiple'].max()) )
-        log_crossover = ( torch.log2(attn_data['crossover_multiple']) )
-
-        # Plot Attn Heads
-        _fig, ax = plt.subplots(1, 2)
-        ax[0].imshow( removals )
-        ax[1].imshow( log_crossover )
-        plt.show()
-
-    # Evaluate
-    data = RunDataItem()
-    data.update( evaluate_all(opt, eval_size) )
-    data.update({'deletions': {
-        'attn_del': int( removals.sum().item() ),
-        'attn_threshold': threshold,
-    }})
-
-    return data
 
 attn_data_keys = ["crossover_multiple", "pile_means"]
 
