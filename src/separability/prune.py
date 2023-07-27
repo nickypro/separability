@@ -48,7 +48,6 @@ def prune_and_evaluate(opt: Model, pruning_config: PruningConfig):
     data = score_and_prune(opt, focus_out, cripple_out, pruning_config)
 
     # Evaluate the model
-    texts_to_skip = max(focus_out["texts_viewed"], cripple_out["texts_viewed"] )
     data.update(
         evaluate_all(opt, pruning_config.eval_sample_size, pruning_config.datasets,
                      dataset_tokens_to_skip=pruning_config.collection_sample_size)
