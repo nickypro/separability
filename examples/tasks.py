@@ -18,6 +18,9 @@ def prune(model_repo:str, config:dict):
     for k, v in config.items():
         if k in ["model_repo", "model_size"]:
             continue
+        if k == "reverse":
+            args.append("--reverse")
+            continue
         args.append(f"--{k}")
         args.append(str(v))
 
