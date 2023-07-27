@@ -19,7 +19,7 @@ def generate_list_of_configs(loop_config):
     return _configs
 
 base_config = {
-    "wandb_project": "testing-celery",
+    "wandb_project": "new-method-compare",
     "model_repo": [
         "facebook/opt-1.3b",
         "facebook/galactica-1.3b",
@@ -68,6 +68,6 @@ def gen_name(config):
     return name
 
 for config in attn_configs:
-    config["run_name"] = gen_name(config)
+    config["name"] = gen_name(config)
     tasks.prune.delay(config["model_repo"], config)
 
