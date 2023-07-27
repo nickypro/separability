@@ -188,7 +188,6 @@ class Model():
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
-        print(self.predictor)
         for layer in self.layers:
             #print(layer["attn.W_O"].shape)
             inv_out_proj = InverseLinear(

@@ -370,8 +370,6 @@ def mlp_svd_two_layer(
     inv_out, updated_weights = mlp_svd_two_layer_raw(
         W_in, W_out, B_in, B_out, n_heads, svd_dtype )
 
-    print("updated weights", updated_weights)
-
     params_1["weight"] = updated_weights["W_in"]
     params_1["bias"]   = updated_weights["b_in"]
     layer_1.load_state_dict(params_1)

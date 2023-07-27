@@ -112,7 +112,6 @@ def convert_hf_model_config(official_model_name: str):
             "gated_mlp": True,
         }
     elif architecture == "LlamaForCausalLM":
-        print(hf_config)
         cfg_dict = {
             "d_model": hf_config.hidden_size,
             "d_head": hf_config.hidden_size // hf_config.num_attention_heads,
@@ -764,9 +763,6 @@ class ModelLayerMap:
         # If setting an attribute of a module (eg: weights or biases), update
         params = module.state_dict()
         params[attr] = __value
-        print(attr)
-        print(module)
-        print(params)
         module.load_state_dict(params)
         return
 

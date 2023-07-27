@@ -22,11 +22,6 @@ def evaluate_toxicity(opt: Model, n_samples: int = 1000):
 
     return frac_toxic, mean_toxicity
 
-if __name__ == "__main__":
-    opt = Model("facebook/opt-125m")
-    results = evaluate_toxicity(opt, 1000)
-    print( results )
-
 def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_tokens=None):
     buffer_tokens = []  # Initialize the buffer
     token_count = 0  # Initialize the token counter
