@@ -6,8 +6,7 @@ import pytest
 from separability.model_repos import test_model_repos
 from separability import Model
 from separability.data_classes import PruningConfig
-from separability.activations import prune_and_evaluate
-from separability.eval import evaluate_all
+from separability.prune import prune_and_evaluate
 
 class TestPruneAndEvaluate:
     pruning_config = PruningConfig("facebook/opt-125m",

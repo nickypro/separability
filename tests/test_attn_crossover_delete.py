@@ -4,8 +4,8 @@
 import pytest
 from separability.model_repos import test_model_repos
 from separability import Model
-from separability.activations import get_attn_activations, \
-    get_attn_crossover, evaluate_all
+from separability.activations import get_attn_activations, get_attn_crossover
+from separability.eval import evaluate_all
 
 class TestAttnCrossoverDelete:
     @pytest.mark.parametrize("model_repo", test_model_repos)
