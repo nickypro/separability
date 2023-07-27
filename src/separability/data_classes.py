@@ -217,6 +217,29 @@ class RunDataHistory:
 # Activation Collector Data Class
 ######################################################################################
 
+@dataclass
+class ActivationSummary:
+    """ Class for summarizing activations for each neuron.
+
+    Attributes:
+        sqrt: mean of square root of activations
+        mean: mean of activations
+        std: standard deviation of activations
+        pos_mass: mean of positive activations
+        pos_var: variance of positive activations
+        neg_mass: mean of negative activations
+        neg_var: variance of negative activations
+        pos_count: fraction of positive activations
+    """
+    sqrt: torch.Tensor
+    mean: torch.Tensor
+    std: torch.Tensor
+    pos_mass: torch.Tensor
+    pos_var: torch.Tensor
+    neg_mass: torch.Tensor
+    neg_var: torch.Tensor
+    pos_count: torch.Tensor
+
 class ActivationCollector:
     """ Class for collecting data from model.
 
@@ -282,16 +305,16 @@ class ActivationCollector:
         if self.n_points == 0:
             raise ValueError('No data points added to ActivationCollector')
 
-        return {
-            'sqrt': self.sqrt.mean.to(dtype=dtype),
-            'mean': self.all.mean.to(dtype=dtype),
-            'std': self.all.var_s.to(dtype=dtype),
-            'pos_mass': self.pos.mean.to(dtype=dtype),
-            'pos_var': self.pos.var_s.to(dtype=dtype),
-            'neg_mass': self.neg.mean.to(dtype=dtype),
-            'neg_var': self.neg.var_s.to(dtype=dtype),
-            'pos_count': self.pos_counter / self.n_points,
-        }
+        return ActivationCollectorSummary(
+            sqrt = self.sqrt.mean.to(dtype=dtype),
+            mean = self.all.mean.to(dtype=dtype),
+            std = self.all.var_s.to(dtype=dtype),
+            pos_mass = self.pos.mean.to(dtype=dtype),
+            pos_var = self.pos.var_s.to(dtype=dtype),
+            neg_mass = self.neg.mean.to(dtype=dtype),
+            neg_var = self.neg.var_s.to(dtype=dtype),
+            pos_count = self.pos_counter / self.n_points,
+        )
 
 ######################################################################################
 # Pruning Config Data Class
