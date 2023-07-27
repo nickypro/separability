@@ -8,7 +8,8 @@ import wandb
 from .model import Model
 from .data_classes import PruningConfig, RunDataHistory, RunDataItem
 from .eval import evaluate_all
-from .activations import get_midlayer_activations, get_top_frac, score_indices_by, \
+from .scoring import score_indices_by
+from .activations import get_midlayer_activations, get_top_frac, \
     choose_attn_heads_by, save_timestamped_tensor_dict
 
 def prune_and_evaluate(opt: Model, pruning_config: PruningConfig):
@@ -197,8 +198,9 @@ def prune_random_and_evaluate( opt: Model,
         ff_pruned: Optional[np.ndarray] = None,
         attn_pruned: Optional[np.ndarray] = None,
         eval_size: int = 1e5,
-        datasets: List[str] = ["code", "pile"],
+        datasets: List[str] = None,
         ):
+
 
     # Prune the model randomly
     ff_pruned, attn_pruned, data_out = \
