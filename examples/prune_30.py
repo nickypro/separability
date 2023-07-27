@@ -7,9 +7,8 @@ import wandb
 
 from separability import Model
 from separability.data_classes import RunDataHistory, PruningConfig
-from separability.activations import prune_and_evaluate
-from separability.eval import evaluate_all
 from separability.parser import cli_parser
+from separability.prune import run_pruning
 
 # Configure initial model and tests
 c = PruningConfig(
@@ -29,32 +28,8 @@ c = PruningConfig(
 pre_removals = []
 
 
-# Build a CLI parser
+# Parse CLI for arguments
 c, args = cli_parser(c)
 
-# Prepare data logging
-wandb.init(project=c.wandb_project, entity="seperability", name=c.wandb_run_name)
-wandb.config.update(c.to_dict())
-
-# Load model and show details about model
-history = RunDataHistory(c.datasets)
-opt = Model(c.model_size, limit=c.token_limit, dtype=c.dtype, svd_attn=c.svd_attn,
-            use_accelerator=c.use_accelerator, model_device=c.model_device)
-
-# Pre-pruning of model
-opt.delete_ff_keys_from_files(pre_removals)
-
-# Evaluate model before removal of any neurons
-if c.run_pre_test:
-    history.add(
-        evaluate_all(opt, c.eval_sample_size, c.datasets, c.collection_sample_size)
-    )
-    print(history.df.T)
-
-for i in range(c.n_steps):
-    data = prune_and_evaluate(opt, c)
-    history.add(data)
-
-print(history.history[-1])
-print(history.df.T)
-print(history.df.T.to_csv())
+# Run the iterated pruning
+model, history = run_pruning(c)
