@@ -305,7 +305,7 @@ class ActivationCollector:
         if self.n_points == 0:
             raise ValueError('No data points added to ActivationCollector')
 
-        return ActivationCollectorSummary(
+        return ActivationSummary(
             sqrt = self.sqrt.mean.to(dtype=dtype),
             mean = self.all.mean.to(dtype=dtype),
             std = self.all.var_s.to(dtype=dtype),
