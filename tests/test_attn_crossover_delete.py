@@ -4,7 +4,9 @@
 import pytest
 from separability.model_repos import test_model_repos
 from separability import Model
-from separability.activations import get_attn_activations, get_attn_crossover
+from separability.data_classes import ActivationSummary
+from separability.activations import get_attn_activations
+from separability.scoring import get_attn_crossover
 from separability.eval import evaluate_all
 
 class TestAttnCrossoverDelete:
@@ -19,14 +21,16 @@ class TestAttnCrossoverDelete:
         # Get crossover data
         print(" - Initial Evaluation...")
 
-        pile_out = get_attn_activations(opt, 'pile', sample_size=1e3)
-        code_out = get_attn_activations(opt, 'code', sample_size=1e3)
-        attn_data = get_attn_crossover(opt, pile_out, code_out)
+        pile_out: ActivationSummary = \
+            get_attn_activations(opt, 'pile', sample_size=1e3)
+        code_out: ActivationSummary = \
+            get_attn_activations(opt, 'code', sample_size=1e3)
+        crossover_multiple = get_attn_crossover(opt, pile_out, code_out)
 
         # Remove attention heads over crossover threshold (very low threshold)
-        removals = attn_data['crossover_multiple'] > 1.0
+        removals = crossover_multiple > 1.0
         print("# Deleting Attention Heads...")
-        opt.delete_attn_pre_out_heads( removals, attn_data['pile_means'] )
+        opt.delete_attn_pre_out_heads( removals, pile_out.mean )
 
         # Make sure attention heads were deleted
         print("# Final Evaluation...")
