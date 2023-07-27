@@ -121,3 +121,47 @@ def score_indices_by(key: str) -> Callable:
         'rand': score_indices_randomly,
     }
     return scoring_map[key]
+
+
+#####################################################################################
+#
+#####################################################################################
+
+def get_attn_crossover( opt: Model,
+        focus_out: ActivationSummary,
+        cripple_out: ActivationSummary,
+        eps: float = 1e-6,
+    ):
+    """
+    Calculates the "attention crossover" between the focus and cripple dataset
+    activations. Note this was just one thing I tried early on and it did not
+    work very well, I do not recommend using this.
+
+    Args:
+        opt (Model): OPT model with my special sauce modifications
+        focus_out (ActivationSummary): focus dataset activations
+        cripple_out (ActivationSummary): cripple dataset activations
+
+    Returns:
+        crossover_multiple: The of probability mass on crossover between positive and
+            negative mass from code compared to baseline pile activation
+    """
+
+    crossover_multiple = torch.ones((opt.cfg.n_layers, opt.cfg.n_heads))
+    pos_code_rel_freq = cripple_out.pos_mass / ( focus_out.pos_mass + eps )
+    neg_code_rel_freq = cripple_out.neg_mass / ( focus_out.pos_mass - eps )
+
+    for layer in range( opt.cfg.n_layers ):
+        for head in range( opt.cfg.n_heads ):
+            # Relative probability mass in positive and negative directions
+            pos_rel, _pos_index = torch.sort( pos_code_rel_freq[layer][head] )
+            neg_rel, _neg_index = \
+                torch.sort( neg_code_rel_freq[layer][head], descending=True )
+
+            #cross-over position
+            i = ( neg_rel > pos_rel ).sum()
+
+            crossover =  ( pos_rel[i-1] + pos_rel[i] + neg_rel[i-1] + neg_rel[i] )/4
+            crossover_multiple[layer][head] = crossover
+
+    return crossover_multiple

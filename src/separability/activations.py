@@ -296,65 +296,6 @@ def get_attn_activations( opt: Model,
 
     return output['attn']
 
-def get_attn_crossover( opt: Model,
-        pile_out: Dict[str, Tensor],
-        code_out: Dict[str, Tensor],
-        eps: float = 1e-6,
-    ):
-    """
-    Calculates the attention crossover between the pile and code activations.
-
-    Args:
-        opt (Model): OPT model with my special sauce modifications
-        pile_out (Dict[str, Tensor]): pile activations
-        code_out (Dict[str, Tensor]): code activations
-
-    Returns:
-        Dict[str, Tensor]:
-            pile_means: mean activations of each neuron in pre-out on the pile
-            pile_pos: positive mass
-            pile_neg: negative mass
-            code_means: mean activations of each neuron in pre-out on the pile
-            code_pos: positive mass
-            code_neg: negative mass
-            crossover: The of probability mass on crossover between positive and
-                negative mass from code compared to baseline pile activation
-    """
-
-    pile_means, pile_pos, pile_neg = \
-        pile_out["mean"], pile_out["pos_mass"], pile_out["neg_mass"]
-    code_means, code_pos, code_neg = \
-        code_out["mean"], code_out["pos_mass"], code_out["neg_mass"]
-
-    crossover_multiple = torch.ones((opt.cfg.n_layers, opt.cfg.n_heads))
-    pos_code_rel_freq = code_pos / ( pile_pos + eps )
-    neg_code_rel_freq = code_neg / ( pile_neg - eps )
-
-    for layer in range( opt.cfg.n_layers ):
-        for head in range( opt.cfg.n_heads ):
-            # Relative probability mass in positive and negative directions
-            pos_rel, _pos_index = torch.sort( pos_code_rel_freq[layer][head] )
-            neg_rel, _neg_index = \
-                torch.sort( neg_code_rel_freq[layer][head], descending=True )
-
-            #cross-over position
-            i = ( neg_rel > pos_rel ).sum()
-
-            crossover =  ( pos_rel[i-1] + pos_rel[i] + neg_rel[i-1] + neg_rel[i] )/4
-            crossover_multiple[layer][head] = crossover
-
-    # Save data in a dict
-    data = {
-        'pile_means' : pile_means,
-        'pile_pos'   : pile_pos,
-        'pile_neg'   : pile_neg,
-        'code_means' : code_means,
-        'code_pos'   : code_pos,
-        'code_neg'   : code_neg,
-        'crossover_multiple' : crossover_multiple
-    }
-    return data
-
 #####################################################################################
 # "Choosing Functions"
 #####################################################################################
@@ -380,8 +321,6 @@ def choose_attn_heads_by(key: str):
         'median': choose_attn_heads_by_median,
     }
     return choosing_map[key]
-
-attn_data_keys = ["crossover_multiple", "pile_means"]
 
 def save_timestamped_tensor_dict( opt: Model,
         data: Dict[str, Tensor],
