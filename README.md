@@ -1,29 +1,54 @@
 # separability
 
-My basic library for studying LLMs (currently, only the Meta OPT models).
-This includes functions for analysing the activations of the models for different inputs, and for pruning different parts of the model based on those activations.
+My basic library for studying LLMs, with support for Multi-GPU inference and
+editing, as well as quantilised inference (not editing yet).
+This includes functions for analysing the activations of the models for
+different inputs, and for pruning different parts of the model based on those
+activations.
+
+The currently tested list of models is:
+- GPT2
+- EleutherAI's Pythia
+- Meta Opt
+- Meta Galactica
 
 ## Pruning based on Capabilities
 
-For a full example, see `src/separability.ipynb`.
+For a full example, see `src/examples/prune_30.py`.
 
 The simple example is:
 ```
-from model import Model
-from activations import prune_and_evaluate
-from separability.eval import evaluate_all
+from separability.data_classes import PruningConfig
+from separability.parser import cli_parser
+from separability.prune import run_pruning
 
-# Load and Evaluate Model on Pile and Code
+# Configure initial model and tests
+c = PruningConfig(
+    wandb_project = "testing",
+    model_repo   = "facebook/opt-125m",
+    token_limit  = 1000,
+    run_pre_test = True,
 
-opt = Model('125m', limit=1000)
-eval_data = evaluate_all(opt, 1e5)
-print(eval_data)
+    # Removals parameters
+    ff_scoring = "abs"
+    ff_frac   = 0.02,
+    ff_eps    = 0.001,
+    attn_scoring = "abs",
+    attn_frac = 0.00,
+    attn_eps  = 1e-4,
 
-# Prune Model, Removing coding capabilities (compared to pile), and evaluate
+    # Eval
+    focus     = "pile_codeless",
+    cripple   = "code",
+    additional_datasets=tuple(),
+)
 
-eval_data = prune_and_evaluate(opt, ff_prune_frac=0.05, attn_prune_frac=0.05,
-    ff_eps=1e-3, sample_size=1e5, eval_size=1e5, cripple='code', focus='pile')
-print(eval_data)
+# optionally, use parser to get CLI arguments.
+# c, args = cli_parser(c)
+
+# Run the iterated pruning
+model, history = run_pruning(c)
+
 ```
 
 ## model.py
@@ -31,9 +56,9 @@ This defines a wrapper function that encapsulates the HuggingFace implementation
 To get the model, simply run:
 
 ```
-from model import Model
+from separability import Model
 
-opt = Model('125m', limit=1000)
+m = Model("facebook/opt-125m", limit=1000)
 ```
 
 Where you can provide any of the model sizes that are pre-trained for OPT, and the token limit must be smaller than the max token length that the model is able to handle.
@@ -69,9 +94,9 @@ To get the activations for the input text at all of the MLP mid layers, we can l
 
 ## texts.py
 Has some basic tools for loading the two text datasets I am using:
-- 'the_pile' ( validation set of The Pile )
-- 'codeparrot-clean-valid' ( validation set of codeparrot )
+- 'pile', ( EleutherAI's 'The Pile' dataset)
+- 'code' (CodeParrot's 'github-code' dataset)
 
 ## activations.py
-Has code specific to the two datasets I am using to analyze and attempt to remove capabilities from the OPT.
+Has code specific to the two datasets I am using to analyze and attempt to remove capabilities from the models.
 
