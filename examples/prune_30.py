@@ -1,12 +1,4 @@
-import torch
-import numpy as np
-import pandas as pd
-import einops
-import matplotlib.pyplot as plt
-import wandb
-
-from separability import Model
-from separability.data_classes import RunDataHistory, PruningConfig
+from separability.data_classes import PruningConfig
 from separability.parser import cli_parser
 from separability.prune import run_pruning
 
@@ -25,8 +17,6 @@ c = PruningConfig(
     cripple   = "code",
     additional_datasets=tuple(),
 )
-pre_removals = []
-
 
 # Parse CLI for arguments
 c, args = cli_parser(c)
