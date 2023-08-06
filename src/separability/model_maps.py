@@ -711,7 +711,7 @@ def build_roberta_layer_map(cfg: ConfigClass):
         sizes = generate_sizes_dict(my_shape, cfg)
 
         # Get attn proj module
-        attn = layer.self_attn
+        attn = layer.attention
         attn_proj = get_attrs(attn, attn_proj_map[key])
 
         # Get mode
@@ -731,7 +731,7 @@ def build_roberta_layer_map(cfg: ConfigClass):
         sizes = generate_sizes_dict(my_shape, cfg)
 
         # Get attn proj module
-        attn = layer.self_attn
+        attn = layer.attention
         attn_proj = get_attrs(attn, attn_proj_map[key])
 
         if inpt is None:
@@ -773,7 +773,7 @@ def build_roberta_layer_map(cfg: ConfigClass):
         "mlp.W_in"      : "intermediate.dense.weight",
         "mlp.b_in"      : "intermediate.dense.bias",
 
-        "activation_fn" : "intermediate.intermediate_activation_fn",
+        "activation_fn" : "intermediate.intermediate_act_fn",
 
         "fc2"           : "output.dense",
         "mlp.W_out"     : "output.dense.weight",
