@@ -133,13 +133,20 @@ class Model():
         self.to(self.device)
 
         print(f'- Loaded {self.model_repo}')
-        self.activations = {}
+        self.activations = {
+            "attn": {},
+            "attn_pre_out": {},
+            "ff": {},
+            "ff_mid": {}
+        }
 
         self.register_activations()
         if self.svd_attn:
             self.svd_attention_layers()
         else:
             self.register_inverse_out_proj()
+
+        self.pre_out_mode = "hook" if "attn.out" in self.layers[0] else "calc"
 
         return self
 
@@ -166,25 +173,37 @@ class Model():
             tensor_list = [ t.to(self.output_device) for t in tensor_list ]
         return torch.stack( tensor_list )
 
-    def get_activation_of( self, name : str ):
+    def build_output_hook(self, component: str, name: str):
         # Define hook function which adds output to self.activations
         def hook(_model, _input, output):
-            if not isinstance( output, tuple ):
+            if not isinstance(output, tuple):
                 return
-            self.activations[name] = detached( output )
+            self.activations[component][name] = detached(output)
+        return hook
+
+    def build_input_hook(self, component: str, name: str):
+        def hook(_model, input, _output):
+            if not isinstance(input, tuple):
+                return
+            self.activations[component][name] = detached(input)
         return hook
 
     def register_activations( self ):
-        # register the forward hook
-        attention_index = 0
+        # register the forward hook to attention outputs
         for layer_index, layer in enumerate(self.layers):
+            # Build normal attention hook
             attn = layer["attn"]
             name = pad_zeros( layer_index ) + "-attention"
-            # print( f"registering : ({name}), OPTAttention layer" )
-            attn.register_forward_hook( self.get_activation_of( name ) )
-            attention_index += 1
-            continue
-        print( f" - Registered {attention_index} Attention Layers" )
+            attn.register_forward_hook(self.build_output_hook("attn", name))
+
+            # Optionally, build pre_out hook if possible
+            if not "attn.out" in layer:
+                continue
+            attn_o = layer["attn.out"]
+            name = pad_zeros( layer_index ) + "-attention-out"
+            attn_o.register_forward_hook(self.build_input_hook("attn_pre_out", name))
+
+        print( f" - Registered {layer_index+1} Attention Layers" )
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
@@ -250,14 +269,15 @@ class Model():
 
         return inputs_embeds
 
-    def get_recent_activations( self ) -> List[ Tuple[str, Tensor, Tensor, Tensor] ]:
+    def get_recent_activations(self, component) \
+            -> List[ Tuple[str, Tensor, Tensor, Tensor] ]:
         """
         Returns a list of output tuples \
         ( "##-attention", output, attn_weights, key_values ) \
         from each attention block
         """
         layers = []
-        for key, value in self.activations.items():
+        for key, value in self.activations[component].items():
             layer = []
             layer.append( key )
             for out in value:
@@ -331,7 +351,9 @@ class Model():
         inpt = hidden_states[0].detach()
 
         # get attention outputs
-        attention_out = self.out_stack([a[1] for a in self.get_recent_activations()])
+        attention_out = self.out_stack([
+            a[1] for a in self.get_recent_activations("attn")
+        ])
         attention_out = attention_out.squeeze().detach()
 
         # get ff outputs
@@ -410,8 +432,17 @@ class Model():
                 input_ids, inputs_embeds, limit, **kwargs )
 
         [ _inpt, attn_out, _ff_out, _output ] = text_activations
-        pre_outs = self.calculate_attn_pre_out(
-            attn_out.to(self.device), reshape, transpose )
+
+        if self.pre_out_mode == "hook":
+            _shape = (self.cfg.n_layers, -1, self.cfg.n_heads, self.cfg.d_head)
+            pre_outs = self.out_stack([
+                a[1] for a in self.get_recent_activations("attn_pre_out")
+            ]).reshape(_shape)
+        elif self.pre_out_mode == "calc":
+            pre_outs = self.calculate_attn_pre_out(
+                attn_out.to(self.device), reshape, transpose )
+        else:
+            raise ValueError( f"pre_out_mode {self.pre_out_mode} not supported" )
 
         return pre_outs
 
@@ -1112,3 +1143,31 @@ class Model():
 
             out['percent'] = self.calculate_evaluation_percentages( out )
             return out
+
+    # Model-specific routines
+    #########################
+
+    def roberta_masked_ids(self, text, frac=0.15):
+        orig_ids = self.get_ids(text)
+        mask_id  = self.get_ids("<mask>")[0, 1].item()
+
+        # Number of random elements to select
+        n_tokens = ( orig_ids.shape[-1] - 2 )
+        n_chosen     = int(n_tokens * frac)
+        n_masked     = int(n_tokens * frac * 0.8)
+        n_randomized = int(n_tokens * frac * 0.1)
+        n_unchanged  = n_chosen - n_masked - n_randomized
+
+        # Shuffle and select the first n_tokens indices
+        indices = torch.randperm(n_tokens)[:n_chosen] + 1
+        indices_masked     = indices[:n_masked]
+        indices_randomized = indices[n_masked:n_masked+n_randomized]
+        indices_unchanged  = indices[n_masked+n_randomized:]
+
+        input_ids = orig_ids.clone()
+        device = input_ids.device
+        input_ids[0, indices_masked] = mask_id
+        input_ids[0, indices_randomized] = \
+            torch.randint(4, self.cfg.d_vocab-1, (n_randomized,)).to(device)
+
+        return orig_ids, input_ids, indices
