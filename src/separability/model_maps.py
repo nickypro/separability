@@ -691,7 +691,8 @@ roberta_model_map = {
     "ln_final"        : "lm_head.layer_norm",
     "ln_final.w"      : "lm_head.layer_norm.weight",
     "ln_final.b"      : "lm_head.layer_norm.bias",
-    "unembed.W_U"     : "lm_head",
+    "lm_head"         : "lm_head",
+    "unembed.W_U"     : "lm_head.dense.weight",
     "unembed.b_U"     : None,
 }
 
