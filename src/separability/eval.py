@@ -143,13 +143,6 @@ def get_mmlu_generator(
                 logits = opt.unembed(states.last_hidden_state[:, -2:-1])
                 expected_ids = opt.get_ids(f' {mcq_letters[data["answer"]]}')
 
-                last_logits = opt.unembed(states.last_hidden_state[:, -25:])
-                print("question:")
-                print(opt.tokenizer.batch_decode(input_ids[:, -25:]))
-                print(opt.tokenizer.batch_decode(last_logits.argmax(-1)))
-                print(opt.tokenizer.batch_decode(expected_ids[:, -25:]))
-                print(mcq_letters[data["answer"]])
-
                 yield logits, expected_ids[..., -2:-1]
 
     if masked:
