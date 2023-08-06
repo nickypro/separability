@@ -1144,6 +1144,12 @@ class Model():
             out['percent'] = self.calculate_evaluation_percentages( out )
             return out
 
+    def __getitem__(self, key):
+        return self.map[key]
+
+    def __setitem__(self, key, value):
+        self.map[key] = value
+
     # Model-specific routines
     #########################
 
