@@ -1,4 +1,4 @@
-from typing import Union, List
+from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
 from datasets import load_dataset, get_dataset_config_names
@@ -48,17 +48,9 @@ def format_mmlu_question(datum, include_answer=False):
 def mmlu_configs():
     return get_dataset_config_names("tasksource/mmlu")
 
-def evaluate_mmlu(
-        opt: Model,
-        config: Union[str, List[str]] = None,
-        n_shot: int = 0,
-        initial_prompt: str = None,
-        verbose: bool = False,
-    ):
+def get_mmlu_config(config):
     config_options = mmlu_configs()
     error_string = f" Config must be either 'all' or one/list of {config_options}"
-
-    initial_config = config
 
     if config is None:
         raise ValueError("Must specify a config." + error_string)
@@ -70,6 +62,112 @@ def evaluate_mmlu(
             config = [config]
         else:
             raise ValueError(f"Invalid config: {config}." + error_string)
+
+    return config
+
+def init_mmlu_dataset(
+        config_name: str,
+        n_shot: int,
+        initial_prompt: Optional[str] = None
+    ):
+    _dataset = load_dataset("tasksource/mmlu", config_name)["test"]
+
+    # Create a pre-prompt with the first n_shot examples
+    if initial_prompt is None:
+        topic = " ".join(config_name.split("_"))
+        initial_prompt = "The following are multiple choice questions" +\
+            f" (with answers) about {topic}."
+
+    for i in range(n_shot):
+        initial_prompt += \
+            format_mmlu_question(_dataset[i], include_answer=True)
+
+    # Remove the first n_shot examples from the dataset
+    indices = list(range(n_shot, len(_dataset)))
+    _dataset = _dataset.select(indices=indices)
+
+    return initial_prompt, _dataset
+
+
+def get_mmlu_generator(
+        opt: Model,
+        config: Union[str, List[str]] = None,
+        n_shot: int = 0,
+        initial_prompt: str = None,
+        masked: bool = False,
+        verbose: bool = False,
+    ):
+    initial_config = config
+    config_list = get_mmlu_config(initial_config)
+
+    # Print example (optional, but useful for debugging prompts)
+    logged = {"done": False}
+    def _mmlu_log(text):
+        if verbose and not logged["done"]:
+            print(text)
+            logged["done"] = True
+
+    tasks = []
+    n_questions = 0
+    for config in config_list:
+        initial_prompt, dataset = \
+            init_mmlu_dataset(config, n_shot, initial_prompt)
+        n_questions += len(dataset)
+        tasks.append((initial_prompt, dataset, config))
+
+    def mmlu_generator():
+        for initial_prompt, dataset, _config in tasks:
+            for data in dataset:
+                text = initial_prompt + \
+                    format_mmlu_question(data, True)
+                input_ids = opt.get_ids(text).detach()
+                _mmlu_log(text)
+
+                # Get the guess (logits of the last token)
+                states = opt.model(input_ids, output_hidden_states=False)
+                logits = opt.unembed(states.last_hidden_state[:, -2:-1])
+                expected_ids = opt.get_ids(f' {mcq_letters[data["answer"]]}')
+
+                yield logits, expected_ids[..., -1:]
+
+    def mmlu_generator_masked():
+        for initial_prompt, dataset, _config in tasks:
+            for data in dataset:
+                text = initial_prompt + \
+                    format_mmlu_question(data) + "<mask>"
+                input_ids = opt.get_ids(text).detach()
+                _mmlu_log(text)
+
+                # Get the guess (logits of the last token)
+                states = opt.model(input_ids, output_hidden_states=False)
+                logits = opt.unembed(states.last_hidden_state[:, -2:-1])
+                expected_ids = opt.get_ids(f' {mcq_letters[data["answer"]]}')
+
+                last_logits = opt.unembed(states.last_hidden_state[:, -25:])
+                print("question:")
+                print(opt.tokenizer.batch_decode(input_ids[:, -25:]))
+                print(opt.tokenizer.batch_decode(last_logits.argmax(-1)))
+                print(opt.tokenizer.batch_decode(expected_ids[:, -25:]))
+                print(mcq_letters[data["answer"]])
+
+                yield logits, expected_ids[..., -2:-1]
+
+    if masked:
+        return mmlu_generator_masked(), n_questions
+    return mmlu_generator(), n_questions
+
+# Full evaluation code for MMLU
+################################
+
+def evaluate_mmlu(
+        opt: Model,
+        config: Union[str, List[str]] = None,
+        n_shot: int = 0,
+        initial_prompt: str = None,
+        verbose: bool = False,
+    ):
+    initial_config = config
+    config = get_mmlu_config(initial_config)
 
     tasks = []
     n_examples = 0
@@ -228,10 +326,11 @@ def evaluate_wikitext(opt: Model,
     def wiki_generator():
         for ids in wiki_id_generator:
             ids = torch.tensor([ids], device=opt.device)
-            logits = opt.get_all_logits(ids)
-            yield (ids, logits)
+            expected_ids = ids[..., 1:]
+            logits = opt.get_all_logits(ids)[..., :-1, :]
+            yield (logits, expected_ids)
 
-    out = opt.evaluate_dataset( wiki_generator(), k=topk, start_index=512,
+    out = opt.evaluate_dataset( wiki_generator(), k=topk, start_index=512-1,
         sample_size=sample_size, skip_eval=skip_eval, count_tokens=False,
         loading_bar_desc="wiki" )
 
@@ -243,17 +342,71 @@ def evaluate_wikitext(opt: Model,
 
     return out
 
+####################################################################################
+# Code for evaluating on masked dataset BERT tasks
+####################################################################################
+
+def masked_generator(opt, dataset, dataset_text_label):
+    token_limit = opt.limit
+    for data in dataset:
+        # predict next token from text
+        input_ids = opt.get_ids(data[dataset_text_label])[:, :token_limit]
+        orig_ids, masked_ids, indices = \
+            opt.roberta_masked_ids(input_ids=input_ids, frac=0.15)
+        with torch.no_grad():
+            logits = opt.get_all_logits(masked_ids)[..., indices, :]
+            expected_ids = orig_ids[..., indices]
+        #print(opt.tokenizer.batch_decode(masked_ids[0, indices]))
+        #print(opt.tokenizer.batch_decode(logits[0].argmax(-1)))
+        #print(opt.tokenizer.batch_decode(expected_ids[0]))
+
+        yield (logits, expected_ids)
 
 ####################################################################################
 # Code for Evaluating Model
 ####################################################################################
 
+def get_generator( opt: Model,
+        dataset_name: str,
+        sample_size: int,
+        topk: int,
+        dataset_tokens_to_skip: int = 0,
+        masked: bool = False,
+        verbose: bool = False,
+        n_shot: int = 0,
+    ) -> Tuple[any, any, int]:
+    """Get a generator for a dataset.
+
+    Returns:
+        generator: A generator that yields (logits, expected_ids) tuples.
+        skip_ids: A list of ids to skip when evaluating the model.
+        sample_size: The number of tokens to evaluate.
+    """
+
+    # Use custom generator for some datasets (eg: MMLU)
+    if dataset_name[:4] == "mmlu":
+        config = dataset_name[5:]
+        generator, n = get_mmlu_generator(opt, config, n_shot=n_shot,
+                                          masked=masked, verbose=verbose)
+        return generator, None, n
+
+    dataset, label, skip_eval = prepare( dataset_name, test=dataset_tokens_to_skip )
+
+    if masked:
+        generator = masked_generator(opt, dataset, label)
+        return generator, skip_eval, sample_size
+
+    generator = opt.default_generator(dataset, label)
+    return generator, skip_eval, sample_size
+
 def evaluate( opt: Model,
         dataset_name: str,
         sample_size: int = 1e5,
         topk: int = 10,
-        verbose: bool = False,
         dataset_tokens_to_skip: int = 0,
+        masked: bool = False,
+        verbose: bool = False,
+        n_shot: int = 0,
     ):
     """Evaluate a model on a dataset.
 
@@ -279,18 +432,25 @@ def evaluate( opt: Model,
     if dataset_name == "wiki":
         return evaluate_wikitext(opt, sample_size, topk)
 
-    if dataset_name[:4] == "mmlu":
-        return evaluate_mmlu(opt, dataset_name[5:], verbose=verbose)
-
     if dataset_tokens_to_skip == 0:
         print("Warning: detaset_tokens_to_skip NOT DEFINED. Using sample_size")
         dataset_tokens_to_skip = sample_size
-    dataset, label, skip_eval = prepare( dataset_name, test=dataset_tokens_to_skip )
-    generator = opt.default_generator(dataset, label)
-    out = opt.evaluate_dataset( generator, k=topk, start_index=1,
+
+    if opt.cfg.model_type == 'seq2seq':
+        masked=True
+
+    # Get generator that returns (logits, expected_ids)
+    generator, skip_eval, sample_size = \
+        get_generator(opt, dataset_name=dataset_name, sample_size=sample_size,
+                topk=topk, n_shot=n_shot, masked=masked, verbose=verbose,
+                dataset_tokens_to_skip=dataset_tokens_to_skip)
+
+    # Get the results
+    out = opt.evaluate_dataset( generator, k=topk, start_index=0,
         sample_size=sample_size, skip_eval=skip_eval, count_tokens=False,
         loading_bar_desc="%6s"%dataset_name )
 
+    # Format the results nicely
     percent  = out['percent']
     loss     = round(float(out['loss']), 4)
     log_loss = round(float(out['log_loss']), 4)
