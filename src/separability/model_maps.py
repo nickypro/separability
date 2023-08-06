@@ -28,6 +28,7 @@ class ConfigClass:
     rotary_dim: Optional[int] = None
     final_rms: bool = False
     gated_mlp: bool = False
+    model_type: str = "causal"
 
 def convert_hf_model_config(official_model_name: str):
     """
@@ -217,6 +218,24 @@ def convert_hf_model_config(official_model_name: str):
         }
         rotary_pct = hf_config.rotary_pct
         cfg_dict["rotary_dim"] = round(rotary_pct * cfg_dict["d_head"])
+    elif architecture == "RobertaForMaskedLM":
+        cfg_dict = {
+            "model_type": "seq2seq",
+            "d_model": hf_config.hidden_size,
+            "d_head": hf_config.hidden_size // hf_config.num_attention_heads,
+            "n_heads": hf_config.num_attention_heads,
+            "d_mlp": hf_config.intermediate_size,
+            "n_layers": hf_config.num_hidden_layers,
+            "n_ctx": hf_config.max_position_embeddings,
+            "eps": hf_config.layer_norm_eps,
+            "d_vocab": hf_config.vocab_size,
+            "act_fn": hf_config.hidden_act,
+            "use_attn_scale": True,
+            "use_local_attn": False,
+            "scale_attn_by_inverse_layer_idx": False,
+            "normalization_type": "LN",
+
+        }
     else:
         raise NotImplementedError(f"{architecture} is not currently supported.")
     # All of these models use LayerNorm
@@ -657,6 +676,111 @@ def build_gpt2_layer_map(cfg: ConfigClass):
     return gpt2_layer_map
 
 #####################################################################################
+# Seq2Seq "Masked LM" Models
+#####################################################################################
+
+# Roberta Model Map
+###################
+
+roberta_model_map = {
+    "model"           : "roberta",
+    "layers"          : "roberta.encoder.layer",
+    "embed"           : "roberta.embeddings",
+    "embed.W_E"       : "roberta.embeddings.word_embeddings.weight",
+    "pos_embed.W_pos" : "roberta.embeddings.position_embeddings",
+    "ln_final"        : "lm_head.layer_norm",
+    "ln_final.w"      : "lm_head.layer_norm.weight",
+    "ln_final.b"      : "lm_head.layer_norm.bias",
+    "unembed.W_U"     : "lm_head",
+    "unembed.b_U"     : None,
+}
+
+def build_roberta_layer_map(cfg: ConfigClass):
+    attn_proj_map = {
+        "q": "self.query",
+        "k": "self.key",
+        "v": "self.value",
+        "o": "output.dense"
+    }
+
+    def roberta_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
+        # Prepare shape changing
+        their_shape = "(n_heads d_head) d_model"
+        my_shape    = "n_heads d_head d_model"
+        sizes = generate_sizes_dict(my_shape, cfg)
+
+        # Get attn proj module
+        attn = layer.self_attn
+        attn_proj = get_attrs(attn, attn_proj_map[key])
+
+        # Get mode
+        if inpt is None:
+            W = attn_proj.weight
+            W = einops.rearrange(W, f"{their_shape} -> {my_shape}", **sizes)
+            return W
+
+        # Set mode
+        W = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(attn_proj, "weight", W)
+
+    def roberta_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
+        # Prepare shape changing
+        their_shape = "(n_heads d_head)"
+        my_shape    = "n_heads d_head"
+        sizes = generate_sizes_dict(my_shape, cfg)
+
+        # Get attn proj module
+        attn = layer.self_attn
+        attn_proj = get_attrs(attn, attn_proj_map[key])
+
+        if inpt is None:
+            b = attn_proj.bias
+            b = einops.rearrange(b, f"{their_shape} -> {my_shape}", **sizes)
+            return b
+
+        # Set mode
+        b = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(attn_proj, "bias", b)
+
+
+    opt_layer_map = {
+        "ln1"           : "attention.output.LayerNorm",
+        "ln1.w"         : "attention.output.LayerNorm.weight",
+        "ln1.b"         : "attention.output.LayerNorm.bias",
+
+        "attn"          : "attention",
+        "attn.q_proj"   : "attention.self.query",
+        "attn.k_proj"   : "attention.self.key",
+        "attn.v_proj"   : "attention.self.value",
+
+        **generate_attn_qkv_functions(roberta_qkv_weight, roberta_qkv_bias),
+
+        "attn.out"      : "attention.output",
+        "attn.out_proj" : "attention.output.dense",
+        "attn.W_O"      : "attention.output.dense.weight",
+        "attn.b_O"      : "attention.output.dense.bias",
+
+        "attn.inv_out_proj" : "attention.inv_out_proj",
+        "attn.W_O_inv"  : "attention.inv_out_proj.weight",
+        "attn.b_O_inv"  : "attention.inv_out_proj.inverse_bias",
+
+        "ln2"           : "output.LayerNorm",
+        "ln2.w"         : "output.LayerNorm.weight",
+        "ln2.b"         : "output.LayerNorm.bias",
+
+        "fc1"           : "intermediate.dense",
+        "mlp.W_in"      : "intermediate.dense.weight",
+        "mlp.b_in"      : "intermediate.dense.bias",
+
+        "activation_fn" : "intermediate.intermediate_activation_fn",
+
+        "fc2"           : "output.dense",
+        "mlp.W_out"     : "output.dense.weight",
+        "mlp.b_out"     : "output.dense.bias",
+    }
+    return opt_layer_map
+
+#####################################################################################
 # Build Model Layer Map interfaces
 #####################################################################################
 
@@ -680,6 +804,8 @@ def get_model_key_map(config: ConfigClass):
         return gpt_neox_model_map
     if architecture == "GPT2LMHeadModel":
         return gpt2_model_map
+    if architecture == "RobertaForMaskedLM":
+        return roberta_model_map
 
     raise NotImplementedError(f"Architecture {architecture} not implemented")
 
@@ -694,6 +820,8 @@ def get_layer_key_map(config: ConfigClass):
         return build_gpt_neox_layer_map(config)
     if architecture == "GPT2LMHeadModel":
         return build_gpt2_layer_map(config)
+    if architecture == "RobertaForMaskedLM":
+        return build_roberta_layer_map(config)
 
     raise NotImplementedError(f"Architecture {architecture} not implemented")
 
