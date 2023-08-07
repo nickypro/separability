@@ -9,6 +9,12 @@ def is_true(arg):
         return True
     return False
 
+def split_list(arg):
+    if isinstance(arg, list):
+        return arg
+    return arg.split(',')
+
+
 def cli_parser(
         c: PruningConfig,
         add_args_fn: Callable = None,
@@ -47,11 +53,13 @@ def cli_parser(
         "reverse",
         "n_steps",
         "model_device",
-        "additional_datasets",
+#        "additional_datasets",
         *add_args_exclude,
     ]
     for key, val in c.arg_items(exclude=args_exclude):
-        _type = type(val) if not isinstance(val, bool) else str
+        _type = type(val)
+        _type = _type if not isinstance(val, bool) else str
+        _type = _type if not isinstance(val, tuple) else str
         parser.add_argument(f'--{key}', type=_type, default=val)
 
     # Parse the argument
@@ -63,6 +71,9 @@ def cli_parser(
     for key in c.arg_keys(exclude=args_exclude):
         if isinstance(c[key], bool):
             c[key] = is_true(getattr(args, key))
+            continue
+        if isinstance(c[key], tuple):
+            c[key] = split_list(getattr(args, key))
             continue
         c[key] = getattr(args, key)
     if args.reverse:
