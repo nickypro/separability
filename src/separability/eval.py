@@ -477,8 +477,8 @@ def evaluate_all( opt: Model,
 
     out = { 'loss_data': {}, 'accuracy': {} }
     for dataset in datasets:
-        dataset_out = evaluate(opt, dataset, sample_size, topk, verbose,
-                               dataset_tokens_to_skip)
+        dataset_out = evaluate(opt, dataset_name=dataset, sample_size=sample_size,
+            topk=topk, verbose=verbose, dataset_tokens_to_skip=dataset_tokens_to_skip)
 
         out['loss_data'].update({ dataset: dataset_out['loss_data'] })
         out['accuracy'].update({  dataset: dataset_out['percent'] })

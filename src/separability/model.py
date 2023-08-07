@@ -1043,13 +1043,23 @@ class Model():
             percent = { k: ( "%.2f" % v ) for k, v in percent.items() }
         return percent
 
-    def default_generator(self, dataset, dataset_text_label):
-        token_limit = self.limit
+    def default_generator(self,
+            dataset: Dataset,
+            dataset_text_label: str
+        ):
+        """ Generator for evaluating next-token prediction.
+        Args:
+            dataset (Dataset): The dataset to iterate through for evaluation.
+            dataset_text_label (str): The label for the dataset text.
+        Returns:
+            generator: A generator which yields (logits, expected_ids) tuples.
+        """
+
         for data in dataset:
             # predict next token from text
             text = data[ dataset_text_label ]
             with torch.no_grad():
-                input_ids = self.get_ids(text, token_limit)
+                input_ids = self.get_ids(text)
                 logits = self.get_all_logits( input_ids )[..., :-1, :]
                 expected_ids = input_ids[..., 1:]
 
