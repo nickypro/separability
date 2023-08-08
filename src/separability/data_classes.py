@@ -189,7 +189,7 @@ class EvalAllOutput:
         _set_empty_attrs_to_dict(self)
 
     def add(self, dataset: str, data: EvalOutput):
-        self.loss_data[dataset] = data.loss
+        self.loss_data[dataset] = data.loss_data
         self.accuracy[dataset]  = data.percent
         self.misc[dataset]      = data.misc
 
