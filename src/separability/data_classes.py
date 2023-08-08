@@ -55,6 +55,46 @@ class DtypeMap():
         return self.str_dtype in ["int4", "int8"]
 
 ######################################################################################
+# Evaluation Data Classes
+######################################################################################
+
+def _set_empty_attrs_to_dict(__class):
+    for attr in __class.__dataclass_fields__:
+        __attr = getattr(__class, attr)
+        if __attr is None:
+            setattr(__class, attr, {})
+
+@dataclass
+class EvalOutput:
+    loss_data: dict = None
+    percent: dict = None
+    misc: dict = None
+
+    def __post_init__(self):
+        _set_empty_attrs_to_dict(self)
+
+@dataclass
+class EvalAllOutput:
+    loss_data: dict = None
+    accuracy: dict = None
+    misc: dict = None
+
+    def __post_init__(self):
+        _set_empty_attrs_to_dict(self)
+
+    def add(self, dataset: str, data: EvalOutput):
+        self.loss_data[dataset] = data.loss_data
+        self.accuracy[dataset]  = data.percent
+        self.misc[dataset]      = data.misc
+
+    def to_dict(self):
+        _dict = {}
+        for attr in self.__dataclass_fields__:
+            _dict[attr] = getattr(self, attr)
+        return _dict
+
+
+######################################################################################
 # Data Store Classes
 ######################################################################################
 
@@ -148,56 +188,25 @@ class RunDataItem:
     def flat_summary(self):
         dataset_loss = {}
         dataset_accuracy = {}
-        for dataset in self.datasets:
-            for key in self.keys['loss_data']:
-                dataset_loss[dataset+'_'+key] = self.loss_data[dataset][key]
-            for key in self.keys['accuracy']:
-                dataset_accuracy[dataset+'_'+key] = self.accuracy[dataset][key]
+        dataset_misc = {}
+        for dataset in self.loss_data.keys():
+            for key, val in self.loss_data[dataset].items():
+                dataset_loss[dataset+'_'+key] = val
+        for dataset in self.accuracy.keys():
+            for key, val in self.accuracy[dataset].items():
+                dataset_accuracy[dataset+'_'+key] = val
+        for dataset in self.misc.keys():
+            for key, val in self.misc[dataset].items():
+                if isinstance(val, dict):
+                    continue
+                dataset_misc[dataset+'_'+key] = val
+
         areas = {f'area_{key}': value for key, value in self.areas.items()}
 
-        return { **dataset_loss, **dataset_accuracy, **self.deletions, **areas }
+        return { **dataset_loss, **dataset_accuracy, **dataset_misc, **self.deletions, **areas }
 
     def __str__(self):
         return str(self.summary())
-
-######################################################################################
-# Evaluation Data Classes
-######################################################################################
-
-def _set_empty_attrs_to_dict(__class):
-    for attr in __class.__dataclass_fields__:
-        __attr = getattr(__class, attr)
-        if __attr is None:
-            setattr(__class, attr, {})
-
-@dataclass
-class EvalOutput:
-    loss_data: dict = None
-    percent: dict = None
-    misc: dict = None
-
-    def __post_init__(self):
-        _set_empty_attrs_to_dict(self)
-
-@dataclass
-class EvalAllOutput:
-    loss_data: dict = None
-    accuracy: dict = None
-    misc: dict = None
-
-    def __post_init__(self):
-        _set_empty_attrs_to_dict(self)
-
-    def add(self, dataset: str, data: EvalOutput):
-        self.loss_data[dataset] = data.loss_data
-        self.accuracy[dataset]  = data.percent
-        self.misc[dataset]      = data.misc
-
-    def to_dict(self):
-        _dict = {}
-        for attr in self.__dataclass_fields__:
-            _dict[attr] = getattr(self, attr)
-        return _dict
 
 ######################################################################################
 # Run Data History Class
