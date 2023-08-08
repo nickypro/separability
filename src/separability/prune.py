@@ -3,7 +3,7 @@ from typing import Optional, List
 import numpy as np
 import torch
 import wandb
-
+import copy
 
 from .model import Model
 from .data_classes import PruningConfig, RunDataHistory, RunDataItem
@@ -12,24 +12,28 @@ from .scoring import score_indices_by
 from .activations import get_midlayer_activations, get_top_frac, \
     choose_attn_heads_by, save_timestamped_tensor_dict
 
-def prune_and_evaluate(opt: Model, pruning_config: PruningConfig):
+def prune_and_evaluate(
+        opt: Model,
+        pruning_config: PruningConfig,
+        focus_out: Optional[dict] = None,
+        cripple_out: Optional[dict] = None,
+        iteration: Optional[int] = None,
+    ):
     """
     Prune and evaluate the model
 
     Args:
         opt (Model): model to prune and evaluate
-        ff_prune_frac (float): fraction of FF to prune
-        attn_prune_frac (float): fraction of Attention to prune
-        ff_eps (float): epsilon for FF pruning (to avoid division by 0).
-        sample_size (int): number of samples to use for evaluation
-        eval_size (int): number of samples to use for evaluation
-        save (bool): whether to save the results to a file
-        cripple (str): Which dataset to cripple. ("code", "pile")
-        focus (str): Which dataset to focus. ("pile", "code")
+        pruning_config (PruningConfig): config for pruning
+        focus_out (dict): output of get_midlayer_activations for focus dataset
+        cripple_out (dict): output of get_midlayer_activations for cripple dataset
+        iteration (int): iteration number for when activations are not recalculated
 
     Returns:
-        output (dict): dictionary to be added to pandas DataFrame.
+        output (RunDataItem): Eval data to add to RunDataHistory.
     """
+    c = copy.deepcopy(pruning_config)
+
     # Find out what we are doing
     do_ff   = pruning_config.ff_frac > 0
     do_attn = pruning_config.attn_frac > 0
@@ -39,19 +43,27 @@ def prune_and_evaluate(opt: Model, pruning_config: PruningConfig):
         raise NotImplementedError("attn_mode must be 'pre-out' or 'value'")
 
     # Get midlayer activations of FF and ATTN
-    focus_out   = get_midlayer_activations( opt, pruning_config.focus,
-        pruning_config.collection_sample_size, pruning_config.attn_mode )
-    cripple_out = get_midlayer_activations( opt, pruning_config.cripple,
-        pruning_config.collection_sample_size, pruning_config.attn_mode )
+    if pruning_config.recalculate_activations:
+        focus_out   = get_midlayer_activations( opt, pruning_config.focus,
+            pruning_config.collection_sample_size, pruning_config.attn_mode )
+        cripple_out = get_midlayer_activations( opt, pruning_config.cripple,
+            pruning_config.collection_sample_size, pruning_config.attn_mode )
+
+    # Otherwise, import activation data, and adjust the "pruning fraction"
+    else:
+        c["ff_frac"]   = min( 1.0, c["ff_frac"]*(iteration+1) )
+        c["attn_frac"] = min( 1.0, c["attn_frac"]*(iteration+1) )
+        assert not (focus_out is None or cripple_out is None or iteration is None), \
+            "Must provide focus_out and cripple_out if not recalculate_activations"
 
     # Prune the model using the activation data
-    data = score_and_prune(opt, focus_out, cripple_out, pruning_config)
+    data = score_and_prune(opt, focus_out, cripple_out, c)
 
     # Evaluate the model
-    data.update(
-        evaluate_all(opt, pruning_config.eval_sample_size, pruning_config.datasets,
-                     dataset_tokens_to_skip=pruning_config.collection_sample_size)
-    )
+    with torch.no_grad():
+        eval_out = evaluate_all(opt, c.eval_sample_size, c.datasets,
+                                dataset_tokens_to_skip=c.collection_sample_size)
+        data.update(eval_out)
 
     return data
 
@@ -253,10 +265,22 @@ def run_pruning(c: PruningConfig):
         print(history.df.T)
 
     # Iteratively prune neurons and evaluate
-    for _ in range(c.n_steps):
-        data = prune_and_evaluate(opt, c)
-        history.add(data)
+    if c.recalculate_activations:
+        for _ in range(c.n_steps):
+            data = prune_and_evaluate(opt, c)
+            history.add(data)
 
+    # Non-iteratively get activations, then iteratively prune and evaluate
+    else:
+        focus_out   = get_midlayer_activations(opt, c.focus,
+                        c.collection_sample_size, c.attn_mode)
+        cripple_out = get_midlayer_activations(opt, c.cripple,
+                        c.collection_sample_size, c.attn_mode)
+        for i in range(c.n_steps):
+            data = prune_and_evaluate(opt, c, focus_out, cripple_out, i)
+            history.add(data)
+
+    # Format history to print
     print(history.history[-1])
     print(history.df.T)
     print(history.df.T.to_csv())

@@ -25,7 +25,7 @@ from .model_repos import supported_model_repos
 from .nn import InverseLinear, mlp_delete_rows, mlp_delete_rows_raw, mlp_adjust_biases, \
     mlp_delete_columns, mlp_svd_two_layer_raw, mlp_delete_columns_raw
 from .model_maps import convert_hf_model_config, ModelMap
-from .data_classes import DtypeMap
+from .data_classes import DtypeMap, EvalOutput
 
 mpl.rcParams['figure.dpi'] = 300
 
@@ -133,13 +133,20 @@ class Model():
         self.to(self.device)
 
         print(f'- Loaded {self.model_repo}')
-        self.activations = {}
+        self.activations = {
+            "attn": {},
+            "attn_pre_out": {},
+            "ff": {},
+            "ff_mid": {}
+        }
 
         self.register_activations()
         if self.svd_attn:
             self.svd_attention_layers()
         else:
             self.register_inverse_out_proj()
+
+        self.pre_out_mode = "hook" if "attn.out" in self.layers[0] else "calc"
 
         return self
 
@@ -166,25 +173,37 @@ class Model():
             tensor_list = [ t.to(self.output_device) for t in tensor_list ]
         return torch.stack( tensor_list )
 
-    def get_activation_of( self, name : str ):
+    def build_output_hook(self, component: str, name: str):
         # Define hook function which adds output to self.activations
         def hook(_model, _input, output):
-            if not isinstance( output, tuple ):
+            if not isinstance(output, tuple):
                 return
-            self.activations[name] = detached( output )
+            self.activations[component][name] = detached(output)
+        return hook
+
+    def build_input_hook(self, component: str, name: str):
+        def hook(_model, input, _output):
+            if not isinstance(input, tuple):
+                return
+            self.activations[component][name] = detached(input)
         return hook
 
     def register_activations( self ):
-        # register the forward hook
-        attention_index = 0
+        # register the forward hook to attention outputs
         for layer_index, layer in enumerate(self.layers):
+            # Build normal attention hook
             attn = layer["attn"]
             name = pad_zeros( layer_index ) + "-attention"
-            # print( f"registering : ({name}), OPTAttention layer" )
-            attn.register_forward_hook( self.get_activation_of( name ) )
-            attention_index += 1
-            continue
-        print( f" - Registered {attention_index} Attention Layers" )
+            attn.register_forward_hook(self.build_output_hook("attn", name))
+
+            # Optionally, build pre_out hook if possible
+            if not "attn.out" in layer:
+                continue
+            attn_o = layer["attn.out"]
+            name = pad_zeros( layer_index ) + "-attention-out"
+            attn_o.register_forward_hook(self.build_input_hook("attn_pre_out", name))
+
+        print( f" - Registered {layer_index+1} Attention Layers" )
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
@@ -250,14 +269,15 @@ class Model():
 
         return inputs_embeds
 
-    def get_recent_activations( self ) -> List[ Tuple[str, Tensor, Tensor, Tensor] ]:
+    def get_recent_activations(self, component) \
+            -> List[ Tuple[str, Tensor, Tensor, Tensor] ]:
         """
         Returns a list of output tuples \
         ( "##-attention", output, attn_weights, key_values ) \
         from each attention block
         """
         layers = []
-        for key, value in self.activations.items():
+        for key, value in self.activations[component].items():
             layer = []
             layer.append( key )
             for out in value:
@@ -331,7 +351,9 @@ class Model():
         inpt = hidden_states[0].detach()
 
         # get attention outputs
-        attention_out = self.out_stack([a[1] for a in self.get_recent_activations()])
+        attention_out = self.out_stack([
+            a[1] for a in self.get_recent_activations("attn")
+        ])
         attention_out = attention_out.squeeze().detach()
 
         # get ff outputs
@@ -410,8 +432,17 @@ class Model():
                 input_ids, inputs_embeds, limit, **kwargs )
 
         [ _inpt, attn_out, _ff_out, _output ] = text_activations
-        pre_outs = self.calculate_attn_pre_out(
-            attn_out.to(self.device), reshape, transpose )
+
+        if self.pre_out_mode == "hook":
+            _shape = (self.cfg.n_layers, -1, self.cfg.n_heads, self.cfg.d_head)
+            pre_outs = self.out_stack([
+                a[1] for a in self.get_recent_activations("attn_pre_out")
+            ]).reshape(_shape)
+        elif self.pre_out_mode == "calc":
+            pre_outs = self.calculate_attn_pre_out(
+                attn_out.to(self.device), reshape, transpose )
+        else:
+            raise ValueError( f"pre_out_mode {self.pre_out_mode} not supported" )
 
         return pre_outs
 
@@ -840,7 +871,10 @@ class Model():
         return torch.index_select( output, self.token_index, indices )
 
     def unembed( self, embedded_outputs: Tensor ):
-        lm_head = self.predictor.get_output_embeddings()
+        if "lm_head" in self.map.key_map.keys():
+            lm_head = self.map["lm_head"]
+        else:
+            lm_head = self.predictor.get_output_embeddings()
         return lm_head( embedded_outputs.to(self.device) )
 
     def get_all_logits( self, input_ids ):
@@ -853,7 +887,7 @@ class Model():
 
     def top_k_tokens( self, logits: Tensor, k: int = 10 ):
         topk = torch.topk( logits, k, dim=-1, largest=True, sorted=True )
-        return topk.indices.squeeze()
+        return topk.indices[0]
 
     def predict_top_k_tokens( self, text: str, k: int = 10 ):
         logits = self.get_all_logits( text )
@@ -864,7 +898,8 @@ class Model():
             text: Optional[str] = None,
             input_ids: Optional[Tensor] = None,
             logits: Optional[Tensor] = None,
-            start_index: int = 1,
+            expected_ids: Optional[Tensor] = None,
+            start_index: int = 0,
             skip_strings: Optional[List[str]] = None,
         ):
         """Evaluates performance with top-1 and top-k token predictions.
@@ -882,12 +917,16 @@ class Model():
         Returns:
             output: dict of output information
         """
-        if text is None and input_ids is None:
-            raise ValueError( "Must provide either text or input_ids" )
+        if text is None and input_ids is None and expected_ids is None:
+            raise ValueError( "Must provide text, input_ids, or expected_ids" )
 
         # Generate input token ids and output top k token ids
         with torch.no_grad():
-            input_ids = self.get_ids( text ) if input_ids is None else input_ids
+            if input_ids is None and expected_ids is None and text is None:
+                raise ValueError("Must provide text, input_ids, or expected_ids")
+            if input_ids is None and text is not None:
+                input_ids = self.get_ids(text)
+            expected_ids = input_ids[1:] if expected_ids is None else expected_ids
             logits = self.get_all_logits( input_ids ) if logits is None else logits
             token_dictionary_size = logits.size()[-1]
             top_tokens  = self.top_k_tokens( logits, 1 )
@@ -901,20 +940,20 @@ class Model():
             skip_ids.add( skip_id )
 
         # Count top-k prediction accuracy
-        input_ids = input_ids.squeeze()
+        expected_ids = expected_ids[0]
         # Edge case: if input_ids is a single token, convert it back into a list
-        if len(input_ids.size()) == 0:
-            input_ids = torch.tensor([ input_ids ])
+        if len(expected_ids.size()) == 0:
+            expected_ids = expected_ids.unsqueeze(0)
         num_predictions = 0
         num_accurate = 0
         num_topk_accurate = 0
         num_skip_predictions = 0
         num_skip_accurate = 0
         num_topk_skip_accurate = 0
-        for i in range( start_index, len(input_ids) ):
+        for i in range( start_index, len(expected_ids) ):
             # Check if accurate
-            is_accurate      = (input_ids[i] in top_tokens[i-1])
-            is_topk_accurate = (input_ids[i] in topk_tokens[i-1])
+            is_accurate      = (expected_ids[i] in top_tokens[i])
+            is_topk_accurate = (expected_ids[i] in topk_tokens[i])
 
             # Count normal prediction ( ignoring skip )
             num_predictions   += 1
@@ -922,7 +961,7 @@ class Model():
             num_topk_accurate += is_topk_accurate
 
             # Now count only if the token is not supposed to be skipped
-            if int(input_ids[i]) in skip_ids:
+            if int(expected_ids[i]) in skip_ids:
                 continue
             num_skip_predictions   += 1
             num_skip_accurate      += is_accurate
@@ -930,10 +969,10 @@ class Model():
 
         # Keep track of most used tokens
         token_counts = np.zeros( token_dictionary_size )
-        for input_id in input_ids:
-            if input_id > token_dictionary_size:
+        for _id in expected_ids:
+            if _id > token_dictionary_size:
                 continue # Not sure why I need this, but for some reason I do
-            token_counts[input_id] += 1
+            token_counts[_id] += 1
 
         output = {
             'num_predictions'  : num_predictions,
@@ -953,6 +992,7 @@ class Model():
     def evaluate_ce_loss( self,
             text: Optional[str] = None,
             input_ids: Optional[Tensor] = None,
+            expected_ids: Optional[Tensor] = None,
             logits: Optional[Tensor] = None
         ):
         """Cross entropy loss for predicting the next token
@@ -965,19 +1005,21 @@ class Model():
         Returns:
             loss: Mean Cross-Entropy loss over tokens
         """
-        if text is None and input_ids is None:
-            raise ValueError( "Must provide either text or input_ids" )
+        if text is None and input_ids is None and expected_ids is None:
+            raise ValueError( "Must provide text, input_ids, or expected_ids" )
 
         # Generate input token ids and output top k token ids
         with torch.no_grad():
-            if input_ids is None:
+            if input_ids is None and text is not None:
                 input_ids = self.get_ids( text )
+            if expected_ids is None:
+                expected_ids = input_ids[1:]
             if logits is None:
-                logits = self.get_all_logits( input_ids )
+                logits = self.get_all_logits( input_ids )[..., :-1, :]
 
         log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-        predicted_log_probs = log_probs[..., :-1, :].gather(
-            dim=-1, index=input_ids[..., 1:, None]
+        predicted_log_probs = log_probs[..., :, :].gather(
+            dim=-1, index=expected_ids[..., :, None]
         )[..., 0]
         return -predicted_log_probs.mean()
 
@@ -989,6 +1031,8 @@ class Model():
         # Print top1 prediction accuracy
         pred      = out["num_predictions"]
         skip_pred = out["num_skip_predictions"]
+        pred += int(pred==0)
+        skip_pred += int(skip_pred==0)
         percent = {
             "topk"      : (100 * out["num_topk_accurate"] / pred),
             "topk_skip" : (100 * out["num_topk_skip_accurate"] / skip_pred ),
@@ -999,21 +1043,32 @@ class Model():
             percent = { k: ( "%.2f" % v ) for k, v in percent.items() }
         return percent
 
-    def default_generator(self, dataset, dataset_text_label):
-        token_limit = self.limit
+    def default_generator(self,
+            dataset: Dataset,
+            dataset_text_label: str
+        ):
+        """ Generator for evaluating next-token prediction.
+        Args:
+            dataset (Dataset): The dataset to iterate through for evaluation.
+            dataset_text_label (str): The label for the dataset text.
+        Returns:
+            generator: A generator which yields (logits, expected_ids) tuples.
+        """
+
         for data in dataset:
             # predict next token from text
             text = data[ dataset_text_label ]
             with torch.no_grad():
-                input_ids = self.get_ids( text, token_limit )
-                logits = self.get_all_logits( input_ids )
+                input_ids = self.get_ids(text)
+                logits = self.get_all_logits( input_ids )[..., :-1, :]
+                expected_ids = input_ids[..., 1:]
 
-            yield (input_ids, logits)
+            yield (logits, expected_ids)
 
     def evaluate_dataset( self,
             generator: Callable,
             k: int = 10,
-            start_index: int = 1,
+            start_index: int = 0,
             skip_eval: Optional[List[str]] = None,
             sample_size: int = 1e5,
             count_tokens: bool = False,
@@ -1066,11 +1121,12 @@ class Model():
         with tqdm(total=sample_size) as pbar:
 
             # Loop over the dataset
-            for (input_ids, logits) in generator:
+            for (logits, expected_ids) in generator:
                 # perform evaluations
-                topk =  self.evaluate_top_k_performance( k, input_ids=input_ids,
-                    logits=logits, start_index=start_index, skip_strings=skip_eval )
-                loss = self.evaluate_ce_loss( input_ids=input_ids, logits=logits )
+                topk =  self.evaluate_top_k_performance( k,
+                    logits=logits, expected_ids=expected_ids,
+                    start_index=start_index, skip_strings=skip_eval )
+                loss = self.evaluate_ce_loss(logits=logits, expected_ids=expected_ids)
 
                 # Record performance
                 loss_tracker.add( loss.detach() )
@@ -1111,4 +1167,63 @@ class Model():
                 print( self.batch_decode( topk ) )
 
             out['percent'] = self.calculate_evaluation_percentages( out )
-            return out
+            loss_data =  {
+                'loss': round(float(out["loss"]), 4),
+                'log_loss': round(float(out["log_loss"]), 4),
+            }
+
+            return EvalOutput(
+                loss_data = loss_data,
+                percent   = out['percent'],
+                misc      = out
+            )
+
+    def __getitem__(self, key):
+        return self.map[key]
+
+    def __setitem__(self, key, value):
+        self.map[key] = value
+
+    # Model-specific routines
+    #########################
+
+    def roberta_masked_ids(self,
+            text: Optional[str] = None,
+            input_ids: Optional[Tensor] = None,
+            frac: float = 0.15
+        ):
+        """
+        Args:
+            text (str): _description_
+            frac (float, optional): Fraction of text to change. Defaults to 0.15.
+
+        Returns:
+            orig_ids: Original tokenized IDs
+            input_ids: Masked tokenized IDs
+            indices: Indices of tokens modified
+        """
+        mask_id  = self.get_ids("<mask>")[0, 1].item()
+
+        # get initial input ids
+        orig_ids = self.get_ids(text) if input_ids is None else input_ids
+
+        # Number of random elements to select
+        n_tokens = ( orig_ids.shape[-1] - 2 )
+        n_chosen     = int(n_tokens * frac)
+        n_masked     = int(n_tokens * frac * 0.8)
+        n_randomized = int(n_tokens * frac * 0.1)
+        n_unchanged  = n_chosen - n_masked - n_randomized
+
+        # Shuffle and select the first n_tokens indices
+        indices = torch.randperm(n_tokens)[:n_chosen] + 1
+        indices_masked     = indices[:n_masked]
+        indices_randomized = indices[n_masked:n_masked+n_randomized]
+        indices_unchanged  = indices[n_masked+n_randomized:]
+
+        input_ids = orig_ids.clone()
+        device = input_ids.device
+        input_ids[0, indices_masked] = mask_id
+        input_ids[0, indices_randomized] = \
+            torch.randint(4, self.cfg.d_vocab-1, (n_randomized,)).to(device)
+
+        return orig_ids, input_ids, indices

@@ -5,18 +5,18 @@ import torch
 
 # Configure initial model and tests
 c = PruningConfig(
-    wandb_project = "testing",
-    model_repo   = "facebook/opt-1.3b",
+    wandb_project = "civil-toxic",
+    model_repo   = "facebook/galactica-6.7b",
     token_limit  = 1000,
     run_pre_test = True,
     # Removals parameters
-    ff_frac   = 0.02,
+    ff_frac   = 0.002,
     ff_eps    = 0.001,
-    attn_frac = 0.00,
+    attn_frac = 0.002,
     attn_eps  = 1e-4,
-    focus     = "pile_codeless",
-    cripple   = "code",
-    additional_datasets=tuple(),
+    focus     = "civil",
+    cripple   = "toxic",
+    additional_datasets=["wiki", "toxicity", "mmlu:all"],
 )
 
 # Parse CLI for arguments
