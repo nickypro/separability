@@ -16,7 +16,7 @@ class TestAttnCrossoverDelete:
         # Load model and evaluate
         opt = Model( model_repo, limit=1000 )
         print(" - Initial Evaluation...")
-        eval_before = evaluate_all( opt, 1e3 )
+        eval_before = evaluate_all( opt, 1e3 ).misc
 
         # Get crossover data
         print(" - Initial Evaluation...")
@@ -34,7 +34,7 @@ class TestAttnCrossoverDelete:
 
         # Make sure attention heads were deleted
         print("# Final Evaluation...")
-        eval_after = evaluate_all( opt, 1e3 )
+        eval_after = evaluate_all( opt, 1e3 ).misc
         eval_keys = eval_before.keys()
         for key in eval_keys:
             assert eval_before[key] != eval_after[key]

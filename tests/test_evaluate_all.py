@@ -23,7 +23,7 @@ class TestEvaluate:
             verbose=True, dataset_tokens_to_skip=eval_sample_size )
 
         # We check that the data is correct
-        keys = data_1.keys()
+        keys = data_1.misc.keys()
         expected_keys = [
             'num_predictions',
             'num_skip_predictions',
@@ -35,7 +35,7 @@ class TestEvaluate:
             'percent', # dict
             'loss',
             'log_loss',
-            'loss_data', # dict
+#            'loss_data', # dict
         ]
         print(keys)
         assert len(keys) == len(expected_keys)
@@ -43,14 +43,14 @@ class TestEvaluate:
             assert key in expected_keys
 
         # verify the percent sub dict
-        percent_keys = data_1["percent"].keys()
+        percent_keys = data_1.percent.keys()
         expected_percent_keys = [ "base", "skip", "topk", "topk_skip" ]
         assert len(percent_keys) == 4
         for key in percent_keys:
             assert key in expected_percent_keys
 
         # verify the loss_data sub dict
-        loss_data_keys = data_1["loss_data"].keys()
+        loss_data_keys = data_1.loss_data.keys()
         expected_loss_data_keys = [ "loss", "log_loss" ]
         assert len(loss_data_keys) == 2
         for key in loss_data_keys:
@@ -70,13 +70,13 @@ class TestEvaluate:
             if key == 'loss_data':
                 continue
             if key == 'token_counts':
-                assert data_1[key] is None
-                assert data_2[key] is None
+                assert data_1.misc[key] is None
+                assert data_2.misc[key] is None
                 continue
-            print( key, data_1[key], data_2[key] )
-            assert data_1[key] != data_2[key]
-            assert data_1[key] < data_2[key] * 1.5
-            assert data_1[key] > data_2[key] * 0.5
+            print( key, data_1.misc[key], data_2.misc[key] )
+            assert data_1.misc[key] != data_2.misc[key]
+            assert data_1.misc[key] < data_2.misc[key] * 1.5
+            assert data_1.misc[key] > data_2.misc[key] * 0.5
         print()
 
     @pytest.mark.parametrize("model_repo", test_model_repos)
