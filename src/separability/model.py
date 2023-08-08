@@ -25,7 +25,7 @@ from .model_repos import supported_model_repos
 from .nn import InverseLinear, mlp_delete_rows, mlp_delete_rows_raw, mlp_adjust_biases, \
     mlp_delete_columns, mlp_svd_two_layer_raw, mlp_delete_columns_raw
 from .model_maps import convert_hf_model_config, ModelMap
-from .data_classes import DtypeMap
+from .data_classes import DtypeMap, EvalOutput
 
 mpl.rcParams['figure.dpi'] = 300
 
@@ -1167,7 +1167,16 @@ class Model():
                 print( self.batch_decode( topk ) )
 
             out['percent'] = self.calculate_evaluation_percentages( out )
-            return out
+            loss_data =  {
+                'loss': round(float(out["loss"]), 4),
+                'log_loss': round(float(out["log_loss"]), 4),
+            }
+
+            return EvalOutput(
+                loss_data = loss_data,
+                percent   = out['percent'],
+                misc      = out
+            )
 
     def __getitem__(self, key):
         return self.map[key]

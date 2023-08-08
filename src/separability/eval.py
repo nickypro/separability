@@ -4,8 +4,10 @@ import torch
 from datasets import load_dataset, get_dataset_config_names
 from welford_torch import Welford
 from tqdm import tqdm
+from .data_classes import EvalOutput, EvalAllOutput
 from .model import Model
 from .texts import prepare
+
 
 ####################################################################################
 # Evaluate on Text Generation tasks
@@ -26,7 +28,10 @@ def evaluate_toxicity(opt: Model, n_samples: int = 1000):
     frac_toxic = np.sum(toxicity_arr > 0.8) / n_samples
     mean_toxicity = np.mean(toxicity_arr)
 
-    return frac_toxic, mean_toxicity
+    return EvalOutput(misc={
+        "frac_toxic": frac_toxic,
+        "mean_toxicity": mean_toxicity
+    })
 
 # MMLU Multiple Choice
 ######################
@@ -328,9 +333,9 @@ def evaluate_wikitext(opt: Model,
         loading_bar_desc="wiki" )
 
     # Add more loss data
-    out['loss_data'] = {
-        'loss': round(float(out['loss']), 4),
-        'log_loss': round(float(out['log_loss']), 4),
+    out.loss_data =  {
+        'loss': round(float(out.loss_data["loss"]), 4),
+        'log_loss': round(float(out.loss_data["log_loss"]), 4),
     }
 
     return out
@@ -414,7 +419,12 @@ def evaluate_human_eval(opt: Model, n_questions: int = None):
     )
     environ["TOKENIZERS_PARALLELISM"] = "true"
 
-    return out
+    return EvalOutput(misc=out)
+
+# Mostly Basic Programming Problems (MBBP)
+##########################################
+
+
 
 ####################################################################################
 # Code for evaluating on masked dataset BERT tasks
@@ -506,6 +516,9 @@ def evaluate( opt: Model,
     if dataset_name == "wiki":
         return evaluate_wikitext(opt, sample_size, topk)
 
+    if dataset_name == "toxicity":
+        return evaluate_toxicity(opt, 1000)
+
     if dataset_tokens_to_skip == 0:
         print("Warning: detaset_tokens_to_skip NOT DEFINED. Using sample_size")
         dataset_tokens_to_skip = sample_size
@@ -520,28 +533,9 @@ def evaluate( opt: Model,
                 dataset_tokens_to_skip=dataset_tokens_to_skip)
 
     # Get the results
-    out = opt.evaluate_dataset( generator, k=topk, start_index=0,
+    out: EvalOutput = opt.evaluate_dataset( generator, k=topk, start_index=0,
         sample_size=sample_size, skip_eval=skip_eval, count_tokens=False,
         loading_bar_desc="%6s"%dataset_name )
-
-    # Format the results nicely
-    percent  = out['percent']
-    loss     = round(float(out['loss']), 4)
-    log_loss = round(float(out['log_loss']), 4)
-    out['loss_data'] = {
-        'loss': loss,
-        'log_loss': log_loss,
-    }
-
-    if verbose:
-        start = f' - {dataset_name}'
-        print( f'{start} loss:', out['loss'] )
-        print( f'{start} log loss:', out['log_loss'] )
-        print( f'{start} no skip top{topk}:', '%.2f' % percent['topk'], '%')
-        print( f'{start} w/ skip top{topk}:', '%.2f' % percent['topk_skip'], '%')
-        print( f'{start} no skip:', '%.2f' % percent['base'], '%')
-        print( f'{start} w/ skip:', '%.2f' % percent['skip'], '%')
-        print()
 
     return out
 
@@ -556,12 +550,10 @@ def evaluate_all( opt: Model,
     if datasets is None:
         datasets = ['pile', 'code']
 
-    out = { 'loss_data': {}, 'accuracy': {} }
+    out = EvalAllOutput()
     for dataset in datasets:
         dataset_out = evaluate(opt, dataset_name=dataset, sample_size=sample_size,
             topk=topk, verbose=verbose, dataset_tokens_to_skip=dataset_tokens_to_skip)
+        out.add(dataset, dataset_out)
 
-        out['loss_data'].update({ dataset: dataset_out['loss_data'] })
-        out['accuracy'].update({  dataset: dataset_out['percent'] })
-
-    return out
+    return out.to_dict()
