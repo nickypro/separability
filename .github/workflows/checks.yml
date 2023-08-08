@@ -33,10 +33,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.9"
+          python-version: "3.10"
           cache: "poetry"
       - name: Install dependencies
         run: poetry install --with dev
+      - name: Install pytorch with cuda
+        run: poetry run pip install torch
       - name: Pytest
         run: poetry run pytest
         env:
