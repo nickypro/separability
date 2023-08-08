@@ -1,9 +1,15 @@
+from typing import List, Union
 import numpy as np
 import torch
 from welford_torch import Welford
 from tqdm import tqdm
+from datasets import Dataset, load_dataset, get_dataset_config_names
 from .model import Model
 from .texts import prepare
+
+####################################################################################
+# Code for generated text datasets (ie: Civil Comments Toxicity)
+####################################################################################
 
 def evaluate_toxicity(opt: Model, n_samples: int = 1000):
     from detoxify import Detoxify
@@ -21,6 +27,10 @@ def evaluate_toxicity(opt: Model, n_samples: int = 1000):
     mean_toxicity = np.mean(toxicity_arr)
 
     return frac_toxic, mean_toxicity
+
+####################################################################################
+# Code for Sliding window datasets (ie: WikiText)
+####################################################################################
 
 def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_tokens=None):
     buffer_tokens = []  # Initialize the buffer
@@ -84,6 +94,67 @@ def evaluate_wikitext(opt: Model,
 
     return out
 
+####################################################################################
+# Code for evaluation of Multiple Choice questions (ie: MMLU)
+####################################################################################
+
+mcq_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+def format_mmlu_question(datum, include_answer=False):
+    s  = "Question:\n"
+    s += datum["question"]
+    s += "\n\n"
+    s += "Choices:"
+    for index, choice in enumerate(datum["choices"]):
+        s += f"\n{mcq_letters[index]}) {choice}"
+    s += "\n\n"
+    s += "Answer: "
+    if include_answer:
+        s += mcq_letters[datum["answer"]]
+    return s
+
+def evaluate_mmlu(
+        opt: Model,
+        n_shot: int = 5,
+        config: Union[str, List[str]] = None,
+    ):
+    config_options = get_dataset_config_names("tasksource/mmlu")
+
+    if isinstance(config, str):
+        if config == "all":
+            config = config_options
+        elif config in config_options:
+            config = [config]
+        else:
+            raise ValueError(f"Invalid config: {config}." + \
+                f" Must be either 'all' or one/list of {config_options}")
+
+    dataset_info = []
+
+    for c in config[:2]:
+        _dataset = load_dataset("tasksource/mmlu", c, split="test")
+
+        initial_prompt = ""
+        for i in range(n_shot):
+            initial_prompt += format_mmlu_question(_dataset[i], include_answer=True)
+            initial_prompt += "\n\n"
+
+        dataset_info.append(
+            (initial_prompt, _dataset.skip(n_shot), c)
+        )
+
+    for initial_prompt, _dataset, dataset_name in dataset_info:
+        print(dataset_name)
+        for datum in _dataset:
+            print(datum)
+            text = initial_prompt + \
+                format_mmlu_question(datum, True)
+            input_ids = opt.get_ids(text)
+            logits = opt.get_all_logits(input_ids)
+            print(logits.shape)
+            logits = logits[0, -2]
+            guess = opt.tokenizer.decode(logits.argmax())
+            print(guess, mcq_letters[datum["answer"]])
 
 ####################################################################################
 # Code for Evaluating Model
