@@ -336,6 +336,87 @@ def evaluate_wikitext(opt: Model,
     return out
 
 ####################################################################################
+# Code for evaluating code generation
+####################################################################################
+
+import tempfile
+
+# human_eval
+############
+
+def evaluate_human_eval(opt: Model, n_questions: int = None):
+    # Model generation code
+    def generate_one_completion(prompt):
+        [i, o] = opt.generate(prompt, num=100, temperature=None)
+        #o = o.split("\n\ndef")[0]
+        return o
+
+    # import human_eval tools
+    from human_eval.data import write_jsonl
+    from human_eval.evaluation import evaluate_functional_correctness
+
+    def mktemp(name:str):
+        with tempfile.NamedTemporaryFile(
+                suffix=name, delete=False
+            ) as temp_file:
+            temp_filename = temp_file.name
+        return temp_filename
+
+    def gen_temp_jsonl_files():
+        return [mktemp("-problems.jsonl"), mktemp("-samples.jsonl")]
+
+    # Load the problems
+    def load_problems(n=None):
+        def __load_dataset():
+            _dataset = load_dataset("openai_humaneval")["test"]
+            if n is None:
+                return _dataset
+
+            # Filter to only the first n problems
+            indices = list(range(0, n))
+            return _dataset.select(indices=indices)
+
+        # Load problems in human-eval dict format
+        _dataset = __load_dataset()
+        return {d["task_id"]: d for d in _dataset}
+
+    # Do sample generation
+    def generate_samples(problems):
+        num_samples_per_task = 1
+        samples = []
+        pbar = tqdm(desc="human-eval, gen", total=num_samples_per_task*len(problems.keys()))
+        for _ in range(num_samples_per_task):
+            for task_id in problems:
+                samples.append({
+                    "task_id": task_id,
+                    "completion": generate_one_completion(problems[task_id]["prompt"])
+                })
+                pbar.update(1)
+        pbar.close()
+        return samples
+
+    # Run the problems sample generation
+    problems = load_problems(n=n_questions)
+    samples = generate_samples(problems)
+
+    # save to files
+    f_problems, f_samples = gen_temp_jsonl_files()
+    write_jsonl(f_problems, list(problems.values()))
+    write_jsonl(f_samples, samples)
+
+    # do evaluation of models (for subprocess set TOKENIZERS_PARALLELISM=true)
+    from os import environ
+    environ["TOKENIZERS_PARALLELISM"] = "false"
+    out = evaluate_functional_correctness(
+        sample_file=f_samples,
+        problem_file=f_problems,
+        k = [1, 10],
+    )
+    environ["TOKENIZERS_PARALLELISM"] = "true"
+
+    return out
+
+####################################################################################
 # Code for evaluating on masked dataset BERT tasks
 ####################################################################################
 
