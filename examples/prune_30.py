@@ -1,6 +1,7 @@
 from separability.data_classes import PruningConfig
 from separability.parser import cli_parser
 from separability.prune import run_pruning
+import torch
 
 # Configure initial model and tests
 c = PruningConfig(
@@ -22,4 +23,5 @@ c = PruningConfig(
 c, args = cli_parser(c)
 
 # Run the iterated pruning
-model, history = run_pruning(c)
+with torch.no_grad():
+    model, history = run_pruning(c)
