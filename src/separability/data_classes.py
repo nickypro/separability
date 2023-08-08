@@ -161,6 +161,45 @@ class RunDataItem:
         return str(self.summary())
 
 ######################################################################################
+# Evaluation Data Classes
+######################################################################################
+
+def _set_empty_attrs_to_dict(__class):
+    for attr in __class.__dataclass_fields__:
+        __attr = getattr(__class, attr)
+        if __attr is None:
+            setattr(__class, attr, {})
+
+@dataclass
+class EvalOutput:
+    loss_data: dict = None
+    percent: dict = None
+    misc: dict = None
+
+    def __post_init__(self):
+        _set_empty_attrs_to_dict(self)
+
+@dataclass
+class EvalAllOutput:
+    loss_data: dict = None
+    accuracy: dict = None
+    misc: dict = None
+
+    def __post_init__(self):
+        _set_empty_attrs_to_dict(self)
+
+    def add(self, dataset: str, data: EvalOutput):
+        self.loss_data[dataset] = data.loss
+        self.accuracy[dataset]  = data.percent
+        self.misc[dataset]      = data.misc
+
+    def to_dict(self):
+        _dict = {}
+        for attr in self.__dataclass_fields__:
+            _dict[attr] = getattr(self, attr)
+        return _dict
+
+######################################################################################
 # Run Data History Class
 ######################################################################################
 
