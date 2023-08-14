@@ -277,6 +277,10 @@ def evaluate_mmlu(
 # Evaluate on Sliding Window Tasks
 ####################################################################################
 
+####################################################################################
+# Code for Sliding window datasets (ie: WikiText)
+####################################################################################
+
 def sliding_window_dataset(tokenizer, _dataset, buffer_size, step_size, max_tokens=None):
     buffer_tokens = []  # Initialize the buffer
     token_count = 0  # Initialize the token counter
