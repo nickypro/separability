@@ -1,0 +1,2 @@
+[MASTER]
+init-hook='import sys; sys.path.append("."); sys.path.append("./.venv/bin/python3.10")'

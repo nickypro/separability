@@ -7,6 +7,7 @@
     "python.linting.pylintEnabled": true,
     "python.linting.enabled": true,
     "cSpell.words": [
+        "argmax",
         "argpartition",
         "argsort",
         "borderaxespad",
@@ -32,6 +33,7 @@
         "loglog",
         "matplotlib",
         "midlayer",
+        "mmlu",
         "ncol",
         "ndarray",
         "numpify",
@@ -44,6 +46,7 @@
         "separability",
         "softmax",
         "stds",
+        "tasksource",
         "topk",
         "tqdm",
         "trapz",
