@@ -10,7 +10,7 @@ def is_true(arg):
     return False
 
 def split_list(arg):
-    if isinstance(arg, list):
+    if isinstance(arg, list) or isinstance(arg, tuple):
         return arg
     return arg.split(',')
 
