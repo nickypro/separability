@@ -1,4 +1,5 @@
 import tasks
+import subprocess
 
 # Run the tasks
 def generate_list_of_configs(loop_config):
@@ -69,5 +70,9 @@ def gen_name(config):
 
 for config in attn_configs:
     config["name"] = gen_name(config)
-    tasks.prune.delay(config["model_repo"], config)
+    command = tasks.generate_command(config["model_repo"], config)
+
+    subprocess.run(command, check=True)
+
+    #tasks.prune.delay(config["model_repo"], config)
 
