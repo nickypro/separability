@@ -1,3 +1,5 @@
+![Separability of Language Models](https://github.com/pesvut/separability/blob/main/docs/separability-header.png?raw=true)
+
 # separability
 
 My basic library for studying LLMs, with support for Multi-GPU inference and
@@ -7,10 +9,13 @@ different inputs, and for pruning different parts of the model based on those
 activations.
 
 The currently tested list of models is:
-- GPT2
 - EleutherAI's Pythia
 - Meta Opt
 - Meta Galactica
+- GPT2
+- BERT
+
+For check out the [examples folder](https://github.com/pesvut/separability/blob/main/examples) to see in more detail how the library can be used.
 
 ## Pruning based on Capabilities
 
@@ -93,10 +98,16 @@ To get the activations for the input text at all of the MLP mid layers, we can l
 `opt.get_ff_key_activations( text )` or `opt.get_ff_key_activations( residual_stream=residual_stream )`.
 
 ## texts.py
-Has some basic tools for loading the two text datasets I am using:
+Has some basic tools for loading the text datasets I am using:
 - 'pile', ( EleutherAI's 'The Pile' dataset)
+- 'pile-codeless' (Pile without GitHub)
 - 'code' (CodeParrot's 'github-code' dataset)
+- 'python', (Subset of only python)
+- 'wiki', (WikiText)
+- 'civil', (Civil comments with toxicity < 0.2)
+- 'toxic', (Civil comments with toxicity > 0.8)
+- ...
 
 ## activations.py
-Has code specific to the two datasets I am using to analyze and attempt to remove capabilities from the models.
+Has code specific to the datasets I am using to analyze and attempt to remove capabilities from the models.
 
