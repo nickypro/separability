@@ -48,6 +48,18 @@ def load_pile_codeless(test=0):
         return _dataset['test']
     return _dataset['train']
 
+def load_pile_deduped(test=0):
+    repo = "EleutherAI/the_pile_deduplicated"
+    _dataset = load_dataset(repo, streaming=True)
+
+    if test:
+        skip_n = int(test//100)
+        print( "Warning: 'pile_dedpued' has no 'test' split.",
+              f"Using 'train' split and skipping {skip_n} texts instead.")
+        return _dataset['train'].skip(skip_n) # Conservative skip limit
+
+    return _dataset['train']
+
 def load_civil(test=0):
     _dataset = load_dataset("civil_comments", streaming=True)
     # Filter the dataset for toxicity > 0.8
@@ -85,6 +97,9 @@ def prepare( dataset_name, test:int = 0 ):
 
     if dataset_name == 'pile':
         return load_pile(test), 'text', most_common_pile_tokens
+
+    if dataset_name == 'pile_deduped':
+        return load_pile_deduped(test), 'text', most_common_pile_tokens
 
     if dataset_name == 'python':
         return load_code(test, 'Python-all'), 'code', most_common_code_tokens
