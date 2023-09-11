@@ -54,7 +54,7 @@ def load_pile_deduped(test=0):
 
     if test:
         skip_n = int(test//100)
-        print( "Warning: 'pile_dedpued' has no 'test' split.",
+        print( "Warning: 'pile_deduped' has no 'test' split.",
               f"Using 'train' split and skipping {skip_n} texts instead.")
         return _dataset['train'].skip(skip_n) # Conservative skip limit
 
