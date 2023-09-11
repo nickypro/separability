@@ -60,6 +60,7 @@ class Model():
             dtype: Optional[str] = None,
             torch_dtype: Optional[torch.dtype] = None,
             svd_attn: bool = False,
+            tokenizer_repo: Optional[str] = None,
         ):
         """
         OPT Model with functions for extracting activations.
@@ -92,7 +93,8 @@ class Model():
             self.device = model_device if model_device else self.device
             self.output_device = output_device if output_device else self.device
 
-        self.init_model( model_repo )
+        self.set_repo(model_repo, tokenizer_repo)
+        self.init_model()
         self.limit = limit
 
         # Indices of outputs for reference
@@ -101,12 +103,13 @@ class Model():
         self.dimension_index = -1
 
     # pylint: disable=attribute-defined-outside-init
-    def set_repo( self, model_repo: str ):
+    def set_repo(self, model_repo: str, tokenizer_repo: Optional[str] = None):
         if model_repo not in supported_model_repos:
             warnings.warn( f"Model {model_repo} not tested." )
 
         self.model_size = model_repo.split('-')[-1]
         self.model_repo = model_repo
+        self.tokenizer_repo = model_repo if tokenizer_repo is None else tokenizer_repo
 
     # pylint: disable=attribute-defined-outside-init
     def init_model( self, model_repo: Optional[str] = None ):
@@ -120,7 +123,7 @@ class Model():
         self.cfg.is_low_precision = self.dtype_map.is_low_precision
 
         # Import model components
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_repo)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_repo)
         self.predictor = AutoModelForCausalLM.from_pretrained(
             self.model_repo, device_map=device_map, **self.dtype_args)
 
