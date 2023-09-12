@@ -417,17 +417,18 @@ class Model():
                 **kwargs
             ) -> Tensor:
 
+        if residual_stream is None:
+            residual_stream = self.get_residual_stream( text, input_ids,
+                inputs_embeds, text_activations, limit, **kwargs )
+
         if self.mlp_pre_out_mode == "hook":
-            _shape = (self.cfg.n_layers, self.cfg.d_model)
+            _shape = (self.cfg.n_layers, -1, self.cfg.d_mlp)
             ff_mids = self.out_stack([
                 a[1] for a in self.get_recent_activations("mlp_pre_out")
             ]).reshape(_shape)
             return ff_mids
 
         elif self.mlp_pre_out_mode == "calc":
-            if residual_stream is None:
-                residual_stream = self.get_residual_stream( text, input_ids,
-                    inputs_embeds, text_activations, limit, **kwargs )
             ff_inputs = residual_stream[1:-1:2]
             ff_mids = self.calculate_ff_keys( ff_inputs.to(self.device),
                 use_activation_function )
@@ -435,7 +436,6 @@ class Model():
 
         else:
             raise ValueError(f"mlp_pre_out_mode {self.mlp_pre_out_mode} unsupported")
-
 
     def get_attn_pre_out_activations( self,
                 text: Optional[str] = None,
