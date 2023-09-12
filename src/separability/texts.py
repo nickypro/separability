@@ -30,7 +30,6 @@ def load_code(test=0, _name=None):
     return _dataset['train']
 
 def load_pile(test=0):
-    # repo = "EleutherAI/pile_deduplicated" # has no testing split
     repo = "EleutherAI/pile"
     _dataset = load_dataset(repo, streaming=True)
 
@@ -59,6 +58,15 @@ def load_pile_deduped(test=0):
         return _dataset['train'].skip(skip_n) # Conservative skip limit
 
     return _dataset['train']
+
+def load_stories(test=0):
+    repo = "roneneldan/TinyStories"
+    _dataset = load_dataset(repo, streaming=True)
+
+    if test:
+        return _dataset['validation']
+    return _dataset['train']
+
 
 def load_civil(test=0):
     _dataset = load_dataset("civil_comments", streaming=True)
@@ -100,6 +108,9 @@ def prepare( dataset_name, test:int = 0 ):
 
     if dataset_name == 'pile_deduped':
         return load_pile_deduped(test), 'text', most_common_pile_tokens
+
+    if dataset_name == 'stories':
+        return load_stories(test), 'text', most_common_pile_tokens
 
     if dataset_name == 'python':
         return load_code(test, 'Python-all'), 'code', most_common_code_tokens
