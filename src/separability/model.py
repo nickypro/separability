@@ -123,7 +123,7 @@ class Model():
         self.cfg.is_low_precision = self.dtype_map.is_low_precision
 
         # Import model components
-        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_repo)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_repo, legacy=False)
         self.predictor = AutoModelForCausalLM.from_pretrained(
             self.model_repo, device_map=device_map, **self.dtype_args)
 
@@ -140,7 +140,7 @@ class Model():
             "attn": {},
             "attn_pre_out": {},
             "ff": {},
-            "ff_mid": {}
+            "mlp_pre_out": {}
         }
 
         self.register_activations()
@@ -148,9 +148,6 @@ class Model():
             self.svd_attention_layers()
         else:
             self.register_inverse_out_proj()
-
-        self.pre_out_mode = "hook" if "attn.out" in self.layers[0] else "calc"
-
         return self
 
     def show_details( self, verbose=True ):
@@ -192,6 +189,10 @@ class Model():
         return hook
 
     def register_activations( self ):
+        # Configure what to hook
+        self.attn_pre_out_mode = "hook" if "attn.out" in self.layers[0] else "calc"
+        self.mlp_pre_out_mode  = "hook" if "fc2" in self.layers[0] else "calc"
+
         # register the forward hook to attention outputs
         for layer_index, layer in enumerate(self.layers):
             # Build normal attention hook
@@ -199,12 +200,17 @@ class Model():
             name = pad_zeros( layer_index ) + "-attention"
             attn.register_forward_hook(self.build_output_hook("attn", name))
 
+            # Listen to inputs for FF_out
+            if self.mlp_pre_out_mode == "hook":
+                fc2 = layer["fc2"]
+                name = pad_zeros( layer_index ) + "-mlp-pre-out"
+                fc2.register_forward_hook(self.build_input_hook("mlp_pre_out", name))
+
             # Optionally, build pre_out hook if possible
-            if not "attn.out" in layer:
-                continue
-            attn_o = layer["attn.out"]
-            name = pad_zeros( layer_index ) + "-attention-out"
-            attn_o.register_forward_hook(self.build_input_hook("attn_pre_out", name))
+            if self.attn_pre_out_mode == "hook":
+                attn_o = layer["attn.out"]
+                name = pad_zeros( layer_index ) + "-attention-out"
+                attn_o.register_forward_hook(self.build_input_hook("attn_pre_out", name))
 
         print( f" - Registered {layer_index+1} Attention Layers" )
 
@@ -410,15 +416,26 @@ class Model():
                 use_activation_function: bool = True,
                 **kwargs
             ) -> Tensor:
-        if residual_stream is None:
-            residual_stream = self.get_residual_stream( text, input_ids,
-                inputs_embeds, text_activations, limit, **kwargs )
 
-        ff_inputs = residual_stream[1:-1:2]
-        ff_keys = self.calculate_ff_keys( ff_inputs.to(self.device),
-            use_activation_function )
+        if self.mlp_pre_out_mode == "hook":
+            _shape = (self.cfg.n_layers, self.cfg.d_model)
+            ff_mids = self.out_stack([
+                a[1] for a in self.get_recent_activations("mlp_pre_out")
+            ]).reshape(_shape)
+            return ff_mids
 
-        return ff_keys
+        elif self.mlp_pre_out_mode == "calc":
+            if residual_stream is None:
+                residual_stream = self.get_residual_stream( text, input_ids,
+                    inputs_embeds, text_activations, limit, **kwargs )
+            ff_inputs = residual_stream[1:-1:2]
+            ff_mids = self.calculate_ff_keys( ff_inputs.to(self.device),
+                use_activation_function )
+            return ff_mids
+
+        else:
+            raise ValueError(f"mlp_pre_out_mode {self.mlp_pre_out_mode} unsupported")
+
 
     def get_attn_pre_out_activations( self,
                 text: Optional[str] = None,
@@ -436,16 +453,17 @@ class Model():
 
         [ _inpt, attn_out, _ff_out, _output ] = text_activations
 
-        if self.pre_out_mode == "hook":
+        if self.attn_pre_out_mode == "hook":
             _shape = (self.cfg.n_layers, -1, self.cfg.n_heads, self.cfg.d_head)
             pre_outs = self.out_stack([
                 a[1] for a in self.get_recent_activations("attn_pre_out")
             ]).reshape(_shape)
-        elif self.pre_out_mode == "calc":
+
+        elif self.attn_pre_out_mode == "calc":
             pre_outs = self.calculate_attn_pre_out(
                 attn_out.to(self.device), reshape, transpose )
         else:
-            raise ValueError( f"pre_out_mode {self.pre_out_mode} not supported" )
+            raise ValueError(f"attn_pre_out_mode {self.attn_pre_out_mode} unsupported")
 
         return pre_outs
 
@@ -839,7 +857,7 @@ class Model():
 
         # Hard code GPT2 Tokeniser pad_token_id to avoid warnings
         if self.cfg.architecture == "GPT2LMHeadModel":
-            if not "pad_token_id" in kwargs:
+            if "pad_token_id" not in kwargs:
                 kwargs["pad_token_id"] = 50256
 
         new_len = len(input_ids[0])+num
@@ -874,7 +892,7 @@ class Model():
         return torch.index_select( output, self.token_index, indices )
 
     def unembed( self, embedded_outputs: Tensor ):
-        if "lm_head" in self.map.key_map.keys():
+        if "lm_head" in self.map.key_map:
             lm_head = self.map["lm_head"]
         else:
             lm_head = self.predictor.get_output_embeddings()
