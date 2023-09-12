@@ -463,9 +463,11 @@ def build_llama_layer_map(cfg: ConfigClass):
         "ln2.b"         : None,
 
         "fc1"           : "mlp.up_proj",
+        "fc3"           : "mlp.gate_proj",
         "mlp.W_in"      : "mlp.up_proj.weight",
         "mlp.W_gate"    : "mlp.gate_proj.weight",
         "mlp.b_in"      : None,
+        "mlp.b_gate"    : None,
 
         "activation_fn" : "activation_fn",
 
