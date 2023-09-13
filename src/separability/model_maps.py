@@ -38,11 +38,11 @@ def convert_hf_model_config(official_model_name: str):
     Takes the official_model_name as an input.
     """
     # Load HuggingFace model config
-    if 'llama' in official_model_name and 'open_llama' not in official_model_name:
-        architecture = "LLaMAForCausalLM"
-    else:
-        hf_config = AutoConfig.from_pretrained(official_model_name)
-        architecture = hf_config.architectures[0]
+    #if 'llama' in official_model_name and 'open_llama' not in official_model_name:
+    #    architecture = "LLaMAForCausalLM"
+    #else:
+    hf_config = AutoConfig.from_pretrained(official_model_name)
+    architecture = hf_config.architectures[0]
 
     if 'llama-7b' in official_model_name:
         cfg_dict = {
@@ -112,7 +112,7 @@ def convert_hf_model_config(official_model_name: str):
             "final_rms": True,
             "gated_mlp": True,
         }
-    elif architecture == "LlamaForCausalLM":
+    elif architecture.lower() == "LlamaForCausalLM".lower():
         cfg_dict = {
             "d_model": hf_config.hidden_size,
             "d_head": hf_config.hidden_size // hf_config.num_attention_heads,
