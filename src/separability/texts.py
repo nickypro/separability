@@ -30,7 +30,7 @@ def load_code(test=0, _name=None):
     return _dataset['train']
 
 def load_pile(test=0):
-    repo = "monology/pile" # "EleutherAI/pile" not available
+    repo = "monology/pile-uncopyrighted" # "EleutherAI/pile" not available
     _dataset = load_dataset(repo, streaming=True)
 
     if test:
@@ -38,7 +38,7 @@ def load_pile(test=0):
     return _dataset['train']
 
 def load_pile_codeless(test=0):
-    repo = "monology/pile" # deduplicated does not have meta tags
+    repo = "monology/pile-uncopyrighted" # "EleutherAI/pile" not available
     _dataset = load_dataset(repo, "all", streaming=True)
     def filter_out_code(example):
         return example['meta']['pile_set_name'] != 'Github'
