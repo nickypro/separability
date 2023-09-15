@@ -22,7 +22,13 @@ then
     # Add poetry to current bash session PATH
     export PATH="/root/.local/bin:$PATH"
   fi
+  # Sometimes poetry install fails and says "pending"
+  if [ $2 = "-k"]
+  then
+    echo "export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring" >> ~/.bashrc
+  fi
 fi
+
 # Dependencies (using Poetry rather than pip)
 apt install python3 python3-pip vim -y
 apt install python-is-python3 -y
