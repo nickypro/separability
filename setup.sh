@@ -23,7 +23,7 @@ then
     export PATH="/root/.local/bin:$PATH"
   fi
   # Sometimes poetry install fails and says "pending"
-  if [ $2 = "-k"]
+  if [ $1 = '-k' ]
   then
     echo "export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring" >> ~/.bashrc
   fi
