@@ -203,25 +203,37 @@ def prune_random( opt: Model,
     return ff_pruned, attn_pruned, data_out
 
 def prune_random_and_evaluate( opt: Model,
-        ff_frac: float,
-        attn_frac: float,
+        c: PruningConfig,
         ff_pruned: Optional[np.ndarray] = None,
         attn_pruned: Optional[np.ndarray] = None,
-        eval_size: int = 1e5,
-        datasets: List[str] = None,
         ):
+    """
+    To use, run once with ff_pruned=None and attn_pruned=None, then run again
+    with the parameters given as output passed back in.
+
+    Args:
+        opt (Model): The model to prune and evaluate
+        c (PruningConfig): The pruning configuration
+        ff_pruned (Optional[np.ndarray]): Bool list of FF neurons, default None.
+        attn_pruned (Optional[np.ndarray], optional: Bool list of ATTN neurons, default None.
+
+    Returns:
+        ff_pruned (Optional[np.ndarray]):
+        attn_pruned (Optional[np.ndarray]):
+        data (RunDataItem):
+    """
 
 
     # Prune the model randomly
     ff_pruned, attn_pruned, data_out = \
-        prune_random( opt, ff_frac, attn_frac, ff_pruned, attn_pruned )
+        prune_random( opt, c.ff_frac, c.attn_frac, ff_pruned, attn_pruned )
 
     # Initialize the output dictionary
     data = RunDataItem()
 
     # Evaluate the model
     data.update(
-        evaluate_all( opt, eval_size, datasets, dataset_tokens_to_skip=1 )
+        evaluate_all( opt, c.eval_size, c.datasets, dataset_tokens_to_skip=1 )
     )
 
     data.update({'deletions': data_out })
@@ -269,6 +281,14 @@ def run_pruning(c: PruningConfig):
         for _ in range(c.n_steps):
             data = prune_and_evaluate(opt, c)
             history.add(data)
+
+    # Else, if pruning randomly, non need to get activations
+    elif c.ff_scoring == "random" and c.attn_scoring == "random":
+        ff_pruned, attn_pruned = None, None
+        for i in range(c.n_steps):
+            data = prune_random_and_evaluate(opt, c, ff_pruned, attn_pruned)
+            history.add(data)
+
 
     # Non-iteratively get activations, then iteratively prune and evaluate
     else:
