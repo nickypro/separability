@@ -276,19 +276,18 @@ def run_pruning(c: PruningConfig):
         history.add(data)
         print(history.df.T)
 
-    # Iteratively prune neurons and evaluate
-    if c.recalculate_activations:
-        for _ in range(c.n_steps):
-            data = prune_and_evaluate(opt, c)
-            history.add(data)
-
-    # Else, if pruning randomly, non need to get activations
-    elif c.ff_scoring == "random" and c.attn_scoring == "random":
+    # If pruning randomly, no need to get activations
+    if c.ff_scoring == "random" and c.attn_scoring == "random":
         ff_pruned, attn_pruned = None, None
         for i in range(c.n_steps):
             data = prune_random_and_evaluate(opt, c, ff_pruned, attn_pruned)
             history.add(data)
 
+    # Iteratively prune neurons and evaluate
+    elif c.recalculate_activations:
+        for _ in range(c.n_steps):
+            data = prune_and_evaluate(opt, c)
+            history.add(data)
 
     # Non-iteratively get activations, then iteratively prune and evaluate
     else:
