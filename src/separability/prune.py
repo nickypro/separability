@@ -233,7 +233,7 @@ def prune_random_and_evaluate( opt: Model,
 
     # Evaluate the model
     data.update(
-        evaluate_all( opt, c.eval_size, c.datasets, dataset_tokens_to_skip=1 )
+        evaluate_all( opt, c.eval_sample_size, c.datasets, dataset_tokens_to_skip=1 )
     )
 
     data.update({'deletions': data_out })
