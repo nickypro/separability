@@ -3,7 +3,7 @@
 prune_gpt2() {
     poetry run python prune_30.py "gpt2-large" \
         --wandb_project civil-toxic \
-        --focus civil --cripple toxic --additional_datasets wiki,mmlu \
+        --focus civil --cripple toxic --additional_datasets wiki,mmlu:all \
         --recalculate_activations True \
         --run_pre_test True --svd_attn False \
         --ff_scoring abs --attn_scoring abs \
