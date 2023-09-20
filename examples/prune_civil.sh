@@ -3,7 +3,7 @@
 prune_gpt2() {
     poetry run python prune_30.py "gpt2-large" \
         --wandb_project civil-toxic \
-        --focus civil --cripple toxic --additional_datasets wiki \
+        --focus civil --cripple toxic --additional_datasets wiki,toxicity \
         --recalculate_activations True \
         --run_pre_test True --svd_attn False \
         --ff_scoring abs --attn_scoring abs \
@@ -13,7 +13,7 @@ prune_gpt2() {
 prune_llama2() {
     poetry run python prune_30.py "meta-llama/Llama-2-7b" \
         --wandb_project civil-toxic \
-        --focus civil --cripple toxic --additional_datasets wiki,mmlu:all \
+        --focus civil --cripple toxic --additional_datasets wiki,toxicity,mmlu:all \
         --recalculate_activations True \
         --run_pre_test True --svd_attn False \
         --ff_scoring abs --attn_scoring abs \
