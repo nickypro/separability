@@ -6,7 +6,8 @@ import wandb
 import copy
 
 from .model import Model
-from .data_classes import PruningConfig, RunDataHistory, RunDataItem
+from .data_classes import PruningConfig, RunDataHistory, \
+                          RunDataItem, ActivationOverview
 from .eval import evaluate_all
 from .scoring import score_indices_by
 from .activations import get_midlayer_activations, get_top_frac, \
@@ -68,8 +69,8 @@ def prune_and_evaluate(
     return data
 
 def score_and_prune( opt: Model,
-            focus_activations_data: dict,
-            cripple_activations_data: dict,
+            focus_activations_data: ActivationOverview,
+            cripple_activations_data: ActivationOverview,
             pruning_config: PruningConfig,
             save=False,
         ):
@@ -79,18 +80,20 @@ def score_and_prune( opt: Model,
     do_ff   = ff_frac > 0
     do_attn = attn_frac > 0
 
+    act_subset = pruning_config.scoring_normalization
     if do_ff > 0:
-        ff_focus_data   = focus_activations_data["ff"]
-        ff_cripple_data = cripple_activations_data["ff"]
+        ff_focus_data   = focus_activations_data.ff[act_subset]
+        ff_cripple_data = cripple_activations_data.ff[act_subset]
         ff_scoring_fn = score_indices_by(pruning_config.ff_scoring)
+
         ff_scores = ff_scoring_fn(opt, ff_focus_data, ff_cripple_data, ff_eps)
         ff_criteria, ff_threshold = get_top_frac(ff_scores, ff_frac)
         opt.delete_ff_keys(ff_criteria)
 
     # Get the top fraction of Attention activations and prune
     if do_attn > 0:
-        attn_focus_data   = focus_activations_data["attn"]
-        attn_cripple_data = cripple_activations_data["attn"]
+        attn_focus_data   = focus_activations_data.attn[act_subset]
+        attn_cripple_data = cripple_activations_data.attn[act_subset]
         # scoring for attention
         attn_scoring_fn = score_indices_by(pruning_config.attn_scoring)
         attn_scores = attn_scoring_fn(opt, attn_focus_data, attn_cripple_data, attn_eps)

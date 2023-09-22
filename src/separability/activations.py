@@ -18,7 +18,8 @@ import matplotlib.pyplot as plt
 # Import from this project
 from .model import Model
 from .texts import prepare
-from .data_classes import RunDataItem, ActivationCollector
+from .data_classes import RunDataItem, ActivationCollector, \
+                          ActivationSummaryHolder, ActivationOverview
 from .eval import evaluate, evaluate_all
 
 ######################################################################################
@@ -30,6 +31,7 @@ def get_midlayer_activations( opt: Model,
         sample_size: int = 10000,
         attn_mode: str = "pre-out",
         check_accuracy: bool = False,
+        calculate_loss: bool = True,
         k: int = 10,
         check_skips: bool = False,
         calculate_ff: bool = True,
@@ -93,11 +95,13 @@ def get_midlayer_activations( opt: Model,
     if do_ff:
         ff_shape = (opt.cfg.n_layers, opt.cfg.d_mlp)
         ff_data = ActivationCollector( ff_shape, opt.output_device, collect_ff )
+        ff_data_loss_normed = ActivationCollector( ff_shape, opt.output_device, collect_ff )
 
     # self-attention activation collector
     if do_attn:
         attn_shape = (opt.cfg.n_layers, opt.cfg.n_heads, opt.cfg.d_head)
         attn_data = ActivationCollector( attn_shape, opt.output_device, collect_attn )
+        attn_data_loss_normed = ActivationCollector( attn_shape, opt.output_device, collect_ff )
 
     if collect_ff or collect_attn:
         criteria_raw = []
@@ -160,12 +164,14 @@ def get_midlayer_activations( opt: Model,
             criteria = torch.ones_like( ids, dtype=torch.bool ).detach()
 
             # (Optional) Check if prediction is accurate enough to count
-            if check_accuracy:
-                logits = opt.unembed( residual_stream[-1] ).detach()
-                top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
+            if check_accuracy or calculate_loss:
+                logits = opt.unembed( residual_stream[-1] ).unsqueeze(dim=0).detach()
+                loss = opt.evaluate_ce_losses(input_ids=input_ids, logits=logits)[0]
 
-                for index in range(len(ids)-1):
-                    criteria[index] *= (ids[index+1] in top_k_tokens[index])
+                if check_accuracy:
+                    top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
+                    for index in range(len(ids)-1):
+                        criteria[index] *= (ids[index+1] in top_k_tokens[index])
 
             # (Optional) Choose a set of token ids to skip
             if check_skips:
@@ -177,14 +183,24 @@ def get_midlayer_activations( opt: Model,
                 for token_index, ff_activation in enumerate(ff_keys):
                     if not criteria[token_index]:
                         continue
-                    ff_data.add( ff_activation )
+                    ff_data.add(ff_activation)
+
+                    if token_index == 0 or loss is None:
+                        continue
+                    token_loss = loss[token_index-1]
+                    ff_data_loss_normed.add(ff_activation/token_loss)
 
             # Count the number of activations in Self-Attention
             if do_attn:
                 for token_index, attn_activation in enumerate(attn_activations):
                     if not criteria[token_index]:
                         continue
-                    attn_data.add( attn_activation )
+                    attn_data.add(attn_activation)
+
+                    if token_index == 0 or loss is None:
+                        continue
+                    token_loss = loss[token_index-1]
+                    attn_data_loss_normed.add(attn_activation/token_loss)
 
             if collect_ff or collect_attn:
                 for criterion in criteria:
@@ -204,10 +220,15 @@ def get_midlayer_activations( opt: Model,
 
     # Summary information about activations
     if calculate_ff:
-        output["ff"]   = ff_data.summary(dtype=opt.dtype)
+        output["ff"] = ActivationSummaryHolder(
+            orig = ff_data.summary(dtype=opt.dtype),
+            loss_normed = ff_data_loss_normed.summary(dtype=opt.dtype),
+        )
     if calculate_attn:
-        output["attn"] = attn_data.summary(dtype=opt.dtype)
-
+        output["attn"] = ActivationSummaryHolder(
+            orig = attn_data.summary(dtype=opt.dtype),
+            loss_normed = attn_data_loss_normed.summary(dtype=opt.dtype),
+        )
 
     # Raw activations of data
     if collect_ff or collect_attn:
@@ -217,7 +238,7 @@ def get_midlayer_activations( opt: Model,
     if collect_attn:
         output["raw"]["attn"] = attn_data.get_raw()
 
-    return output
+    return ActivationOverview(**output)
 
 def get_top_frac( values_tensor: Tensor, top_frac: float ) -> Tuple[Tensor, float]:
     """
