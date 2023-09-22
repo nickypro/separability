@@ -1,7 +1,8 @@
-from typing import List, Tuple, Union, Optional
+from typing import List, Dict, Tuple, Union, Optional
 from dataclasses import dataclass
 
 import torch
+from torch import Tensor
 import pandas as pd
 import wandb
 from welford_torch import Welford
@@ -288,6 +289,25 @@ class ActivationSummary:
     neg_var: torch.Tensor
     pos_count: torch.Tensor
 
+@dataclass
+class ActivationSummaryHolder:
+    """ Holder for multiple ActivationSummary objects."""
+    orig: ActivationSummary
+    loss_normed: ActivationSummary = None
+    misc: dict = None
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+@dataclass
+class ActivationOverview:
+    """Output from activation collection on multiple possible parts"""
+    texts_viewed: int
+    ff: Optional[ActivationSummaryHolder] = None
+    attn: Optional[ActivationSummaryHolder] = None
+    raw: Optional[dict] = None
+    misc_data: Optional[dict] = None
+
 class ActivationCollector:
     """ Class for collecting data from model.
 
@@ -323,7 +343,7 @@ class ActivationCollector:
         if self.collect_raw:
             self.raw = []
 
-    def add(self, data_point):
+    def add(self, data_point: Tensor):
         # Add mean and variance of data_point to all_activation
         self.n_points += 1
         self.all.add(data_point)
@@ -384,6 +404,7 @@ class PruningConfig:
     eval_sample_size: int = 1e5
     topk = 10
 
+    scoring_normalization: str = "orig" # "original" or "loss_normed"
     ff_scoring: str = "abs"
 
     attn_scoring: str = "abs"
