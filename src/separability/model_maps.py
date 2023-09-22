@@ -879,6 +879,9 @@ class ModelLayerMap:
         if isinstance(key, Callable):
             return key(self.layer, __value)
 
+        if key is None:
+            return None
+
         if not isinstance(key, str):
             raise ValueError("Invalid key, must be string or callable")
 
