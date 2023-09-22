@@ -96,12 +96,14 @@ def get_midlayer_activations( opt: Model,
         ff_shape = (opt.cfg.n_layers, opt.cfg.d_mlp)
         ff_data = ActivationCollector( ff_shape, opt.output_device, collect_ff )
         ff_data_loss_normed = ActivationCollector( ff_shape, opt.output_device, collect_ff )
+        ff_data_log_loss_normed = ActivationCollector( ff_shape, opt.output_device, collect_ff )
 
     # self-attention activation collector
     if do_attn:
         attn_shape = (opt.cfg.n_layers, opt.cfg.n_heads, opt.cfg.d_head)
         attn_data = ActivationCollector( attn_shape, opt.output_device, collect_attn )
         attn_data_loss_normed = ActivationCollector( attn_shape, opt.output_device, collect_ff )
+        attn_data_log_loss_normed = ActivationCollector( attn_shape, opt.output_device, collect_ff )
 
     if collect_ff or collect_attn:
         criteria_raw = []
@@ -189,6 +191,7 @@ def get_midlayer_activations( opt: Model,
                         continue
                     token_loss = loss[token_index-1]
                     ff_data_loss_normed.add(ff_activation/token_loss)
+                    ff_data_loss_normed.add(ff_activation/torch.log(token_loss))
 
             # Count the number of activations in Self-Attention
             if do_attn:
@@ -201,6 +204,7 @@ def get_midlayer_activations( opt: Model,
                         continue
                     token_loss = loss[token_index-1]
                     attn_data_loss_normed.add(attn_activation/token_loss)
+                    attn_data_loss_normed.add(attn_activation/torch.log(token_loss))
 
             if collect_ff or collect_attn:
                 for criterion in criteria:
@@ -223,11 +227,13 @@ def get_midlayer_activations( opt: Model,
         output["ff"] = ActivationSummaryHolder(
             orig = ff_data.summary(dtype=opt.dtype),
             loss_normed = ff_data_loss_normed.summary(dtype=opt.dtype),
+            log_loss_normed = ff_data_log_loss_normed.summary(dtype=opt.dtype),
         )
     if calculate_attn:
         output["attn"] = ActivationSummaryHolder(
             orig = attn_data.summary(dtype=opt.dtype),
             loss_normed = attn_data_loss_normed.summary(dtype=opt.dtype),
+            log_loss_normed = attn_data_log_loss_normed.summary(dtype=opt.dtype),
         )
 
     # Raw activations of data
