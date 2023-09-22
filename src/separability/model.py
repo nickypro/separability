@@ -1010,6 +1010,33 @@ class Model():
 
         return output
 
+    def evaluate_ce_losses( self,
+            text: Optional[str] = None,
+            input_ids: Optional[Tensor] = None,
+            expected_ids: Optional[Tensor] = None,
+            logits: Optional[Tensor] = None
+        ):
+        if text is None and input_ids is None and expected_ids is None:
+            raise ValueError( "Must provide text, input_ids, or expected_ids" )
+
+        # Generate input token ids and output top k token ids
+        with torch.no_grad():
+            if input_ids is None and text is not None:
+                input_ids = self.get_ids( text )
+            if expected_ids is None:
+                expected_ids = input_ids[..., 1:]
+
+            if logits is None:
+                logits = self.get_all_logits( input_ids )[..., :-1, :]
+            elif input_ids is not None:
+                logits = logits[..., :-1, :]
+
+        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+        predicted_log_probs = log_probs[..., :, :].gather(
+            dim=-1, index=expected_ids[..., :, None]
+        )[..., 0]
+        return -predicted_log_probs.reshape(expected_ids.shape)
+
     def evaluate_ce_loss( self,
             text: Optional[str] = None,
             input_ids: Optional[Tensor] = None,
@@ -1021,27 +1048,15 @@ class Model():
         Args:
             text (str, optional): The text to evaluate.
             input_ids (Tensor, optional): The input IDs from text to evaluate.
+            expected_ids (Tensor, optional): The expected IDs from text to evaluate.
             logits (Tensor, optional): The pre-computed logits from text to evaluate.
 
         Returns:
             loss: Mean Cross-Entropy loss over tokens
         """
-        if text is None and input_ids is None and expected_ids is None:
-            raise ValueError( "Must provide text, input_ids, or expected_ids" )
+        predicted_log_probs = \
+            self.evaluate_ce_losses( text, input_ids, expected_ids, logits )
 
-        # Generate input token ids and output top k token ids
-        with torch.no_grad():
-            if input_ids is None and text is not None:
-                input_ids = self.get_ids( text )
-            if expected_ids is None:
-                expected_ids = input_ids[1:]
-            if logits is None:
-                logits = self.get_all_logits( input_ids )[..., :-1, :]
-
-        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-        predicted_log_probs = log_probs[..., :, :].gather(
-            dim=-1, index=expected_ids[..., :, None]
-        )[..., 0]
         return -predicted_log_probs.mean()
 
     def batch_decode( self, input_ids ):
