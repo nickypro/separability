@@ -1057,7 +1057,7 @@ class Model():
         predicted_log_probs = \
             self.evaluate_ce_losses( text, input_ids, expected_ids, logits )
 
-        return -predicted_log_probs.mean()
+        return predicted_log_probs.mean()
 
     def batch_decode( self, input_ids ):
         output_str = self.tokenizer.batch_decode( input_ids )
