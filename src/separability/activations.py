@@ -191,7 +191,7 @@ def get_midlayer_activations( opt: Model,
                         continue
                     token_loss = loss[token_index-1]
                     ff_data_loss_normed.add(ff_activation/token_loss)
-                    ff_data_loss_normed.add(ff_activation/torch.log(token_loss))
+                    ff_data_log_loss_normed.add(ff_activation/torch.log(token_loss))
 
             # Count the number of activations in Self-Attention
             if do_attn:
@@ -204,7 +204,7 @@ def get_midlayer_activations( opt: Model,
                         continue
                     token_loss = loss[token_index-1]
                     attn_data_loss_normed.add(attn_activation/token_loss)
-                    attn_data_loss_normed.add(attn_activation/torch.log(token_loss))
+                    attn_data_log_loss_normed.add(attn_activation/torch.log(token_loss))
 
             if collect_ff or collect_attn:
                 for criterion in criteria:
