@@ -4,6 +4,7 @@ from typing import Callable, Any, Optional
 from dataclasses import dataclass
 import einops
 from transformers import AutoConfig
+import torch
 
 @dataclass
 class ConfigClass:
@@ -397,6 +398,7 @@ llama_model_map = {
 
 def build_llama_layer_map(cfg: ConfigClass):
     attn_proj_map = {"q": "q_proj", "k": "k_proj", "v": "v_proj", "o": "o_proj"}
+    mlp_proj_map = {"fc1": "up_proj,", "fc2": "down_proj", "fc3": "gate_proj"}
 
     def llama_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
         # Prepare shape changing
@@ -418,62 +420,62 @@ def build_llama_layer_map(cfg: ConfigClass):
         W = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
         update_param(attn_proj, "weight", W)
 
-    def llama_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
-        # Prepare shape changing
+    def llama_attn_bias(layer, key: str, _inpt: Optional[Any]=None):
+        # Create fake bias with zeros because is easier to handle
         their_shape = "(n_heads d_head)"
         my_shape    = "n_heads d_head"
         sizes = generate_sizes_dict(my_shape, cfg)
 
-        # Get attn proj module
         attn = layer.self_attn
-        attn_proj = get_attrs(attn, attn_proj_map[key])
+        _proj = get_attrs(attn, attn_proj_map[key]).weight
+        b = torch.zeros(
+            _proj.shape[1:], dtype=_proj.dtype, device=_proj.device
+        )
+        return einops.rearrange(b, f"{their_shape} -> {my_shape}", **sizes)
 
-        if inpt is None:
-            b = attn_proj.bias
-            b = einops.rearrange(b, f"{their_shape} -> {my_shape}", **sizes)
-            return b
 
-        # Set mode
-        b = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
-        update_param(attn_proj, "bias", b)
-
+    def llama_mlp_bias(layer, key: str, _inpt: Optional[Any]=None):
+        mlp = layer.mlp
+        _proj = get_attrs(mlp, mlp_proj_map[key]).weight
+        b = torch.zeros(_proj.shape[1:], dtype=_proj.dtype, device=_proj.device)
+        return b
 
     llama_layer_map = {
         "ln1"           : "self_attn_layer_norm",
         "ln1.w"         : "self_attn_layer_norm.weight",
-        "ln1.b"         : "self_attn_layer_norm.bias",
+        "ln1.b"         : None,
 
         "attn"          : "self_attn",
         "attn.q_proj"   : "self_attn.q_proj",
         "attn.k_proj"   : "self_attn.k_proj",
         "attn.v_proj"   : "self_attn.v_proj",
 
-        **generate_attn_qkv_functions(llama_qkv_weight, llama_qkv_bias),
+        **generate_attn_qkv_functions(llama_qkv_weight, llama_attn_bias),
 
         "attn.out_proj" : "self_attn.o_proj",
         "attn.W_O"      : "self_attn.o_proj.weight",
-        "attn.b_O"      : "self_attn.o_proj.bias",
+        "attn.b_O"      : lambda layer, _inpt: llama_attn_bias(layer, "o", _inpt),
 
         "attn.inv_out_proj" : "self_attn.inv_out_proj",
         "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
-        "attn.b_O_inv"  : "self_attn.inv_out_proj.bias",
+        "attn.b_O_inv"  : lambda layer, _inpt: llama_attn_bias(layer, "o", _inpt),
 
         "ln2"           : "final_layer_norm",
         "ln2.w"         : "final_layer_norm.weight",
-        "ln2.b"         : "final_layer_norm.bias",
+        "ln2.b"         : None,
 
         "fc1"           : "mlp.up_proj",
         "fc3"           : "mlp.gate_proj",
         "mlp.W_in"      : "mlp.up_proj.weight",
         "mlp.W_gate"    : "mlp.gate_proj.weight",
-        "mlp.b_in"      : "mlp.up_proj.bias",
-        "mlp.b_gate"    : "mlp.gate_proj.bias",
+        "mlp.b_in"      : lambda layer, _inpt: llama_mlp_bias(layer, "fc1", _inpt),
+        "mlp.b_gate"    : lambda layer, _inpt: llama_mlp_bias(layer, "fc3", _inpt),
 
         "activation_fn" : "activation_fn",
 
         "fc2"           : "mlp.down_proj",
         "mlp.W_out"     : "fc2.weight",
-        "mlp.b_out"     : "fc2.bias",
+        "mlp.b_out"     : lambda layer, _inpt: llama_mlp_bias(layer, "fc2", _inpt),
     }
     return llama_layer_map
 
