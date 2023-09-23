@@ -454,11 +454,11 @@ def build_llama_layer_map(cfg: ConfigClass):
 
         "attn.out_proj" : "self_attn.o_proj",
         "attn.W_O"      : "self_attn.o_proj.weight",
-        "attn.b_O"      : lambda layer, _inpt: llama_attn_bias(layer, "o", _inpt),
+        "attn.b_O"      : lambda layer, _inpt=None: llama_attn_bias(layer, "o", _inpt),
 
         "attn.inv_out_proj" : "self_attn.inv_out_proj",
         "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
-        "attn.b_O_inv"  : lambda layer, _inpt: llama_attn_bias(layer, "o", _inpt),
+        "attn.b_O_inv"  : lambda layer, _inpt=None: llama_attn_bias(layer, "o", _inpt),
 
         "ln2"           : "final_layer_norm",
         "ln2.w"         : "final_layer_norm.weight",
@@ -468,14 +468,14 @@ def build_llama_layer_map(cfg: ConfigClass):
         "fc3"           : "mlp.gate_proj",
         "mlp.W_in"      : "mlp.up_proj.weight",
         "mlp.W_gate"    : "mlp.gate_proj.weight",
-        "mlp.b_in"      : lambda layer, _inpt: llama_mlp_bias(layer, "fc1", _inpt),
-        "mlp.b_gate"    : lambda layer, _inpt: llama_mlp_bias(layer, "fc3", _inpt),
+        "mlp.b_in"      : lambda layer, _inpt=None: llama_mlp_bias(layer, "fc1", _inpt),
+        "mlp.b_gate"    : lambda layer, _inpt=None: llama_mlp_bias(layer, "fc3", _inpt),
 
         "activation_fn" : "activation_fn",
 
         "fc2"           : "mlp.down_proj",
         "mlp.W_out"     : "fc2.weight",
-        "mlp.b_out"     : lambda layer, _inpt: llama_mlp_bias(layer, "fc2", _inpt),
+        "mlp.b_out"     : lambda layer, _inpt=None: llama_mlp_bias(layer, "fc2", _inpt),
     }
     return llama_layer_map
 
