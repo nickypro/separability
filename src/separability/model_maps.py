@@ -452,22 +452,22 @@ def build_llama_layer_map(cfg: ConfigClass):
 
         "attn.out_proj" : "self_attn.o_proj",
         "attn.W_O"      : "self_attn.o_proj.weight",
-        "attn.b_O"      : None,
+        "attn.b_O"      : "self_attn.o_proj.bias",
 
         "attn.inv_out_proj" : "self_attn.inv_out_proj",
         "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
-        "attn.b_O_inv"  : None,
+        "attn.b_O_inv"  : "self_attn.inv_out_proj.bias",
 
         "ln2"           : "final_layer_norm",
         "ln2.w"         : "final_layer_norm.weight",
-        "ln2.b"         : None,
+        "ln2.b"         : "final_layer_norm.bias",
 
         "fc1"           : "mlp.up_proj",
         "fc3"           : "mlp.gate_proj",
         "mlp.W_in"      : "mlp.up_proj.weight",
         "mlp.W_gate"    : "mlp.gate_proj.weight",
-        "mlp.b_in"      : None,
-        "mlp.b_gate"    : None,
+        "mlp.b_in"      : "mlp.up_proj.bias",
+        "mlp.b_gate"    : "mlp.gate_proj.bias",
 
         "activation_fn" : "activation_fn",
 
