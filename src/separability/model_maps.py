@@ -398,7 +398,7 @@ llama_model_map = {
 
 def build_llama_layer_map(cfg: ConfigClass):
     attn_proj_map = {"q": "q_proj", "k": "k_proj", "v": "v_proj", "o": "o_proj"}
-    mlp_proj_map = {"fc1": "up_proj,", "fc2": "down_proj", "fc3": "gate_proj"}
+    mlp_proj_map = {"fc1": "up_proj", "fc2": "down_proj", "fc3": "gate_proj"}
 
     def llama_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
         # Prepare shape changing
@@ -429,15 +429,17 @@ def build_llama_layer_map(cfg: ConfigClass):
         attn = layer.self_attn
         _proj = get_attrs(attn, attn_proj_map[key]).weight
         b = torch.zeros(
-            _proj.shape[1:], dtype=_proj.dtype, device=_proj.device
+            _proj.shape[:-1], dtype=_proj.dtype, device=_proj.device
         )
+        if key == "o":
+            return b
         return einops.rearrange(b, f"{their_shape} -> {my_shape}", **sizes)
 
 
     def llama_mlp_bias(layer, key: str, _inpt: Optional[Any]=None):
         mlp = layer.mlp
         _proj = get_attrs(mlp, mlp_proj_map[key]).weight
-        b = torch.zeros(_proj.shape[1:], dtype=_proj.dtype, device=_proj.device)
+        b = torch.zeros(_proj.shape[:-1], dtype=_proj.dtype, device=_proj.device)
         return b
 
     llama_layer_map = {
@@ -458,7 +460,7 @@ def build_llama_layer_map(cfg: ConfigClass):
 
         "attn.inv_out_proj" : "self_attn.inv_out_proj",
         "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
-        "attn.b_O_inv"  : lambda layer, _inpt=None: llama_attn_bias(layer, "o", _inpt),
+        "attn.b_O_inv"  : "self_attn.inv_out_proj.bias",
 
         "ln2"           : "final_layer_norm",
         "ln2.w"         : "final_layer_norm.weight",
