@@ -11,7 +11,7 @@ prune_gpt2() {
 }
 
 prune_llama2() {
-    poetry run python prune_30.py "meta-llama/Llama-2-7b" \
+    poetry run python prune_30.py "meta-llama/Llama-2-7b-hf" \
         --wandb_project civil-toxic \
         --focus civil --cripple toxic --additional_datasets wiki,toxicity,mmlu:all \
         --recalculate_activations True \
