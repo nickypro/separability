@@ -262,6 +262,7 @@ def run_pruning(c: PruningConfig):
         svd_attn=c.svd_attn,
         use_accelerator=c.use_accelerator,
         model_device=c.model_device,
+        mask_fn=c.mask_fn,
         )
 
     # Prepare data logging

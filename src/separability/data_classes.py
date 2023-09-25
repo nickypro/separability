@@ -400,6 +400,7 @@ class PruningConfig:
     dtype: str = "fp16"
     use_accelerator: bool = True
     model_device: Optional[str] = None
+    mask_fn: Optional[str] = "step"
 
     collection_sample_size: int = 1e5
     eval_sample_size: int = 1e5
