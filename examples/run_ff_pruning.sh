@@ -1,8 +1,0 @@
-poetry run python prune_30.py "facebook/opt-1.3b" -f "std"     -n "opt 1.3b ff std"
-poetry run python prune_30.py "facebook/opt-1.3b" -r -f "std"  -n "opt 1.3b r ff std"
-poetry run python prune_30.py "facebook/opt-1.3b" -f "freq"    -n "opt 1.3b ff freq"
-poetry run python prune_30.py "facebook/opt-1.3b" -r -f "freq" -n "opt 1.3b r ff freq"
-poetry run python prune_30.py "facebook/opt-1.3b" -f "abs"     -n "opt 1.3b ff abs"
-poetry run python prune_30.py "facebook/opt-1.3b" -r -f "abs"  -n "opt 1.3b r ff abs"
-poetry run python prune_30.py "facebook/opt-1.3b" -f "sqrt"    -n "opt 1.3b ff sqrt"
-poetry run python prune_30.py "facebook/opt-1.3b" -r -f "sqrt" -n "opt 1.3b r ff sqrt"
