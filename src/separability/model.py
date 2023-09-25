@@ -100,8 +100,11 @@ class Model():
         self.tokenizer_repo: str = None
         self.set_repo(model_repo, tokenizer_repo)
 
-        # Load the model
+        # Add masking parameters
         self.mask_fn: str = mask_fn
+        self.masking_enabled: bool = True
+
+        # Initialize model components
         self.cfg: ConfigClass = None
         self.tokenizer: AutoTokenizer = None
         self.predictor: AutoModelForCausalLM = None
@@ -253,6 +256,8 @@ class Model():
 
         # Register the pre-hook for masking
         def pre_hook_masking(_module, _input):
+            if not self.masking_enabled:
+                return (_input[0],)
             return (mask(_input[0]),)
 
         module.register_forward_pre_hook(pre_hook_masking)
