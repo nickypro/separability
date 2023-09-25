@@ -443,8 +443,8 @@ def build_llama_layer_map(cfg: ConfigClass):
         return b
 
     llama_layer_map = {
-        "ln1"           : "self_attn_layer_norm",
-        "ln1.w"         : "self_attn_layer_norm.weight",
+        "ln1"           : "input_layernorm",
+        "ln1.w"         : "input_layernorm.weight",
         "ln1.b"         : None,
 
         "attn"          : "self_attn",
@@ -462,8 +462,8 @@ def build_llama_layer_map(cfg: ConfigClass):
         "attn.W_O_inv"  : "self_attn.inv_out_proj.weight",
         "attn.b_O_inv"  : "self_attn.inv_out_proj.bias",
 
-        "ln2"           : "final_layer_norm",
-        "ln2.w"         : "final_layer_norm.weight",
+        "ln2"           : "post_attention_layernorm",
+        "ln2.w"         : "post_attention_layernorm.weight",
         "ln2.b"         : None,
 
         "fc1"           : "mlp.up_proj",
@@ -473,7 +473,7 @@ def build_llama_layer_map(cfg: ConfigClass):
         "mlp.b_in"      : lambda layer, _inpt=None: llama_mlp_bias(layer, "fc1", _inpt),
         "mlp.b_gate"    : lambda layer, _inpt=None: llama_mlp_bias(layer, "fc3", _inpt),
 
-        "activation_fn" : "activation_fn",
+        "activation_fn" : "mlp.act_fn",
 
         "fc2"           : "mlp.down_proj",
         "mlp.W_out"     : "fc2.weight",
