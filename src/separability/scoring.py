@@ -93,8 +93,8 @@ def score_indices_randomly( opt: Model,
     ):
     return torch.randn(focus_out.mean.shape, device=focus_out.mean.device)
 
-# Combine into a single callable
 
+# Combine into a single callable
 def score_indices_by(key: str) -> Callable:
     """Get the scoring function we want to use.
 
@@ -122,6 +122,14 @@ def score_indices_by(key: str) -> Callable:
     }
     return scoring_map[key]
 
+def score_indices(key: str,
+        opt: Model,
+        focus_out: ActivationSummary,
+        cripple_out: ActivationSummary,
+        eps: float = 1e-6
+    ):
+    fn = score_indices_by(key)
+    return fn(opt, focus_out, cripple_out, eps)
 
 #####################################################################################
 #
