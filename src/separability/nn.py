@@ -123,7 +123,7 @@ class NeuronMask(torch.nn.Module):
 
     def set_mask(self, new_mask: Tensor):
         params: dict = self.state_dict()
-        params["mask"] = new_mask
+        params["mask"] = new_mask.view(self.shape)
         self.load_state_dict(params)
 
     def delete_neurons(self, keep_indices: Tensor):

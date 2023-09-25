@@ -385,12 +385,12 @@ def forsaken_pruning(c: PruningConfig):
 
     # Get parameters for back propagation
     mask_params = [
-        *[mask.parameters() for mask in opt.masks["mlp_pre_out"]],
-        *[mask.parameters() for mask in opt.masks["attn_pre_out"]],
+        *[p for mask in opt.masks["mlp_pre_out"] for p in mask.parameters()],
+        *[p for mask in opt.masks["attn_pre_out"] for p in mask.parameters()],
     ]
     mask_l1_norm = torch.stack([
-        *[1-mask.get_mask() for mask in opt.masks["mlp_pre_out"]],
-        *[1-mask.get_mask() for mask in opt.masks["attn_pre_out"]],
+        *[(1-mask.get_mask()).mean() for mask in opt.masks["mlp_pre_out"]],
+        *[(1-mask.get_mask()).mean() for mask in opt.masks["attn_pre_out"]],
     ]).mean()
 
     # Generate Inputs
