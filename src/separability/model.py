@@ -22,9 +22,9 @@ import matplotlib as mpl
 
 # Import from inside module
 from .model_repos import supported_model_repos
-from .nn import InverseLinear, mlp_delete_rows, mlp_delete_rows_raw, mlp_adjust_biases, \
-    mlp_delete_columns, mlp_svd_two_layer_raw, mlp_delete_columns_raw
-from .model_maps import convert_hf_model_config, ModelMap
+from .nn import InverseLinear, NeuronMask, mlp_delete_rows_raw, \
+    mlp_svd_two_layer_raw, mlp_delete_columns_raw
+from .model_maps import convert_hf_model_config, ModelMap, ConfigClass
 from .data_classes import DtypeMap, EvalOutput
 
 mpl.rcParams['figure.dpi'] = 300
@@ -61,6 +61,7 @@ class Model():
             torch_dtype: Optional[torch.dtype] = None,
             svd_attn: bool = False,
             tokenizer_repo: Optional[str] = None,
+            mask_fn: str = "step",
         ):
         """
         OPT Model with functions for extracting activations.
@@ -93,7 +94,24 @@ class Model():
             self.device = model_device if model_device else self.device
             self.output_device = output_device if output_device else self.device
 
+        # Define the model repo
+        self.model_size: str = None
+        self.model_repo: str = None
+        self.tokenizer_repo: str = None
         self.set_repo(model_repo, tokenizer_repo)
+
+        # Load the model
+        self.mask_fn: str = mask_fn
+        self.cfg: ConfigClass = None
+        self.tokenizer: AutoTokenizer = None
+        self.predictor: AutoModelForCausalLM = None
+        self.map: ModelMap = None
+        self.model = None
+        self.layers: list = None
+        self.activations: dict = None
+        self.masks: dict = None
+        self.attn_pre_out_mode: str = None
+        self.mlp_pre_out_mode: str = None
         self.init_model()
         self.limit = limit
 
@@ -102,7 +120,6 @@ class Model():
         self.token_index     = -2
         self.dimension_index = -1
 
-    # pylint: disable=attribute-defined-outside-init
     def set_repo(self, model_repo: str, tokenizer_repo: Optional[str] = None):
         if model_repo not in supported_model_repos:
             warnings.warn( f"Model {model_repo} not tested." )
@@ -111,7 +128,6 @@ class Model():
         self.model_repo = model_repo
         self.tokenizer_repo = model_repo if tokenizer_repo is None else tokenizer_repo
 
-    # pylint: disable=attribute-defined-outside-init
     def init_model( self, model_repo: Optional[str] = None ):
         if not model_repo is None:
             self.set_repo(model_repo)
@@ -142,8 +158,10 @@ class Model():
             "ff": {},
             "mlp_pre_out": {}
         }
+        self.masks = {}
 
         self.register_activations()
+        self.register_masks()
         if self.svd_attn:
             self.svd_attention_layers()
         else:
@@ -182,15 +200,15 @@ class Model():
         return hook
 
     def build_input_hook(self, component: str, name: str):
-        def hook(_model, input, _output):
-            if not isinstance(input, tuple):
+        def hook(_module, _input):
+            if not isinstance(_input, tuple):
                 return
-            self.activations[component][name] = detached(input)
+            self.activations[component][name] = detached(_input)
         return hook
 
     def register_activations( self ):
         # Configure what to hook
-        self.attn_pre_out_mode = "hook" if "attn.out" in self.layers[0] else "calc"
+        self.attn_pre_out_mode = "hook" if "attn.out_proj" in self.layers[0] else "calc"
         self.mlp_pre_out_mode  = "hook" if "fc2" in self.layers[0] else "calc"
 
         # register the forward hook to attention outputs
@@ -204,15 +222,46 @@ class Model():
             if self.mlp_pre_out_mode == "hook":
                 fc2 = layer["fc2"]
                 name = pad_zeros( layer_index ) + "-mlp-pre-out"
-                fc2.register_forward_hook(self.build_input_hook("mlp_pre_out", name))
+                fc2.register_forward_pre_hook(self.build_input_hook("mlp_pre_out", name))
 
             # Optionally, build pre_out hook if possible
             if self.attn_pre_out_mode == "hook":
-                attn_o = layer["attn.out"]
+                attn_o = layer["attn.out_proj"]
                 name = pad_zeros( layer_index ) + "-attention-out"
-                attn_o.register_forward_hook(self.build_input_hook("attn_pre_out", name))
+                attn_o.register_forward_pre_hook(self.build_input_hook("attn_pre_out", name))
 
         print( f" - Registered {layer_index+1} Attention Layers" )
+
+    def build_input_mask_hook(self, component: str, layer_index: int):
+        if component not in self.masks:
+            self.masks[component] = [None for _ in range(self.cfg.n_layers)]
+        if self.masks[component][layer_index] is not None:
+            print(f"WARNING: {component} {layer_index} already has a mask!")
+
+        shape = (self.cfg.d_model,)
+        if component == "mlp_pre_out":
+            shape = (self.cfg.d_mlp,)
+
+        mask = NeuronMask(shape, self.mask_fn)
+        self.masks[component][layer_index] = mask
+
+        # Register the pre-hook for masking
+        def pre_hook_masking(_module, _input):
+            return (mask(_input[0]),)
+        return pre_hook_masking
+
+    def register_masks(self):
+        if self.mask_fn == "delete":
+            return
+
+        for layer_index, layer in enumerate(self.layers):
+            # Listen to inputs for FF_out
+            fc2 = layer["fc2"]
+            fc2.register_forward_pre_hook(self.build_input_mask_hook("mlp_pre_out", layer_index))
+
+            # Optionally, build pre_out hook if possible
+            attn_o = layer["attn.out_proj"]
+            attn_o.register_forward_pre_hook(self.build_input_mask_hook("attn_pre_out", layer_index))
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
@@ -304,6 +353,19 @@ class Model():
             layers.append(layer)
 
         return layers
+
+    def run_masking(self, activations: Tensor, component: str):
+        """ Returns the activations of a component after masking """
+        masked_activations = []
+        for layer_index in range(self.cfg.n_layers):
+            mask = self.masks[component][layer_index]
+            act  = activations[layer_index]
+            orig_shape = act.shape
+            temp_shape = (-1, *mask.shape)
+            masked_activations.append(
+                mask(act.view(temp_shape)).view(orig_shape)
+            )
+        return torch.stack(masked_activations)
 
     def get_text_activations( self,
                 text: Optional[str] = None,
@@ -414,6 +476,7 @@ class Model():
                 residual_stream: Optional[Tensor] = None,
                 limit: Optional[int] = None,
                 use_activation_function: bool = True,
+                masked: bool = True,
                 **kwargs
             ) -> Tensor:
 
@@ -426,16 +489,18 @@ class Model():
             ff_mids = self.out_stack([
                 a[1] for a in self.get_recent_activations("mlp_pre_out")
             ]).reshape(_shape)
-            return ff_mids
 
         elif self.mlp_pre_out_mode == "calc":
             ff_inputs = residual_stream[1:-1:2]
             ff_mids = self.calculate_ff_keys( ff_inputs.to(self.device),
                 use_activation_function )
-            return ff_mids
 
         else:
             raise ValueError(f"mlp_pre_out_mode {self.mlp_pre_out_mode} unsupported")
+
+        if masked and self.mask_fn != "delete":
+            ff_mids = self.run_masking(ff_mids, "mlp_pre_out")
+        return ff_mids
 
     def get_attn_pre_out_activations( self,
                 text: Optional[str] = None,
@@ -445,6 +510,7 @@ class Model():
                 limit: Optional[int] = None,
                 reshape: bool = True,
                 transpose: bool = False,
+                masked: bool = True,
                 **kwargs
             ) -> Tensor:
         if text_activations is None:
@@ -465,6 +531,8 @@ class Model():
         else:
             raise ValueError(f"attn_pre_out_mode {self.attn_pre_out_mode} unsupported")
 
+        if masked and self.mask_fn != "delete":
+            pre_outs = self.run_masking(pre_outs, "attn_pre_out")
         return pre_outs
 
     def get_attn_value_activations( self,
@@ -637,6 +705,12 @@ class Model():
         #       of the attention pre_out (ie: v_proj and out_proj) layers
         #       since we have the option of offset by the mean value
 
+        if self.mask_fn != "delete":
+            mask = self.masks["attn_pre_out"][layer_index]
+            keep_indices = torch.logical_not(remove_indices).flatten()
+            mask.delete_neurons(keep_indices)
+            return self
+
         with torch.no_grad():
             size = remove_indices.size()
 
@@ -763,11 +837,17 @@ class Model():
             use_activation_function: bool = True,
         ):
         u = self.layers[ layer ]
-        x = u["ln2"]( ff_in )
-        x = u["fc1"]( x )
-        if use_activation_function:
-            x = u["activation_fn"]( x )
-        return x
+        _x = u["ln2"]( ff_in )
+        x_in = u["fc1"]( _x )
+        if not use_activation_function:
+            return x_in
+
+        act_fn = u["activation_fn"]
+        if self.cfg.gated_mlp:
+            x_gated = u["fc3"]( _x )
+            return act_fn(x_gated) * x_in
+
+        return act_fn(x_in)
 
     def calculate_ff_keys( self,
             ff_in: Tensor,
@@ -801,12 +881,20 @@ class Model():
     # functions for 'deleting' neurons from the MLP mid layers
     def delete_ff_keys( self, layer_key_map: Tensor ):
         with torch.no_grad():
-            for layer_index, key_map in enumerate(layer_key_map):
-                # Delete the weights going into ff key so it never activates
+            for layer_index, mlp_remove_indices in enumerate(layer_key_map):
                 layer = self.layers[layer_index]
-                W_in, b_in = layer["mlp.W_in"], layer["mlp.b_in"]
-                W_in, b_in = mlp_delete_rows_raw(key_map, W_in, b_in)
-                layer["mlp.W_in"], layer["mlp.b_in"] = W_in, b_in
+
+                # Delete the weights going into ff key so it never activates
+                if self.mask_fn == "delete":
+                    W_in, b_in = layer["mlp.W_in"], layer["mlp.b_in"]
+                    W_in, b_in = mlp_delete_rows_raw(mlp_remove_indices, W_in, b_in)
+                    layer["mlp.W_in"], layer["mlp.b_in"] = W_in, b_in
+                    continue
+
+                # Alternatively, we can mask the removal indices
+                mask = self.masks["mlp_pre_out"][layer_index]
+                keep_indices = torch.logical_not(mlp_remove_indices).flatten()
+                mask.delete_neurons(keep_indices)
 
         return self
 
