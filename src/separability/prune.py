@@ -9,9 +9,10 @@ from .model import Model
 from .data_classes import PruningConfig, RunDataHistory, \
                           RunDataItem, ActivationOverview
 from .eval import evaluate_all
-from .scoring import score_indices_by
+from .scoring import score_indices_by, score_indices
 from .activations import get_midlayer_activations, get_top_frac, \
     choose_attn_heads_by, save_timestamped_tensor_dict
+from .texts import prepare
 
 def prune_and_evaluate(
         opt: Model,
@@ -311,3 +312,148 @@ def run_pruning(c: PruningConfig):
     print(history.df.T.to_csv())
 
     return opt, history
+
+######################################################################################
+# "Forsaken"-style pruning
+######################################################################################
+
+def forsaken_pruning(c: PruningConfig):
+    # Initilaise Model and show details about model
+    c.mask_fn = "sigmoid"
+
+    opt = Model(
+        c.model_size,
+        limit=c.token_limit,
+        dtype=c.dtype,
+        svd_attn=c.svd_attn,
+        use_accelerator=c.use_accelerator,
+        model_device=c.model_device,
+        mask_fn=c.mask_fn,
+        )
+
+    # Prepare data logging
+    history = RunDataHistory(c.datasets)
+    wandb.init(
+        project=c.wandb_project,
+        entity=c.wandb_entity,
+        name=c.wandb_run_name,
+        )
+    wandb.config.update(c.to_dict())
+
+    # Evaluate model before removal of any neurons
+    if c.run_pre_test:
+        data = evaluate_all(opt, c.eval_sample_size,
+            c.datasets, c.collection_sample_size)
+        history.add(data)
+        print(history.df.T)
+
+    # Get activations
+    focus_out   = get_midlayer_activations(opt, c.focus,
+                    c.collection_sample_size, c.attn_mode)
+    cripple_out = get_midlayer_activations(opt, c.cripple,
+                    c.collection_sample_size, c.attn_mode)
+
+    def normalize_scores(scores):
+        normed_scores = []
+        for score in scores:
+            normed_scores.append(
+                (score - score.mean()) / score.std()
+            )
+        return torch.stack(normed_scores)
+
+    # Set masks for feed-forward layers
+    ff_scores   = score_indices(c.ff_scoring,
+        opt, focus_out.ff.orig,   cripple_out.ff.orig)
+    ff_masks    = - normalize_scores(ff_scores)
+    for layer_index in range(opt.cfg.n_layers):
+        mask = opt.masks["mlp_pre_out"][layer_index]
+        mask.set_mask(ff_masks[layer_index])
+
+    # Set masks for attention heads
+    attn_scores = score_indices(c.attn_scoring,
+        opt, focus_out.attn.orig, cripple_out.attn.orig)
+    attn_masks  = - normalize_scores(attn_scores)
+    for layer_index in range(opt.cfg.n_layers):
+        mask = opt.masks["attn_pre_out"][layer_index]
+        mask.set_mask(attn_masks[layer_index])
+
+    # Evaluate again now that we have adjusted the masks
+    if True:
+        data = evaluate_all(opt, c.eval_sample_size,
+            c.datasets, c.collection_sample_size)
+        history.add(data)
+
+    # Get parameters for back propagation
+    mask_params = [
+        *[mask.parameters() for mask in opt.masks["mlp_pre_out"]],
+        *[mask.parameters() for mask in opt.masks["attn_pre_out"]],
+    ]
+    mask_l1_norm = torch.stack([
+        *[1-mask.get_mask() for mask in opt.masks["mlp_pre_out"]],
+        *[1-mask.get_mask() for mask in opt.masks["attn_pre_out"]],
+    ]).mean()
+
+    # Generate Inputs
+    optim = torch.optim.LBFGS(mask_params)
+    kl_loss_fn = torch.nn.KLDivLoss()
+    #ce_loss_fn = torch.nn.CrossEntropyLoss()
+    loss = 0
+
+    # Generate loss
+    loss += mask_l1_norm
+
+    # Get junk loss L_{kl}( gamma, P )
+    cripple_dataset, _, cripple_label = prepare(c.cripple)
+    i = 0
+    for data in cripple_dataset:
+        i += 1
+        if i > 4:
+            break
+
+        # predict next token from text
+        text = data[ cripple_label ]
+        with torch.no_grad():
+            bad_ids = opt.get_ids(text)
+            junk_ids  = torch.randint_like(bad_ids, 5, opt.tokenizer.vocab_size)
+            junk_logits = opt.get_all_logits( junk_ids )[..., :-1, :]
+
+        bad_logits = opt.get_all_logits( bad_ids )[..., :-1, :]
+        loss += kl_loss_fn(bad_logits, junk_logits).mean()
+
+    # Get original loss
+    focus_dataset, _, focus_label     = prepare(c.focus)
+    i = 0
+    for data in focus_dataset:
+        i += 1
+        if i > 4:
+            break
+
+        # predict next token from text
+        text = data[ focus_label ]
+        with torch.no_grad():
+            input_ids = opt.get_ids(text)
+            opt.masking_enabled = False
+            orig_logits = opt.get_all_logits( input_ids )[..., :-1, :]
+            opt.masking_enabled = True
+
+        new_logits = opt.get_all_logits( input_ids )[..., :-1, :]
+        loss += kl_loss_fn(new_logits, orig_logits).mean()
+
+    # Backpropagate
+    optim.zero_grad()
+    loss.backward()
+    optim.step()
+
+    # Evaluate again now that we have adjusted the masks
+    if True:
+        data = evaluate_all(opt, c.eval_sample_size,
+            c.datasets, c.collection_sample_size)
+        history.add(data)
+
+    # Format history to print
+    print(history.history[-1])
+    print(history.df.T)
+    print(history.df.T.to_csv())
+
+    return opt, history
+
