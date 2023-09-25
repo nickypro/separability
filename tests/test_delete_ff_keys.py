@@ -13,11 +13,9 @@ class TestDeleteFFKeys:
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_ff_key_counting(self, model_repo):
         print("# Running Test: test_ff_key_counting")
-        n_layerss = 12
-        d_ff     = 3072 # This is the value for 125m, 4*768
-
         # Initialize model
         opt = Model(model_repo, limit=1000, dtype="fp32")
+        n_layers, d_ff = opt.cfg.n_layers, opt.cfg.d_mlp
 
         # Run text
         text = "for ( var i = 0; i < 10; i++ ) { console.log(i); }"
@@ -25,27 +23,28 @@ class TestDeleteFFKeys:
         n_tokens  = input_ids.size()[-1]
 
         # Make a tensor of the expected_size
-        expected_size = torch.Size([ n_layerss, n_tokens, d_ff ])
+        expected_size = torch.Size([ n_layers, n_tokens, d_ff ])
 
         # Run the model
         with torch.no_grad():
             ff_keys = opt.get_ff_key_activations(input_ids=input_ids)
 
         # Test that result is as desired
-        assert len(ff_keys) == n_layerss
+        assert len(ff_keys) == n_layers
         assert ff_keys.size() == expected_size
 
         print( "Text size:", ff_keys.size() )
         print( "Expected :", expected_size )
 
     @pytest.mark.parametrize("model_repo", test_model_repos)
-    def test_delete_ff_keys(self, model_repo):
+    @pytest.mark.parametrize("mask_fn", ["delete", "step"])
+    def test_delete_ff_keys(self, model_repo, mask_fn):
         print("# Running Test: test_delete_ff_keys")
 
         # Pre-test initialization
         # Define model
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        opt = Model(model_repo, dtype="fp32",
+        opt = Model(model_repo, dtype="fp32", mask_fn=mask_fn,
             model_device=device, use_accelerator=False)
 
         # Define input vectors for testing
@@ -62,9 +61,9 @@ class TestDeleteFFKeys:
 
         # use activation function here because not used earlier
         def mid_to_out(mid_vec, layer):
-            u = opt.model.decoder.layers[layer]
-            x = u.activation_fn(mid_vec)
-            return u.fc2(x)
+            u = opt.layers[layer]
+            x = u["activation_fn"](mid_vec)
+            return u["fc2"](x)
 
         # Calculate mid layer vectors for testing
         mid_vecs = []
@@ -99,6 +98,7 @@ class TestDeleteFFKeys:
         for layer in range(opt.cfg.n_layers):
             print('layer ', layer)
             mid_vec_layer = in_to_mid( in_vec, layer )
+
             assert torch.equal( mid_vec_layer, mid_vecs[layer] )
             assert not torch.equal( mid_vec_layer, mid_vecs_removed[layer] )
 
@@ -114,19 +114,26 @@ class TestDeleteFFKeys:
         for layer in range(opt.cfg.n_layers):
             print('layer', layer)
             mid_vec_layer = in_to_mid( in_vec, layer )
-            assert not torch.equal( mid_vec_layer, mid_vecs[layer] )
-            assert torch.equal( mid_vec_layer, mid_vecs_removed[layer] )
+            if mask_fn == "delete":
+                assert not torch.equal( mid_vec_layer, mid_vecs[layer] )
+                assert torch.equal( mid_vec_layer, mid_vecs_removed[layer] )
+            if mask_fn == "step":
+                assert torch.equal( mid_vec_layer, mid_vecs[layer] )
+                assert not torch.equal( mid_vec_layer, mid_vecs_removed[layer] )
 
             out_vec_layer = opt.calculate_ff_out_layer( in_vec, layer )
             assert torch.equal( out_vec_layer, out_vecs_removed[layer] )
 
-        # Extra sanity check: make sure that weights are zero where deleted
+        # Extra sanity check: make sure that weights correct
         print('# Running sanity check')
         for layer in range(opt.cfg.n_layers):
             print('layer', layer)
-            w = opt.model.decoder.layers[layer].fc1.weight
+            w = opt.layers[layer]["fc1"].weight
             removed_weights = ( torch.sum(w, dim=-1) == 0.0 )
-            assert torch.equal(
-                removal_tensor[layer].cpu(),
-                removed_weights.cpu()
-            )
+            if mask_fn == "delete":
+                assert torch.equal(
+                    removal_tensor[layer].cpu(),
+                    removed_weights.cpu()
+                )
+            if mask_fn == "step":
+                assert removed_weights.sum() == 0.0
