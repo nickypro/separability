@@ -232,7 +232,11 @@ class Model():
 
         print( f" - Registered {layer_index+1} Attention Layers" )
 
-    def build_input_mask_hook(self, component: str, layer_index: int):
+    def register_input_mask(self,
+            module: torch.nn.Module,
+            component: str,
+            layer_index: int
+            ):
         if component not in self.masks:
             self.masks[component] = [None for _ in range(self.cfg.n_layers)]
         if self.masks[component][layer_index] is not None:
@@ -243,25 +247,29 @@ class Model():
             shape = (self.cfg.d_mlp,)
 
         mask = NeuronMask(shape, self.mask_fn)
+        dtype, device = module.weight.dtype, module.weight.device
+        mask.to(dtype=dtype, device=device)
         self.masks[component][layer_index] = mask
 
         # Register the pre-hook for masking
         def pre_hook_masking(_module, _input):
             return (mask(_input[0]),)
-        return pre_hook_masking
+
+        module.register_forward_pre_hook(pre_hook_masking)
 
     def register_masks(self):
+        """Register the masks for each layer in the model."""
         if self.mask_fn == "delete":
             return
 
         for layer_index, layer in enumerate(self.layers):
             # Listen to inputs for FF_out
             fc2 = layer["fc2"]
-            fc2.register_forward_pre_hook(self.build_input_mask_hook("mlp_pre_out", layer_index))
+            self.register_input_mask(fc2, "mlp_pre_out", layer_index)
 
             # Optionally, build pre_out hook if possible
             attn_o = layer["attn.out_proj"]
-            attn_o.register_forward_pre_hook(self.build_input_mask_hook("attn_pre_out", layer_index))
+            self.register_input_mask(attn_o, "attn_pre_out", layer_index)
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj
