@@ -23,8 +23,8 @@ class TestDeleteFFKeys:
             count_ff_key_activations(opt, 'pile', sample_size=1e3)
         code_data: ActivationSummary = \
             count_ff_key_activations(opt, 'code', sample_size=1e3)
-        pile_count = pile_data.pos_count
-        code_count = code_data.pos_count
+        pile_count = pile_data.orig.pos_count
+        code_count = code_data.orig.pos_count
 
         # Remove attention heads over crossover threshold (very low threshold here)
         removals = code_count > pile_count

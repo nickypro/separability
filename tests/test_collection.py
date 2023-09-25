@@ -36,9 +36,9 @@ class TestCollection:
 
         # assert only ff was collected
         with pytest.raises(KeyError):
-            data_pile["raw"]["attn"]
+            data_pile.raw["attn"]
         with pytest.raises(KeyError):
-            data_code["raw"]["attn"]
+            data_code.raw["attn"]
 
         # TODO: Add more tests here to make sure the data is correct
 
@@ -84,9 +84,9 @@ class TestCollection:
 
         data_pile = get_midlayer_activations(opt, "pile", n_samples)
 
-        attn_removals = torch.zeros_like(data_pile.attn.orig.mean.shape)
+        attn_removals = torch.zeros_like(data_pile.attn.orig.mean)
         attn_removals[:, :10] = 1
-        mlp_removals  = torch.zeros_like(data_pile.ff.orig.mean.shape)
+        mlp_removals  = torch.zeros_like(data_pile.ff.orig.mean)
         mlp_removals[:, :10] = 1
 
         opt.delete_attn_pre_out(attn_removals)
