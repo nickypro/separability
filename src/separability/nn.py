@@ -91,6 +91,43 @@ class InverseLinear(torch.nn.Module):
         self.inverse_bias = state_dict["inverse_bias"]
 
 ######################################################################################
+# Define Neuron Mask Class
+######################################################################################
+
+class NeuronMask(torch.nn.Module):
+    """Class for creating a mask for a single layer of a neural network."""
+
+    def __init__(self, shape, act_fn: str = "step"):
+        super(NeuronMask, self).__init__()
+        self.shape = shape
+        # initialize mask as nn.Parameter of ones
+        self.mask = torch.nn.Parameter(torch.ones(shape))
+        self.act_fn = act_fn
+
+    def get_mask(self):
+        # if step, we want heaviside step function. ie: mask = mask > 0
+        if self.act_fn == "step":
+            return (self.mask > 0)
+        if self.act_fn == "sigmoid":
+            return torch.sigmoid(self.mask)
+        if self.act_fn == "tanh":
+            return torch.tanh(self.mask)
+        if self.act_fn == "relu":
+            return torch.relu(self.mask)
+        if callable(self.act_fn):
+            return self.act_fn(self.mask)
+        raise ValueError(f"Unknown activation function: {self.act_fn}")
+
+    def delete_neurons(self, keep_indices: Tensor):
+        params: dict = self.state_dict()
+        params["mask"] = params["mask"] * keep_indices
+        self.load_state_dict(params)
+
+    def forward(self, x):
+        mask = self.get_mask()
+        return x * mask
+
+######################################################################################
 # Define MLP Deletion functions
 ######################################################################################
 
