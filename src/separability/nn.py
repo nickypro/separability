@@ -100,9 +100,12 @@ class NeuronMask(torch.nn.Module):
     def __init__(self, shape, act_fn: str = "step"):
         super(NeuronMask, self).__init__()
         self.shape = shape
-        # initialize mask as nn.Parameter of ones
-        self.mask = torch.nn.Parameter(torch.ones(shape))
         self.act_fn = act_fn
+        # initialize mask as nn.Parameter of ones
+        _vec = torch.ones(shape, dtype=torch.float32)
+        if self.act_fn == "sigmoid":
+            _vec[...] = torch.inf
+        self.mask = torch.nn.Parameter(_vec)
 
     def get_mask(self):
         # if step, we want heaviside step function. ie: mask = mask > 0
@@ -117,6 +120,11 @@ class NeuronMask(torch.nn.Module):
         if callable(self.act_fn):
             return self.act_fn(self.mask)
         raise ValueError(f"Unknown activation function: {self.act_fn}")
+
+    def set_mask(self, new_mask: Tensor):
+        params: dict = self.state_dict()
+        params["mask"] = new_mask
+        self.load_state_dict(params)
 
     def delete_neurons(self, keep_indices: Tensor):
         params: dict = self.state_dict()
