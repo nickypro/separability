@@ -10,7 +10,7 @@ from separability.eval import evaluate_all
 class TestRunDataHistory:
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_run_data_history(self, model_repo):
-        opt = Model(model_repo, limit=1000)
+        opt = Model(model_repo, limit=1000, dtype="fp32")
         history = RunDataHistory(use_wandb=False)
 
         eval_data = evaluate_all(opt, 1e4)

@@ -47,12 +47,13 @@ class TestAttnUtils:
             return
 
     @pytest.mark.parametrize("model_repo", test_model_repos)
-    def test_deletion(self, model_repo):
+    @pytest.mark.parametrize("mask_fn", ["delete", "step"])
+    def test_deletion(self, model_repo, mask_fn):
         with torch.no_grad():
-            layer, h_index, i_index = 0, 11, 63
+            layer, h_index, i_index = 0, 11, 31
             n_tokens = 3
 
-            opt = Model(model_repo, dtype="fp32",
+            opt = Model(model_repo, dtype="fp32", mask_fn=mask_fn,
                 use_accelerator=False, svd_attn=False)
             d_model, d_head, n_heads = \
                 opt.cfg.d_model, opt.cfg.d_head, opt.cfg.n_heads
@@ -86,8 +87,12 @@ class TestAttnUtils:
 
             # Test behaviour is correct
             out_1, _, (k_1, v_1) = attn(in_0, attention_mask=mask)
-            assert not torch.equal(v_0, v_1)
-            assert torch.equal(v_0_mod, v_1)
+            if mask_fn == "delete":
+                assert not torch.equal(v_0, v_1)
+                assert torch.equal(v_0_mod, v_1)
+            if mask_fn == "step":
+                assert torch.equal(v_0, v_1)
+                assert not torch.equal(v_0_mod, v_1)
 
 
             # Delete ALL indices
@@ -99,10 +104,11 @@ class TestAttnUtils:
 
             print(out_2)
 
-            assert is_zero(attn.v_proj.weight)
-            assert is_zero(attn.v_proj.bias)
-            assert is_zero(v_2)
-            assert torch.allclose(out_2, out_biases)
+            if mask_fn == "delete":
+                assert is_zero(attn.v_proj.weight)
+                assert is_zero(attn.v_proj.bias)
+                assert is_zero(v_2)
+                assert torch.allclose(out_2, out_biases)
 
         return
 

@@ -12,7 +12,7 @@ class TestDeleteFFKeys:
     def test_delete_ff_and_evaluate(self, model_repo):
         print("# Running test: test_delete_ff_and_evaluate")
         # Load model and evaluate
-        opt = Model(model_repo, limit=1000)
+        opt = Model(model_repo, limit=1000, dtype="fp32")
         print(" - Initial Evaluation...")
         eval_before = evaluate_all( opt, 1e3 )
 
@@ -37,6 +37,9 @@ class TestDeleteFFKeys:
         eval_after = evaluate_all( opt, 1e3 )
         eval_keys = eval_before.keys()
         for key in eval_keys:
+            if key == "token_count":
+                assert eval_before[key] == eval_after[key]
+                continue
             assert eval_before[key] != eval_after[key]
 
         print("# Test Passed")

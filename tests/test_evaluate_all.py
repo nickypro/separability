@@ -10,7 +10,7 @@ class TestEvaluate:
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_evaluate(self, model_repo):
         print("# Running test: test_evaluate")
-        opt = Model(model_repo, limit=1000)
+        opt = Model(model_repo, limit=1000, dtype="fp32")
         opt.show_details()
 
         eval_sample_size = 1e4
@@ -82,7 +82,7 @@ class TestEvaluate:
     @pytest.mark.parametrize("model_repo", test_model_repos)
     def test_evaluate_all(self, model_repo):
         print("# Running test: test_evaluate_all")
-        opt = Model(model_repo, limit=1000)
+        opt = Model(model_repo, limit=1000, dtype="fp32")
         opt.show_details()
 
         data = evaluate_all( opt, 1e3 )

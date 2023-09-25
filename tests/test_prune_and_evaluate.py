@@ -16,7 +16,7 @@ class TestPruneAndEvaluate:
 
     def __run_testing(self, _pruning_config: PruningConfig):
         c = _pruning_config
-        opt = Model(c.model_repo, limit=c.token_limit,
+        opt = Model(c.model_repo, limit=c.token_limit, dtype="fp32",
                     use_accelerator=c.use_accelerator)
         data = prune_and_evaluate(opt, c)
 

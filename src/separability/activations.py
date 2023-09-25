@@ -399,7 +399,7 @@ def count_ff_key_activations( opt: Model,
         calculate_attn=False
     )
 
-    return output['ff']
+    return output.ff
 
 def save_numpy_ff( opt: Model,
         freq_multiple: float,
