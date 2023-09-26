@@ -394,58 +394,72 @@ def forsaken_pruning(c: PruningConfig):
     ]).mean()
 
     # Generate Inputs
-    optim = torch.optim.LBFGS(mask_params)
+    optim = torch.optim.LBFGS(mask_params, max_iter=4)
     kl_loss_fn = torch.nn.KLDivLoss()
     #ce_loss_fn = torch.nn.CrossEntropyLoss()
-    loss = 0
 
-    # Generate loss
-    loss += mask_l1_norm
+    # Load datasets
+    def gen_texts(num_texts=1):
+        _cripple_texts, _focus_texts = [], []
 
-    # Get junk loss L_{kl}( gamma, P )
-    cripple_dataset, _, cripple_label = prepare(c.cripple)
-    i = 0
-    for data in cripple_dataset:
-        i += 1
-        if i > 4:
-            break
+        cripple_dataset, _, cripple_label = prepare(c.cripple)
+        i = 0
+        for data in cripple_dataset:
+            i += 1
+            if i > num_texts:
+                break
+            _cripple_texts.append(data[cripple_label])
 
-        # predict next token from text
-        text = data[ cripple_label ]
-        with torch.no_grad():
-            bad_ids = opt.get_ids(text)
-            junk_ids  = torch.randint_like(bad_ids, 5, opt.tokenizer.vocab_size)
-            junk_logits = opt.get_all_logits( junk_ids )[..., :-1, :]
+        focus_dataset, _, focus_label     = prepare(c.focus)
+        i = 0
+        for data in focus_dataset:
+            i += 1
+            if i > num_texts:
+                break
+            _focus_texts.append(data[focus_label])
 
-        bad_logits = opt.get_all_logits( bad_ids )[..., :-1, :]
-        loss += kl_loss_fn(bad_logits, junk_logits).mean()
+        return _cripple_texts, _focus_texts
 
-    # Get original loss
-    focus_dataset, _, focus_label     = prepare(c.focus)
-    i = 0
-    for data in focus_dataset:
-        i += 1
-        if i > 4:
-            break
+    # Begin calculating loss for with LBGFS
+    cripple_texts, focus_texts = gen_texts(1)
 
-        # predict next token from text
-        text = data[ focus_label ]
-        with torch.no_grad():
-            input_ids = opt.get_ids(text)
-            opt.masking_enabled = False
-            orig_logits = opt.get_all_logits( input_ids )[..., :-1, :]
-            opt.masking_enabled = True
+    def closure():
+        # Begin LBGFS backpropagation
+        loss = 0
+        optim.zero_grad()
 
-        new_logits = opt.get_all_logits( input_ids )[..., :-1, :]
-        loss += kl_loss_fn(new_logits, orig_logits).mean()
+        # Generate loss
+        loss += mask_l1_norm
 
-    # Backpropagate
-    optim.zero_grad()
-    loss.backward()
-    optim.step()
+        # Get junk loss L_kl(gamma,P)
+        for text in cripple_texts:
+            with torch.no_grad():
+                bad_ids = opt.get_ids(text)
+                junk_ids  = torch.randint_like(bad_ids, 5, opt.tokenizer.vocab_size)
+                junk_logits = opt.get_all_logits( junk_ids )[..., :-1, :]
 
-    # Evaluate again now that we have adjusted the masks
-    if True:
+            bad_logits = opt.get_all_logits( bad_ids )[..., :-1, :]
+            loss += kl_loss_fn(bad_logits, junk_logits).mean()
+
+        # Get Reference fixing loss
+        for text in focus_texts:
+            with torch.no_grad():
+                input_ids = opt.get_ids(text)
+                opt.masking_enabled = False
+                orig_logits = opt.get_all_logits( input_ids )[..., :-1, :]
+                opt.masking_enabled = True
+
+            new_logits = opt.get_all_logits( input_ids )[..., :-1, :]
+            loss += kl_loss_fn(new_logits, orig_logits).mean()
+
+        # Backpropagate
+        loss.backward()
+        return loss
+
+    for i in range(c.n_steps):
+        # loss step
+        optim.step(closure)
+
         data = evaluate_all(opt, c.eval_sample_size,
             c.datasets, c.collection_sample_size)
         history.add(data)
