@@ -402,7 +402,7 @@ def forsaken_pruning(c: PruningConfig):
     def gen_texts(num_texts=1):
         _cripple_texts, _focus_texts = [], []
 
-        cripple_dataset, _, cripple_label = prepare(c.cripple)
+        cripple_dataset, cripple_label, _skip50 = prepare(c.cripple)
         i = 0
         for data in cripple_dataset:
             i += 1
@@ -410,7 +410,7 @@ def forsaken_pruning(c: PruningConfig):
                 break
             _cripple_texts.append(data[cripple_label])
 
-        focus_dataset, _, focus_label     = prepare(c.focus)
+        focus_dataset, focus_label, _skip50     = prepare(c.focus)
         i = 0
         for data in focus_dataset:
             i += 1
