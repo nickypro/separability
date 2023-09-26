@@ -24,5 +24,4 @@ c = PruningConfig(
 c, args = cli_parser(c)
 
 # Run the iterated pruning
-with torch.no_grad():
-    model, history = forsaken_pruning(c)
+model, history = forsaken_pruning(c)
