@@ -456,7 +456,7 @@ def forsaken_pruning(c: PruningConfig):
                 opt.masking_enabled = False
                 orig_logits = opt.get_all_logits(good_ids[i])[..., :-1, :]
                 opt.masking_enabled = True
-            new_logits = opt.get_all_logits(good_ids)[..., :-1, :]
+            new_logits = opt.get_all_logits(good_ids[i])[..., :-1, :]
             loss += kl_loss_fn(new_logits, orig_logits).mean()
 
         # Backpropagate
