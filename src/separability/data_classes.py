@@ -427,6 +427,7 @@ class PruningConfig:
     wandb_project: str = "separability-compare"
     n_steps: int = 1
     wandb_run_name: Optional[str] = None
+    misc: dict = None
 
     @property
     def model_size(self): # legacy code
