@@ -421,45 +421,51 @@ def forsaken_pruning(c: PruningConfig):
         return _cripple_texts, _focus_texts
 
     # Begin calculating loss for with LBGFS
-    cripple_texts, focus_texts = gen_texts(1)
+    NUM_TEXTS = 1
+    cripple_texts, focus_texts = gen_texts(NUM_TEXTS)
 
+    bad_ids = []
+    junk_ids = []
+    good_ids = []
+    with torch.no_grad():
+        for text in cripple_texts:
+            bad_ids.append( opt.get_ids(text) )
+            junk_ids.append(
+                torch.randint_like(bad_ids[-1], 5, opt.tokenizer.vocab_size)
+            )
+        for text in focus_texts:
+            good_ids.append( opt.get_ids(text) )
+
+    # Begin LBGFS
     def closure():
-        # Begin LBGFS backpropagation
         loss = 0
         optim.zero_grad()
 
         # Generate loss
         loss += mask_l1_norm
 
-        # Get junk loss L_kl(gamma,P)
-        for text in cripple_texts:
+        for i in range(NUM_TEXTS):
+            # Get junk loss L_kl(gamma,P)
             with torch.no_grad():
-                bad_ids = opt.get_ids(text)
-                junk_ids  = torch.randint_like(bad_ids, 5, opt.tokenizer.vocab_size)
-                junk_logits = opt.get_all_logits( junk_ids )[..., :-1, :]
-
-            bad_logits = opt.get_all_logits( bad_ids )[..., :-1, :]
+                junk_logits = opt.get_all_logits(junk_ids[i])[..., :-1, :]
+            bad_logits = opt.get_all_logits(bad_ids[i])[..., :-1, :]
             loss += kl_loss_fn(bad_logits, junk_logits).mean()
 
-        # Get Reference fixing loss
-        for text in focus_texts:
+            # Get good loss L_kl(gamma,Q)
             with torch.no_grad():
-                input_ids = opt.get_ids(text)
                 opt.masking_enabled = False
-                orig_logits = opt.get_all_logits( input_ids )[..., :-1, :]
+                orig_logits = opt.get_all_logits(good_ids[i])[..., :-1, :]
                 opt.masking_enabled = True
-
-            new_logits = opt.get_all_logits( input_ids )[..., :-1, :]
+            new_logits = opt.get_all_logits(good_ids)[..., :-1, :]
             loss += kl_loss_fn(new_logits, orig_logits).mean()
 
         # Backpropagate
-        loss.backward()
+        loss.backward(retain_graph=True)
         return loss
 
+    # loss step
     for i in range(c.n_steps):
-        # loss step
         optim.step(closure)
-
         data = evaluate_all(opt, c.eval_sample_size,
             c.datasets, c.collection_sample_size)
         history.add(data)
