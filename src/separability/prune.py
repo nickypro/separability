@@ -317,7 +317,11 @@ def run_pruning(c: PruningConfig):
 # "Forsaken"-style pruning
 ######################################################################################
 
-def forsaken_pruning(c: PruningConfig):
+def forsaken_pruning(c: PruningConfig,
+        num_texts: int = 1,
+        lr: float = 0.1,
+        sigmoid_offset: float = 2.0,
+        ):
     # Initilaise Model and show details about model
     c.mask_fn = "sigmoid"
 
@@ -364,7 +368,7 @@ def forsaken_pruning(c: PruningConfig):
     # Set masks for feed-forward layers
     ff_scores   = score_indices(c.ff_scoring,
         opt, focus_out.ff.orig,   cripple_out.ff.orig)
-    ff_masks    = - normalize_scores(ff_scores)
+    ff_masks    = sigmoid_offset - normalize_scores(ff_scores)
     for layer_index in range(opt.cfg.n_layers):
         mask = opt.masks["mlp_pre_out"][layer_index]
         mask.set_mask(ff_masks[layer_index])
@@ -372,7 +376,7 @@ def forsaken_pruning(c: PruningConfig):
     # Set masks for attention heads
     attn_scores = score_indices(c.attn_scoring,
         opt, focus_out.attn.orig, cripple_out.attn.orig)
-    attn_masks  = - normalize_scores(attn_scores)
+    attn_masks  = sigmoid_offset - normalize_scores(attn_scores)
     for layer_index in range(opt.cfg.n_layers):
         mask = opt.masks["attn_pre_out"][layer_index]
         mask.set_mask(attn_masks[layer_index])
@@ -394,7 +398,7 @@ def forsaken_pruning(c: PruningConfig):
     ]).mean()
 
     # Generate Inputs
-    optim = torch.optim.LBFGS(mask_params, max_iter=4)
+    optim = torch.optim.LBFGS(mask_params, lr, max_iter=4)
     kl_loss_fn = torch.nn.KLDivLoss()
     #ce_loss_fn = torch.nn.CrossEntropyLoss()
 
@@ -421,8 +425,7 @@ def forsaken_pruning(c: PruningConfig):
         return _cripple_texts, _focus_texts
 
     # Begin calculating loss for with LBGFS
-    NUM_TEXTS = 1
-    cripple_texts, focus_texts = gen_texts(NUM_TEXTS)
+    cripple_texts, focus_texts = gen_texts(num_texts)
 
     bad_ids = []
     junk_ids = []
@@ -444,7 +447,7 @@ def forsaken_pruning(c: PruningConfig):
         # Generate loss
         loss += mask_l1_norm
 
-        for i in range(NUM_TEXTS):
+        for i in range(num_texts):
             # Get junk loss L_kl(gamma,P)
             with torch.no_grad():
                 junk_logits = opt.get_all_logits(junk_ids[i])[..., :-1, :]
