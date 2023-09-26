@@ -321,9 +321,16 @@ def forsaken_pruning(c: PruningConfig,
         num_texts: int = 1,
         lr: float = 0.1,
         sigmoid_offset: float = 2.0,
+        l1_norm_coeff: float = 1.0,
         ):
     # Initilaise Model and show details about model
     c.mask_fn = "sigmoid"
+    c.misc = {
+        "num_texts": num_texts,
+        "lr": lr,
+        "sigmoid_offset": sigmoid_offset,
+        "l1_norm_coeff": l1_norm_coeff,
+    }
 
     opt = Model(
         c.model_size,
@@ -445,7 +452,7 @@ def forsaken_pruning(c: PruningConfig,
         optim.zero_grad()
 
         # Generate loss
-        loss += mask_l1_norm
+        loss += mask_l1_norm * l1_norm_coeff
 
         for i in range(num_texts):
             # Get junk loss L_kl(gamma,P)
