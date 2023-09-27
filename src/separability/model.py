@@ -188,6 +188,10 @@ class Model():
         self.device = device
         self.predictor.to( device )
         self.model.to( device )
+        if self.masks is not None:
+            for key in self.masks.keys():
+                for i in range(len(self.masks[key])):
+                    self.masks[key][i] = self.masks[key][i].to(device)
 
     def out_stack(self, tensor_list: List[Tensor]) -> Tensor:
         if self.use_accelerator or self.device != self.output_device:
@@ -251,7 +255,7 @@ class Model():
 
         mask = NeuronMask(shape, self.mask_fn)
         dtype, device = module.weight.dtype, module.weight.device
-        mask.to(dtype=dtype, device=device)
+        mask = mask.to(dtype=dtype, device=device)
         self.masks[component][layer_index] = mask
 
         # Register the pre-hook for masking
@@ -275,6 +279,17 @@ class Model():
             # Optionally, build pre_out hook if possible
             attn_o = layer["attn.out_proj"]
             self.register_input_mask(attn_o, "attn_pre_out", layer_index)
+
+    def list_masks(self, mask_labels=None):
+        if isinstance(mask_labels, str):
+            mask_labels = []
+        if mask_labels is None:
+            mask_labels = self.masks.keys()
+        masks_list = []
+        for label in mask_labels:
+            for mask in self.masks[label]:
+                masks_list.append(mask)
+        return masks_list
 
     def register_inverse_out_proj( self ):
         # Make it possible to get the output right before out_proj

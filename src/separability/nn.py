@@ -128,7 +128,7 @@ class NeuronMask(torch.nn.Module):
 
     def delete_neurons(self, keep_indices: Tensor):
         params: dict = self.state_dict()
-        params["mask"] = params["mask"] * keep_indices
+        params["mask"] = params["mask"] * keep_indices.to(params["mask"].device)
         self.load_state_dict(params)
 
     def forward(self, x):
