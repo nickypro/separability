@@ -254,7 +254,7 @@ class Model():
             shape = (self.cfg.d_mlp,)
 
         mask = NeuronMask(shape, self.mask_fn)
-        dtype, device = module.weight.dtype, module.weight.device
+        dtype, device = self.dtype, module.weight.device
         mask = mask.to(dtype=dtype, device=device)
         self.masks[component][layer_index] = mask
 
