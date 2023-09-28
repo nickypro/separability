@@ -165,6 +165,8 @@ class Model():
 
         self.register_activations()
         self.register_masks()
+        if self.dtype_map.is_low_precision:
+            return self
         if self.svd_attn:
             self.svd_attention_layers()
         else:
