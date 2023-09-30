@@ -405,7 +405,8 @@ def forsaken_pruning(c: PruningConfig,
     ]).mean()
 
     # Generate Inputs
-    optim = torch.optim.LBFGS(mask_params, lr, max_iter=4)
+    n_iter = 4
+    optim = torch.optim.LBFGS(mask_params, lr, max_iter=n_iter)
     kl_loss_fn = torch.nn.KLDivLoss()
     #ce_loss_fn = torch.nn.CrossEntropyLoss()
 
@@ -432,53 +433,56 @@ def forsaken_pruning(c: PruningConfig,
         return _cripple_texts, _focus_texts
 
     # Begin calculating loss for with LBGFS
-    cripple_texts, focus_texts = gen_texts(num_texts)
+    def get_new_ids(n_batches = None):
+        batches = []
+        cripple_texts, focus_texts = gen_texts()
+        bad_ids, junk_ids, good_ids = [], [], []
+        with torch.no_grad():
+            for text in cripple_texts:
+                bad_ids.append( opt.get_ids(text) )
+                junk_ids.append(
+                    torch.randint_like(bad_ids[-1], 5, opt.tokenizer.vocab_size)
+                )
+            for text in focus_texts:
+                good_ids.append( opt.get_ids(text) )
+        return bad_ids, junk_ids, good_ids
 
-    bad_ids = []
-    junk_ids = []
-    good_ids = []
-    with torch.no_grad():
-        for text in cripple_texts:
-            bad_ids.append( opt.get_ids(text) )
-            junk_ids.append(
-                torch.randint_like(bad_ids[-1], 5, opt.tokenizer.vocab_size)
-            )
-        for text in focus_texts:
-            good_ids.append( opt.get_ids(text) )
+    for j in range(c.n_steps//n_iter):
+        bad_ids, junk_ids, good_ids = get_new_ids()
 
-    # Begin LBGFS
-    def closure():
-        loss = 0
-        optim.zero_grad()
+        # Begin LBGFS
+        def closure():
+            loss = 0
+            optim.zero_grad()
 
-        # Generate loss
-        loss += mask_l1_norm * l1_norm_coeff
+            # Generate loss
+            loss += mask_l1_norm * l1_norm_coeff
 
-        for i in range(num_texts):
-            # Get junk loss L_kl(gamma,P)
-            with torch.no_grad():
-                junk_logits = opt.get_all_logits(junk_ids[i])[..., :-1, :]
-            bad_logits = opt.get_all_logits(bad_ids[i])[..., :-1, :]
-            loss += kl_loss_fn(bad_logits, junk_logits).mean()
+            for i in range(num_texts):
+                # Get junk loss L_kl(gamma,P)
+                with torch.no_grad():
+                    junk_logits = opt.get_all_logits(junk_ids[i])[..., :-1, :]
+                bad_logits = opt.get_all_logits(bad_ids[i])[..., :-1, :]
+                loss += kl_loss_fn(bad_logits, junk_logits).mean()
 
-            # Get good loss L_kl(gamma,Q)
-            with torch.no_grad():
-                opt.masking_enabled = False
-                orig_logits = opt.get_all_logits(good_ids[i])[..., :-1, :]
-                opt.masking_enabled = True
-            new_logits = opt.get_all_logits(good_ids[i])[..., :-1, :]
-            loss += kl_loss_fn(new_logits, orig_logits).mean()
+                # Get good loss L_kl(gamma,Q)
+                with torch.no_grad():
+                    opt.masking_enabled = False
+                    orig_logits = opt.get_all_logits(good_ids[i])[..., :-1, :]
+                    opt.masking_enabled = True
+                new_logits = opt.get_all_logits(good_ids[i])[..., :-1, :]
+                loss += kl_loss_fn(new_logits, orig_logits).mean()
 
-        # Backpropagate
-        loss.backward(retain_graph=True)
-        return loss
+            # Backpropagate
+            loss.backward(retain_graph=True)
+            return loss
 
-    # loss step
-    for i in range(c.n_steps):
-        optim.step(closure)
-        data = evaluate_all(opt, c.eval_sample_size,
-            c.datasets, c.collection_sample_size)
-        history.add(data)
+        # loss step
+        for i in range(n_iter):
+            optim.step(closure)
+            data = evaluate_all(opt, c.eval_sample_size,
+                c.datasets, c.collection_sample_size)
+            history.add(data)
 
     # Format history to print
     print(history.history[-1])
