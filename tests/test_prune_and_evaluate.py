@@ -9,7 +9,7 @@ from separability.data_classes import PruningConfig
 from separability.prune import prune_and_evaluate
 
 class TestPruneAndEvaluate:
-    pruning_config = PruningConfig("facebook/opt-125m",
+    pruning_config = PruningConfig("nickypro/tinyllama-15m",
         attn_mode="pre-out", do_attn_mean_offset=False, use_accelerator=False,
         ff_frac=0.1, ff_eps=0.1, attn_frac=0.001, attn_eps=1e4,
         token_limit=1000, focus="pile", cripple="code")
