@@ -1,0 +1,22 @@
+---
+- name: Setup Dask Cluster
+  hosts: all
+  become: yes
+  pre_tasks:
+      # Load environment variables
+    - name: Load environment variables from env_vars.yml
+      include_vars: env_vars.yml
+
+    - name: Print environment variables example
+      debug: msg="Hello, {{ GIT_USER_NAME }}!"
+
+  roles:
+    - role: dask_scheduler
+      when:
+        - "'master' in group_names"
+        - scheduler_setup | bool
+    - role: dask_worker
+      when: "'workers' in group_names"
+      vars_files:
+        - env_vars.yml
+

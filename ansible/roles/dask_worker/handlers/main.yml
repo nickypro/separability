@@ -1,0 +1,5 @@
+---
+- name: Restart Dask worker
+  systemd:
+    name: dask-worker
+    state: restarted

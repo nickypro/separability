@@ -1,0 +1,4 @@
+# env_vars.yml
+WANDB_API_KEY: "your_api_key_here"
+GIT_USER_NAME: "Your Name"
+GIT_USER_EMAIL: "youremail@example.com"

@@ -1,0 +1,6 @@
+---
+- name: Stop and disable Dask Scheduler
+  systemd:
+    name: dask-scheduler
+    state: stopped
+    enabled: no

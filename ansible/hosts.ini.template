@@ -1,0 +1,7 @@
+[master]
+master_node_ip ansible_port=YOUR_SSH_PORT ansible_user=YOUR_SSH_USER scheduler_setup=false
+
+[workers]
+slave_1_node_ip ansible_port=YOUR_SSH_PORT ansible_user=YOUR_SSH_USER
+slave_2_node_ip ansible_port=YOUR_SSH_PORT ansible_user=YOUR_SSH_USER
+slave_3_node_ip ansible_port=YOUR_SSH_PORT ansible_user=YOUR_SSH_USER

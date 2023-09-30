@@ -1,0 +1,6 @@
+---
+- name: Stop and disable Dask Worker
+  systemd:
+    name: dask-worker
+    state: stopped
+    enabled: no

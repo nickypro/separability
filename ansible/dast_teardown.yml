@@ -1,0 +1,7 @@
+---
+- name: Teardown Dask Cluster
+  hosts: all
+  become: yes
+  roles:
+    - { role: dask_scheduler, tasks_from: stop.yml, when: "'master' in group_names" }
+    - { role: dask_worker, tasks_from: stop.yml, when: "'workers' in group_names" }

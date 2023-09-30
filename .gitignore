@@ -11,4 +11,6 @@ src/separability/wandb
 tests/__pycache__
 tests/.pytest_cache
 tests/separability
+ansible/hosts.ini
+ansible/env_vars.yml
 dist

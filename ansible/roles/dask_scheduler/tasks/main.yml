@@ -1,0 +1,33 @@
+---
+- name: Install Dask Scheduler
+  apt:
+    name: python3-setuptools
+    state: present
+
+- name: Install Dask Scheduler
+  pip:
+    name: dask[distributed]
+    state: present
+
+- name: Create systemd service for Dask scheduler
+  copy:
+    dest: "/etc/systemd/system/dask-scheduler.service"
+    content: |
+      [Unit]
+      Description=Dask Scheduler
+      After=network.target
+
+      [Service]
+      User=root
+      Environment="PYTHONUNBUFFERED=1"
+      ExecStart=/root/separability/.venv/bin/dask-scheduler
+      Restart=always
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable and start Dask Scheduler
+  systemd:
+    name: dask-scheduler
+    enabled: yes
+    state: started
