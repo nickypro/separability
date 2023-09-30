@@ -1,0 +1,11 @@
+---
+- name: Pull latest code and restart Dask worker on workers
+  hosts: workers
+  tasks:
+    - name: Ensure we're in the separability directory
+      command:
+        cmd: git -C /root/separability pull
+
+    - name: Restart Dask worker
+      command: supervisorctl restart dask-worker
+      ignore_errors: yes
