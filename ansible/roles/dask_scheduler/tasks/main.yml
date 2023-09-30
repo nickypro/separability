@@ -5,7 +5,7 @@
     dest: "/etc/supervisor/conf.d/dask-scheduler.conf"
     content: |
       [program:dask-scheduler]
-      command=/root/separability/.venv/bin/dask-scheduler"
+      command=/root/separability/.venv/bin/dask-scheduler
       environment=PYTHONUNBUFFERED=1
       user=root
       redirect_stderr=true
