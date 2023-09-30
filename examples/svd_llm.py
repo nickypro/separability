@@ -11,7 +11,7 @@ def check_inverse_linear_bias():
         device = v_proj.weight.device
         inv_out_proj = InverseLinear(out_proj).to(device)
 
-        vector = torch.randn((opt.d_model)).to(device)
+        vector = torch.randn((opt.cfg.d_model)).to(device)
         output = out_proj(v_proj(vector))
 
         v_bias = torch.tensor(v_proj.bias).to(device)
