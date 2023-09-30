@@ -10,6 +10,125 @@
     - name: Print environment variables example
       debug: msg="Hello, {{ GIT_USER_NAME }}!"
 
+    # Get current python version
+    - name: Retrieve Python version from the virtual environment
+      ansible.builtin.command:
+        cmd: "poetry run python --version"
+      register: python_version_output
+      delegate_to: localhost
+      become: no
+      changed_when: false
+
+    - name: Extract version number
+      set_fact:
+        python_version: "{{ python_version_output.stdout.split()[-1] }}"
+
+    - name: Display the Python version
+      debug:
+        var: python_version
+
+    # Install correct version of python
+    - name: Ensure prerequisites are installed
+      apt:
+        name:
+          - make
+          - build-essential
+          - libssl-dev
+          - zlib1g-dev
+          - libbz2-dev
+          - libreadline-dev
+          - libsqlite3-dev
+          - wget
+          - curl
+          - llvm
+          - libncurses5-dev
+          - xz-utils
+          - tk-dev
+          - libxml2-dev
+          - libxmlsec1-dev
+          - libffi-dev
+          - liblzma-dev
+          - git
+          - python3
+          - python3-pip
+          - python-is-python3
+          - vim
+          - inotify-tools
+          - supervisor
+        state: present
+
+    - name: Clone pyenv repository
+      git:
+        repo: 'https://github.com/pyenv/pyenv.git'
+        dest: '~/.pyenv'
+        clone: yes
+        update: no
+
+    - name: Add pyenv to PATH for the current user
+      lineinfile:
+        path: "~/.bashrc"
+        line: 'export PATH="$HOME/.pyenv/bin:$PATH"'
+        state: present
+      become: no
+
+    - name: Add pyenv init to shell config
+      lineinfile:
+        path: "~/.bashrc"
+        line: 'eval "$(pyenv init --path)"'
+        state: present
+      become: no
+
+    - name: Install Python 3.10.X using pyenv
+      command:
+        cmd: "/root/.pyenv/bin/pyenv install {{ python_version }}"
+        creates: "/root/.pyenv/versions/{{ python_version }}/bin/python3.10"
+
+    # Start installing the packages
+    - name: Clone the repository
+      git:
+        repo: 'https://github.com/pesvut/separability.git'
+        dest: '/root/separability'  # Define your path
+        update: yes
+
+    - name: Add poetry PATH to ~/.bashrc
+      lineinfile:
+        path: "/root/.bashrc"
+        line: 'export PATH="/root/.local/bin:$PATH"'
+        state: present
+
+    # Setup Poetry
+    - name: Install Poetry
+      shell:
+        cmd: curl -sSL https://install.python-poetry.org | python -
+
+    - name: Set Poetry config for virtualenvs
+      command:
+        cmd: poetry config virtualenvs.in-project true
+        chdir: /root/separability
+      environment:
+        PATH: "/root/.local/bin:{{ ansible_env.PATH }}"
+
+    - name: Make poetry use the newly installed python version
+      command:
+        cmd: poetry env use /root/.pyenv/versions/{{ python_version }}/bin/python3.10
+        chdir: /root/separability
+      environment:
+        PATH: "/root/.local/bin:{{ ansible_env.PATH }}"
+
+    - name: Install dependencies using Poetry
+      command:
+        cmd: poetry install
+        chdir: /root/separability
+      environment:
+        PATH: "/root/.local/bin:{{ ansible_env.PATH }}"
+
+    # Setup DASK worker
+    - name: Install Dask Worker
+      pip:
+        name: dask[distributed]
+        state: present
+        executable: /root/separability/.venv/bin/pip
+
   roles:
     - role: dask_scheduler
       when:

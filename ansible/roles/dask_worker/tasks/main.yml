@@ -1,22 +1,11 @@
 ---
-# Setup packages
-- name: Ensure apt packages are installed
-  apt:
-    name:
-      - git
-      - python3
-      - python3-pip
-      - python-is-python3
-      - vim
-      - inotify-tools
-      - supervisor
-    state: present
-
-- name: Clone the repository
-  git:
-    repo: 'https://github.com/pesvut/separability.git'
-    dest: '/root/separability'  # Define your path
-    update: yes
+# Setup pytorch
+- name: Install torch using Poetry managed pip
+  command:
+    cmd: poetry run pip install torch
+    chdir: /root/separability
+  environment:
+    PATH: "/root/.local/bin:{{ ansible_env.PATH }}"
 
 # Setup ENV variables and .bashrc file
 - name: Set git global user name
@@ -45,49 +34,12 @@
     path: "/root/.bashrc"
     line: 'alias py="poetry run python"'
 
-- name: Add poetry PATH to ~/.bashrc
-  lineinfile:
-    path: "/root/.bashrc"
-    line: 'export PATH="/root/.local/bin:$PATH"'
-    state: present
-
-# Setup Poetry
-- name: Install Poetry
-  shell:
-    cmd: curl -sSL https://install.python-poetry.org | python -
-
-- name: Set Poetry config for virtualenvs
-  command:
-    cmd: poetry config virtualenvs.in-project true
-    chdir: /root/separability
-  environment:
-    PATH: "/root/.local/bin:{{ ansible_env.PATH }}"
-
-- name: Install dependencies using Poetry
-  command:
-    cmd: poetry install
-    chdir: /root/separability
-  environment:
-    PATH: "/root/.local/bin:{{ ansible_env.PATH }}"
-
-- name: Install torch using Poetry managed pip
-  command:
-    cmd: poetry run pip install torch
-    chdir: /root/separability
-  environment:
-    PATH: "/root/.local/bin:{{ ansible_env.PATH }}"
-
-# Setup DASK worker
-- name: Install Dask Worker
-  pip:
-    name: dask[distributed]
-    state: present
-    executable: /root/separability/.venv/bin/pip
-
+# Setup DASK Worker resources
 - name: Detect VRAM size
   shell: nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | awk '{print $1/1000}'
   register: vram_size
 
+# Make dask worker script
 - name: Create supervisord service for Dask worker
   copy:
     dest: "/etc/supervisor/conf.d/dask-worker.conf"
@@ -107,7 +59,6 @@
     state: started
   ignore_errors: yes
 
-
 - name: Update Supervisor with new configurations
   command:
     cmd: "{{ item }}"
@@ -124,38 +75,3 @@
   command: supervisorctl restart dask-worker
   when: "'already started' in dask_worker_start.stdout"
   ignore_errors: yes
-
-# Setup git pull routine
-- name: Create the monitor and pull script
-  copy:
-    dest: "/root/git_monitor_and_pull.sh"
-    content: |
-      #!/bin/bash
-      while true; do
-        inotifywait -e modify -r /root/separability
-        cd /root/separability && git pull
-        supervisorctl restart dask-worker
-        sleep 10
-      done
-    mode: '0755'
-
-- name: Create Supervisor configuration for git repo monitoring and auto-pulling
-  copy:
-    dest: "/etc/supervisor/conf.d/git-auto-pull.conf"
-    content: |
-      [program:git-auto-pull]
-      command=/bin/bash /root/git_monitor_and_pull.sh
-      autostart=true
-      autorestart=true
-      redirect_stderr=true
-      stdout_logfile=/var/log/git-auto-pull.log
-
-- name: Update Supervisor with new configurations
-  command:
-    cmd: "{{ item }}"
-  with_items:
-    - supervisorctl reread
-    - supervisorctl update
-
-- name: Start git-auto-pull Supervisor service
-  command: supervisorctl start git-auto-pull

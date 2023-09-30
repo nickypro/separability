@@ -1,33 +1,37 @@
 ---
-- name: Install Dask Scheduler
-  apt:
-    name: python3-setuptools
-    state: present
-
-- name: Install Dask Scheduler
-  pip:
-    name: dask[distributed]
-    state: present
-
-- name: Create systemd service for Dask scheduler
+# Create process for running dask scheduler
+- name: Create supervisord service for Dask scheduler
   copy:
-    dest: "/etc/systemd/system/dask-scheduler.service"
+    dest: "/etc/supervisor/conf.d/dask-scheduler.conf"
     content: |
-      [Unit]
-      Description=Dask Scheduler
-      After=network.target
+      [program:dask-scheduler]
+      command=/root/separability/.venv/bin/dask-scheduler"
+      environment=PYTHONUNBUFFERED=1
+      user=root
+      redirect_stderr=true
+      stdout_logfile=/var/log/dask-scheduler.log
+      autostart=true
+      autorestart=true
 
-      [Service]
-      User=root
-      Environment="PYTHONUNBUFFERED=1"
-      ExecStart=/root/separability/.venv/bin/dask-scheduler
-      Restart=always
-
-      [Install]
-      WantedBy=multi-user.target
-
-- name: Enable and start Dask Scheduler
-  systemd:
-    name: dask-scheduler
-    enabled: yes
+- name: Ensure supervisord service is running
+  service:
+    name: supervisor
     state: started
+  ignore_errors: yes
+
+- name: Update Supervisor with new configurations
+  command:
+    cmd: "{{ item }}"
+  with_items:
+    - supervisorctl reread
+    - supervisorctl update
+
+- name: Attempt to start Dask scheduler
+  command: supervisorctl start dask-scheduler
+  register: dask_scheduler_start
+  ignore_errors: yes
+
+- name: Restart Dask scheduler if already running
+  command: supervisorctl restart dask-scheduler
+  when: "'already started' in dask_scheduler_start.stdout"
+  ignore_errors: yes
