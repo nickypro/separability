@@ -1,7 +1,7 @@
 from separability import Model
 from separability.data_classes import PruningConfig
 
-from general_headings import headings
+from examples.trajectories.general_headings import headings
 
 c = PruningConfig(
     model_repo  = "openlm-research/open_llama_3b_v2",
