@@ -1,5 +1,12 @@
 ---
 # Create process for running dask scheduler
+- name: Install bokeh for dask scheduler
+  command:
+    cmd: poetry run pip install 'bokeh!=3.0.*,>=2.4.2'
+    chdir: /root/separability
+  environment:
+    PATH: "/root/.local/bin:{{ ansible_env.PATH }}"
+
 - name: Create supervisord service for Dask scheduler
   copy:
     dest: "/etc/supervisor/conf.d/dask-scheduler.conf"
