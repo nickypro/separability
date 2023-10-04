@@ -17,6 +17,7 @@ c = PruningConfig(
     focus     = "pile_codeless",
     cripple   = "code",
     additional_datasets=tuple(),
+    recalculate_activations = True, # iterative vs non-iterative pruning
 )
 
 # Parse CLI for arguments
