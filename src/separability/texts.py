@@ -3,6 +3,8 @@ Some commands used for loading datasets used in my research.
 That is, the 'codeparrot-clean' and 'the pile' datasets.
 """
 
+import os
+import json
 import argparse
 from datasets import load_dataset
 
@@ -96,12 +98,21 @@ def load_wiki(test=0):
 
 # Hard load the most common tokens from the datasets from previous runs.
 # pylint: disable=line-too-long
-most_common_code_tokens = [' ', '\n', '.', '_', ',', '#', '(', ' =', ' import', 'from', ' the', ':', ')', '\n\n', 'import', " '", '/', '-', '):', '\t', "',", ' "', ' self', '=', ' of', "'", '__', ' (', 'self', ' in', ' License', '</s>', ' is', '0', ' for', ' to', 's', '1', '2', ' a', ' as', '\r', ' -', ' and', ' def', ' #', 'x', '()', "('", '\\']
-most_common_pile_tokens = ['\n', '.', ',', ' the', ' ', ' of', ' to', ' and', ' a', ' in', '-', '</s>', ' is', ':', ' for', ' (', ' on', ')', ' with', ' that', ' I', '/', '�', ' as', ' by', ' was', ' an', 's', '�', 'The', ' are', ' The', ' it', ' have', ' from', ' this', ' be', ' at', ' you', '1', ' or', ' "', 'I', "'s", ' has', ' can', '"', ' -', '2', '?']
+#most_common_code_tokens = [' ', '\n', '.', '_', ',', '#', '(', ' =', ' import', 'from', ' the', ':', ')', '\n\n', 'import', " '", '/', '-', '):', '\t', "',", ' "', ' self', '=', ' of', "'", '__', ' (', 'self', ' in', ' License', '</s>', ' is', '0', ' for', ' to', 's', '1', '2', ' a', ' as', '\r', ' -', ' and', ' def', ' #', 'x', '()', "('", '\\']
+#most_common_pile_tokens = ['\n', '.', ',', ' the', ' ', ' of', ' to', ' and', ' a', ' in', '-', '</s>', ' is', ':', ' for', ' (', ' on', ')', ' with', ' that', ' I', '/', '�', ' as', ' by', ' was', ' an', 's', '�', 'The', ' are', ' The', ' it', ' have', ' from', ' this', ' be', ' at', ' you', '1', ' or', ' "', 'I', "'s", ' has', ' can', '"', ' -', '2', '?']
+
+# Load the JSON data
+script_path = os.path.abspath(os.path.dirname(__file__))
+json_file_path = os.path.join(script_path, 'data/llama_most_common_tokens.json')
+with open(json_file_path, 'r') as file:
+    llama_most_common_tokens = json.load(file)
+most_common_pile_tokens          = llama_most_common_tokens["all"]["skip50"]["tokens_str"]
+most_common_pile_codeless_tokens = llama_most_common_tokens["only_text"]["skip50"]["tokens_str"]
+most_common_code_tokens          = llama_most_common_tokens["only_code"]["skip50"]["tokens_str"]
 
 def prepare( dataset_name, test:int = 0 ):
     if dataset_name == 'pile_codeless':
-        return load_pile_codeless(test), 'text', most_common_pile_tokens
+        return load_pile_codeless(test), 'text', most_common_pile_codeless_tokens
 
     if dataset_name == 'pile':
         return load_pile(test), 'text', most_common_pile_tokens
