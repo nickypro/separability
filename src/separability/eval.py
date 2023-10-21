@@ -1,13 +1,182 @@
 from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
-from datasets import load_dataset, get_dataset_config_names
+from torch import Tensor
+from datasets import load_dataset, get_dataset_config_names, Dataset
 from welford_torch import Welford
 from tqdm import tqdm
-from .data_classes import EvalOutput, EvalAllOutput
+from .data_classes import EvalConfig, EvalOutput, EvalAllOutput, RawAccuracyData
 from .model import Model
 from .texts import prepare
 
+####################################################################################
+# General Function for Evaluation
+####################################################################################
+
+# Load text
+def get_default_text_generator(
+        model: Model,
+        eval_config: EvalConfig
+    ):
+
+    dataset: Dataset,
+    dataset_text_label: str
+
+    for data in dataset:
+        # predict next token from text
+        text = data[ dataset_text_label ]
+        with torch.no_grad():
+            input_ids    = model.get_ids(text)
+            logits       = model.get_all_logits( input_ids )[..., :-1, :]
+            expected_ids = input_ids[..., 1:]
+
+        yield (logits, expected_ids)
+
+class DefaultModelEvaluator:
+    @staticmethod
+    def top_k_tokens(logits, k):
+        """Returns the top k tokens from the logits."""
+        values, indices = torch.topk(logits, k, dim=-1)
+        return indices
+
+    def get_skip_ids(model, skip_strings):
+        # Get the set of token ids to skip when evaluating performance
+        skip_ids = set()
+        skip_strings = [] if (skip_strings is None) else skip_strings
+        for skip_string in skip_strings:
+            skip_id = int( model.get_ids( skip_string ).squeeze(dim=0)[-1] )
+            skip_ids.add( skip_id )
+        return skip_ids
+
+    def evaluate_topk_performance(self,
+            expected_ids: torch.Tensor,
+            logits: torch.Tensor,
+            k: int,
+            skip_ids: Optional[set] = (None,),
+        ):
+        """Evaluates performance with top-1 and top-k token predictions."""
+
+        # Generate top k token ids
+        top_tokens  = self.top_k_tokens(logits, 1)
+        topk_tokens = self.top_k_tokens(logits, k) if k!=1 else top_tokens
+
+        # Initialise RawAccuracyData object
+        acc = RawAccuracyData(
+            token_counts = np.zeros(logits.size()[-1])
+        )
+
+        # Collect Accuracy Data for Sample
+        for i, expected_id in enumerate(expected_ids):
+            is_accurate      = (expected_id in top_tokens[i])
+            is_topk_accurate = (expected_id in topk_tokens[i])
+
+            acc.num_predictions   += 1
+            acc.num_accurate      += is_accurate
+            acc.num_topk_accurate += is_topk_accurate
+
+            if int(expected_id) not in skip_ids:
+                acc.num_skip_predictions   += 1
+                acc.num_skip_accurate      += is_accurate
+                acc.num_topk_skip_accurate += is_topk_accurate
+
+            acc.token_counts[expected_id] += 1
+
+        # Allow return of misc data
+        misc = {
+            'top_tokens'       : top_tokens,
+            'top_k_tokens'     : topk_tokens,
+        }
+
+        return acc, misc
+
+    def evaluate_ce_losses(self, expected_ids: torch.Tensor, logits: torch.Tensor):
+        """Computes cross entropy losses for each token."""
+
+        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+        predicted_log_probs = log_probs.gather(dim=-1, index=expected_ids[..., None])[..., 0]
+        return -predicted_log_probs
+
+    def evaluate_ce_loss(self, expected_ids: torch.Tensor, logits: torch.Tensor):
+        """Computes mean cross entropy loss."""
+
+        predicted_log_probs = self.evaluate_ce_losses(expected_ids, logits)
+        return predicted_log_probs.mean()
+
+    def evaluate_dataset( self,
+            generator: Callable,
+            k: int = 10,
+            start_index: int = 0,
+            skip_eval: Optional[List[str]] = None,
+            sample_size: int = 1e5,
+            count_tokens: bool = False,
+            num_top_tokens: int = 50,
+            loading_bar_desc: str = "Acc",
+            ):
+
+        # Initialize variables
+        total_acc = RawAccuracyData()
+        loss_tracker = Welford()
+
+        # Loop over the dataset
+        pbar = tqdm(total=sample_size)
+        for (logits, expected_ids, _other_data) in generator:
+            # Assess performance on a sample
+            sample_acc = self.evaluate_topk_performance(
+                expected_ids=expected_ids, logits=logits, k=k, skip_ids=skip_eval,
+            )
+            sample_losses = self.evaluate_ce_losses(
+                expected_ids=expected_ids, logits=logits,
+            )
+
+            # Record performance
+            total_acc += sample_acc
+            loss_tracker.add_all( sample_losses.detach() )
+
+            # Print output string showing current accuracy
+            pbar.update( sample_acc.num_skip_predictions )
+            percent  = total_acc.get_percentages(as_string=True)
+            out_str  = f"{loading_bar_desc}: "
+            out_str += f"{percent['topk']}|{percent['base']} "
+            out_str += f"(Skip: {percent['topk_skip']}|{percent['skip']})"
+            pbar.set_description( out_str )
+
+            # Stop if limit is reached
+            if total_acc.num_skip_predictions > sample_size:
+                break
+
+        if count_tokens:
+            top_tokens = total_acc.get_most_common_tokens(num_top_tokens)
+            print( self.batch_decode( topk ) )
+
+        loss_data =  {
+            'loss': round(float(loss_tracker.mean), 4),
+            'log_loss': round(float(np.log(loss_tracker.mean)), 4),
+        }
+
+        pbar.close()
+
+        return EvalOutput(
+            loss_data = loss_data,
+            percent   = total_acc.get_percentages(),
+            misc      = total_acc.to_dict()
+        )
+
+def run_evaluation(model: Model,
+        eval_config: EvalConfig,
+        text_generator = None,
+        text_evaluator = None,
+        ):
+    if text_generator is None:
+        get_generator = get_default_text_generator
+    if text_evaluator is None:
+        evaluate_dataset = DefaultModelEvaluator().evaluate_dataset
+
+    # Get generator that returns (logits, expected_ids)
+    generator, skip_eval, sample_size = get_generator(model, eval_config)
+
+    eval_config.loading_bar_desc = "%6s" % eval_config.dataset_name
+
+    out: EvalOutput = evaluate_dataset(generator, eval_config)
 
 ####################################################################################
 # Evaluate on Text Generation tasks

@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple, Union, Optional
+from typing import List, Dict, Tuple, Union, Optional, Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -67,6 +67,21 @@ def _set_empty_attrs_to_dict(__class):
             setattr(__class, attr, {})
 
 @dataclass
+class EvalConfig:
+    dataset_name: str
+    sample_size: int = 1e5
+    topk: int = 10
+    start_index: int = 0
+    skip_tokens: Optional[List[str]] = None
+    num_texts_to_skip: int = 0
+    num_top_tokens: int = 50
+    loading_bar_desc: str = "Acc"
+    verbose: bool = False
+    masked_model: bool = False
+    n_shot: int = 1,
+    misc: Optional[Dict[str, any]] = None
+
+@dataclass
 class EvalOutput:
     loss_data: dict = None
     percent: dict = None
@@ -97,6 +112,7 @@ class EvalAllOutput:
 
 
 # Raw Data Collector for %Accuracy
+@dataclass
 class RawAccuracyData:
     num_predictions: int = 0
     num_accurate: int = 0
