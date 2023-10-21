@@ -1,6 +1,7 @@
 from typing import List, Dict, Tuple, Union, Optional
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 from torch import Tensor
 import pandas as pd
@@ -94,6 +95,68 @@ class EvalAllOutput:
             _dict[attr] = getattr(self, attr)
         return _dict
 
+
+# Raw Data Collector for %Accuracy
+class RawAccuracyData:
+    num_predictions: int = 0
+    num_accurate: int = 0
+    num_topk_accurate: int = 0
+    num_skip_predictions: int = 0
+    num_skip_accurate: int = 0
+    num_topk_skip_accurate: int = 0
+    token_counts: Optional[np.ndarray] = None
+
+    # Make addition just the sum of attributes
+    def __sum__(self, other):
+        if self.token_counts is None and other.token_counts is None:
+            new_token_counts = None
+        elif self.token_counts is None:
+            new_token_counts = other.token_counts
+        elif other.token_counts is None:
+            new_token_counts = self.token_counts
+        else:
+            new_token_counts = self.token_counts + other.token_counts
+
+        return RawAccuracyData(
+            num_predictions=self.num_predictions + other.num_predictions,
+            num_accurate=self.num_accurate + other.num_accurate,
+            num_topk_accurate=self.num_topk_accurate + other.num_topk_accurate,
+            num_skip_predictions=self.num_skip_predictions + other.num_skip_predictions,
+            num_skip_accurate=self.num_skip_accurate + other.num_skip_accurate,
+            num_topk_skip_accurate=self.num_topk_skip_accurate + other.num_topk_skip_accurate,
+            token_counts=new_token_counts,
+        )
+
+    def to_dict(self):
+        _dict = {}
+        for attr in self.__dataclass_fields__:
+            _dict[attr] = getattr(self, attr)
+        return _dict
+
+    def get_percentages( self, as_string: bool = False):
+        # Print top1 prediction accuracy
+        pred       = self.num_predictions
+        skip_pred  = self.num_skip_predictions
+        pred      += int(pred==0)
+        skip_pred += int(skip_pred==0)
+        percent = {
+            "base"      : (100 * self.num_accurate / pred),
+            "topk"      : (100 * self.num_topk_accurate / pred),
+            "skip"      : (100 * self.num_skip_accurate / skip_pred),
+            "topk_skip" : (100 * self.num_topk_skip_accurate / skip_pred),
+        }
+        if as_string:
+            percent = { k: ( "%.2f" % v ) for k, v in percent.items() }
+        return percent
+
+    def get_most_common_tokens(self, num_top_tokens: int) -> List[int]:
+        if self.token_counts is None:
+            return []
+        top_tokens = self.token_counts.argpartition(-num_top_tokens )[-num_top_tokens:]
+        top_tokens = top_tokens[
+            np.argsort(self.token_counts[top_tokens])
+        ][::-1]
+        return top_tokens
 
 ######################################################################################
 # Data Store Classes
