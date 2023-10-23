@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Union, List
+from typing import Optional, Tuple, Union, List, Callable
 import numpy as np
 import torch
 from torch import Tensor
@@ -13,32 +13,31 @@ from .texts import prepare
 # General Function for Evaluation
 ####################################################################################
 
-# Load text
-def get_default_text_generator(
-        model: Model,
-        eval_config: EvalConfig
-    ):
-
-    dataset: Dataset,
-    dataset_text_label: str
-
-    for data in dataset:
-        # predict next token from text
-        text = data[ dataset_text_label ]
-        with torch.no_grad():
-            input_ids    = model.get_ids(text)
-            logits       = model.get_all_logits( input_ids )[..., :-1, :]
-            expected_ids = input_ids[..., 1:]
-
-        yield (logits, expected_ids)
-
 class DefaultModelEvaluator:
+    @staticmethod
+    def get_next_token_generator(
+            model: Model,
+            dataset: Dataset,
+            eval_config: EvalConfig,
+        ):
+
+        for data in dataset:
+            # predict next token from text
+            text = data[ eval_config.dataset_text_label ]
+            with torch.no_grad():
+                input_ids    = model.get_ids(text)
+                logits       = model.get_all_logits( input_ids )[..., :-1, :]
+                expected_ids = input_ids[..., 1:]
+
+            yield (logits, expected_ids, {})
+
     @staticmethod
     def top_k_tokens(logits, k):
         """Returns the top k tokens from the logits."""
-        values, indices = torch.topk(logits, k, dim=-1)
+        _values, indices = torch.topk(logits, k, dim=-1)
         return indices
 
+    @staticmethod
     def get_skip_ids(model, skip_strings):
         # Get the set of token ids to skip when evaluating performance
         skip_ids = set()
@@ -104,79 +103,81 @@ class DefaultModelEvaluator:
 
     def evaluate_dataset( self,
             generator: Callable,
-            k: int = 10,
-            start_index: int = 0,
-            skip_eval: Optional[List[str]] = None,
-            sample_size: int = 1e5,
-            count_tokens: bool = False,
-            num_top_tokens: int = 50,
-            loading_bar_desc: str = "Acc",
+            eval_config: EvalConfig,
             ):
+        c = eval_config
 
         # Initialize variables
-        total_acc = RawAccuracyData()
+        total_acc_data = RawAccuracyData()
         loss_tracker = Welford()
 
         # Loop over the dataset
-        pbar = tqdm(total=sample_size)
+        pbar = tqdm(total=c.sample_size)
         for (logits, expected_ids, _other_data) in generator:
             # Assess performance on a sample
-            sample_acc = self.evaluate_topk_performance(
-                expected_ids=expected_ids, logits=logits, k=k, skip_ids=skip_eval,
+            sample_acc_data, _sample_misc_data = self.evaluate_topk_performance(
+                expected_ids=expected_ids, logits=logits, k=c.topk, skip_ids=c.skip_eval,
             )
             sample_losses = self.evaluate_ce_losses(
                 expected_ids=expected_ids, logits=logits,
             )
 
             # Record performance
-            total_acc += sample_acc
+            total_acc_data += sample_acc_data
             loss_tracker.add_all( sample_losses.detach() )
 
             # Print output string showing current accuracy
-            pbar.update( sample_acc.num_skip_predictions )
-            percent  = total_acc.get_percentages(as_string=True)
-            out_str  = f"{loading_bar_desc}: "
+            pbar.update( sample_acc_data.num_skip_predictions )
+            percent  = total_acc_data.get_percentages(as_string=True)
+            out_str  = f"{c.loading_bar_desc}: "
             out_str += f"{percent['topk']}|{percent['base']} "
             out_str += f"(Skip: {percent['topk_skip']}|{percent['skip']})"
             pbar.set_description( out_str )
 
             # Stop if limit is reached
-            if total_acc.num_skip_predictions > sample_size:
+            if total_acc_data.num_skip_predictions > c.sample_size:
                 break
 
-        if count_tokens:
-            top_tokens = total_acc.get_most_common_tokens(num_top_tokens)
-            print( self.batch_decode( topk ) )
-
-        loss_data =  {
-            'loss': round(float(loss_tracker.mean), 4),
-            'log_loss': round(float(np.log(loss_tracker.mean)), 4),
-        }
 
         pbar.close()
 
+        loss_data =  {
+            'loss':     round(float(loss_tracker.mean), 4),
+            'log_loss': round(float(np.log(loss_tracker.mean)), 4),
+        }
+        misc_data =  {
+            'accuracy_counts': total_acc_data.to_dict(),
+        }
         return EvalOutput(
             loss_data = loss_data,
-            percent   = total_acc.get_percentages(),
-            misc      = total_acc.to_dict()
+            percent   = total_acc_data.get_percentages(),
+            misc      = misc_data,
         )
 
 def run_evaluation(model: Model,
         eval_config: EvalConfig,
-        text_generator = None,
-        text_evaluator = None,
+        get_generator: Callable = None,
+        dataset_evaluator: Callable = None,
         ):
-    if text_generator is None:
-        get_generator = get_default_text_generator
-    if text_evaluator is None:
-        evaluate_dataset = DefaultModelEvaluator().evaluate_dataset
+    if get_generator is None:
+        get_generator    = DefaultModelEvaluator.get_next_token_generator
+    if dataset_evaluator is None:
+        dataset_evaluator = DefaultModelEvaluator().evaluate_dataset
+
+    # Load Dataset
+    dataset, dataset_text_label, skip_tokens = \
+        prepare(eval_config.dataset_name, eval_config.num_tokens_to_skip)
+    eval_config.dataset_text_label = dataset_text_label
+    eval_config.skip_tokens        = skip_tokens
+    eval_config.loading_bar_desc   = "%6s" % eval_config.dataset_name
 
     # Get generator that returns (logits, expected_ids)
-    generator, skip_eval, sample_size = get_generator(model, eval_config)
+    generator = get_generator(model, dataset, eval_config)
 
-    eval_config.loading_bar_desc = "%6s" % eval_config.dataset_name
+    # Run Evaluation
+    out: EvalOutput = dataset_evaluator(generator, eval_config)
 
-    out: EvalOutput = evaluate_dataset(generator, eval_config)
+    return out
 
 ####################################################################################
 # Evaluate on Text Generation tasks

@@ -70,10 +70,12 @@ def _set_empty_attrs_to_dict(__class):
 class EvalConfig:
     dataset_name: str
     sample_size: int = 1e5
+    dataset_text_label = "text"
+    skip_tokens: Optional[List[str]] = None
     topk: int = 10
     start_index: int = 0
-    skip_tokens: Optional[List[str]] = None
-    num_texts_to_skip: int = 0
+    num_texts_to_skip:  int = 0
+    num_tokens_to_skip: int = 1e5
     num_top_tokens: int = 50
     loading_bar_desc: str = "Acc"
     verbose: bool = False
