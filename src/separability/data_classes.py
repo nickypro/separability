@@ -94,7 +94,7 @@ class EvalConfig:
     masked_frac_chosen_masked: float     = 0.8
     masked_frac_chosen_randomized: float = 0.1
     masked_frac_chosen_unchanged: float  = 0.1
-    mmlu_subsets: Optional[str, List[str]] = None
+    mmlu_subsets: Optional[Union[str, List[str]]] = None
     sliding_window_buffer_size = 1024
     sliding_window_step_size = 512
     generated_text_prompt: str = None

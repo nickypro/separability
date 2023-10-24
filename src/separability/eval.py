@@ -25,7 +25,7 @@ class Generators:
     """
 
     @staticmethod
-    def get_next_token_generator(self,
+    def get_next_token_generator(
             model: Model,
             dataset: Dataset,
             eval_config: EvalConfig,
@@ -81,7 +81,7 @@ class Generators:
 
     # Eval for masked models like BERT/RoBERTa
     @staticmethod
-    def get_masked_generator(self,
+    def get_masked_generator(
             model: Model,
             dataset: Dataset,
             eval_config: EvalConfig
@@ -448,15 +448,15 @@ class Evaluator:
 def choose_functions(eval_config):
     if eval_config.dataset_type == "mmlu":
         generator = MmluGenerator.get_mmlu_generator
-        evaluator = Evaluator.evaluate_dataset
+        evaluator = Evaluator().evaluate_dataset
         return generator, evaluator
 
     if eval_config.dataset_type == "generator":
         generator = Generators.get_many_generated_texts_generator
-        evaluator = Evaluator.evaluate_dataset
+        evaluator = Evaluator().evaluate_dataset
         return generator, evaluator
 
-    evaluator = Evaluator.evaluate_dataset
+    evaluator = Evaluator().evaluate_dataset
     if eval_config.masked_model:
         return Generators.get_masked_generator, evaluator
     return Generators.get_next_token_generator, evaluator
