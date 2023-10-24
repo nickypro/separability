@@ -491,6 +491,9 @@ def run_evaluation(model: Model,
 
     return out
 
+def evaluate(model, dataset):
+    infer_eval_config(dataset)
+
 ####################################################################################
 # Evaluate on Text Generation tasks
 ####################################################################################
@@ -528,7 +531,7 @@ def format_mmlu_question(datum, include_answer=False):
     #s += "\n\n"
     #s += "Choices:"
     for index, choice in enumerate(datum["choices"]):
-        s += f"\n{mcq_letters[index]}. {choice}"
+        s += f"\n{mcq_letterdicts[index]}. {choice}"
     s += "\nAnswer: "
     if include_answer:
         s += mcq_letters[datum["answer"]]
