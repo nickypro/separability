@@ -9,13 +9,27 @@ from .data_classes import EvalConfig, EvalOutput, EvalAllOutput, RawAccuracyData
 from .model import Model
 from .texts import prepare
 
-####################################################################################
-# General Function for Evaluation
-####################################################################################
+######################################################################################
+# Code that handles loop of: text -> outputs + expected inputs
+######################################################################################
 
-class DefaultModelEvaluator:
+class Generators:
+    """ Code for making generators for each dataset. """
+    # Have code specific to my Model class here
     @staticmethod
-    def get_next_token_generator(
+    def tokenize(model, ids):
+        return model.tokenizer.tokenize(ids)
+
+    @staticmethod
+    def get_ids(model, text):
+        return model.get_ids(text)
+
+    @staticmethod
+    def get_all_logits(model, input_ids):
+        return model.get_all_logits(input_ids)
+
+    # Default generator for most texts
+    def build_next_token_generator(self,
             model: Model,
             dataset: Dataset,
             eval_config: EvalConfig,
@@ -25,12 +39,54 @@ class DefaultModelEvaluator:
             # predict next token from text
             text = data[ eval_config.dataset_text_label ]
             with torch.no_grad():
-                input_ids    = model.get_ids(text)
-                logits       = model.get_all_logits( input_ids )[..., :-1, :]
+                input_ids    = self.get_ids(model, text)
+                logits       = self.get_all_logits(model, input_ids)[..., :-1, :]
                 expected_ids = input_ids[..., 1:]
 
             yield (logits, expected_ids, {})
 
+    # Generator for WikiText
+    def build_sliding_window_generator(self,
+            model: Model,
+            dataset: Dataset,
+            eval_config: EvalConfig,
+            ):
+        buffer_size = eval_config.sliding_window_buffer_size
+        step_size   = eval_config.sliding_window_step_size
+        dataset_text_label = eval_config.dataset_text_label
+        eval_config.start_index = buffer_size - step_size - 1
+
+        def get_sliding_window_outputs(
+                model: Model,
+                ids: Tensor
+            ):
+            ids = torch.tensor([ids], device=model.device)
+            expected_ids = ids[..., 1:]
+            logits = self.get_all_logits(model, ids)[..., :-1, :]
+            yield (logits, expected_ids, {})
+
+        buffer_tokens = [] # Initialize the buffer
+        token_count   = 0  # Initialize the token counter
+
+        for sample in dataset:
+            tokenized_text = model.tokenizer.tokenize(sample[dataset_text_label])
+            buffer_tokens.extend(tokenized_text)
+
+            while len(buffer_tokens) >= buffer_size:
+                ids = model.tokenizer.convert_tokens_to_ids(buffer_tokens[:buffer_size])
+                yield get_sliding_window_outputs(model, ids)
+                buffer_tokens = buffer_tokens[step_size:]
+                token_count += step_size
+
+        # if any tokens remain, return them
+        ids = model.tokenizer.convert_tokens_to_ids(buffer_tokens[:buffer_size])
+        yield get_sliding_window_outputs(model, ids)
+
+######################################################################################
+# General Function for Evaluation
+######################################################################################
+
+class DefaultModelEvaluator:
     @staticmethod
     def top_k_tokens(logits, k):
         """Returns the top k tokens from the logits."""
@@ -166,7 +222,7 @@ def run_evaluation(model: Model,
         dataset_evaluator: Callable = None,
         ):
     if get_generator is None:
-        get_generator    = DefaultModelEvaluator.get_next_token_generator
+        get_generator    = Generators.get_next_token_generator
     if dataset_evaluator is None:
         dataset_evaluator = DefaultModelEvaluator().evaluate_dataset
 
