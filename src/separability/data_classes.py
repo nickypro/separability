@@ -69,6 +69,7 @@ def _set_empty_attrs_to_dict(__class):
 @dataclass
 class EvalConfig:
     dataset_name: str
+    dataset_repo: str = None
     sample_size: int = 1e5
     dataset_text_label = "text"
     skip_token_strings: Optional[List[str]] = None
@@ -81,6 +82,7 @@ class EvalConfig:
     loading_bar_desc: str = "Acc"
     verbose: bool = False
     # Custom Eval Parameters
+    n_shot: int = 0
     masked_model: bool = False
     masked_token_str: str = "<mask>"
     masked_token_id: int = None
@@ -88,9 +90,13 @@ class EvalConfig:
     masked_frac_chosen_masked: float     = 0.8
     masked_frac_chosen_randomized: float = 0.1
     masked_frac_chosen_unchanged: float  = 0.1
-    n_shot: int        = 1
+    mmlu_subsets: Optional[str, List[str]] = None
     sliding_window_buffer_size = 1024
     sliding_window_step_size = 512
+    generated_text_prompt: str = None
+    generated_text_num_samples: int = 1
+    generated_text_length: int = 50
+    generated_text_temperature: float = None
     misc: Optional[Dict[str, any]] = None
 
 @dataclass

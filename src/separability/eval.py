@@ -14,21 +14,17 @@ from .texts import prepare
 ######################################################################################
 
 class Generators:
-    """ Different datasets are evaluated differently. This is handled here. """
-    # Have code specific to my Model class here
-    @staticmethod
-    def tokenize(model, ids):
-        return model.tokenizer.tokenize(ids)
+    """ Different datasets are evaluated differently. This is handled here.
+
+    Assumes model has the following functions:
+      - model.tokenizer.tokenize(text)
+      - model.tokenizer.convert_tokens_to_ids(ids)
+      - model.get_ids(text)
+      - model.get_all_logits(input_ids)
+
+    """
 
     @staticmethod
-    def get_ids(model, text):
-        return model.get_ids(text)
-
-    @staticmethod
-    def get_all_logits(model, input_ids):
-        return model.get_all_logits(input_ids)
-
-    # Default generator for most texts
     def get_next_token_generator(self,
             model: Model,
             dataset: Dataset,
@@ -39,14 +35,15 @@ class Generators:
             # predict next token from text
             text = data[ eval_config.dataset_text_label ]
             with torch.no_grad():
-                input_ids    = self.get_ids(model, text)
-                logits       = self.get_all_logits(model, input_ids)[..., :-1, :]
+                input_ids    = model.get_ids(text=text)
+                logits       = model.get_all_logits(input_ids=input_ids)[..., :-1, :]
                 expected_ids = input_ids[..., 1:]
 
             yield (logits, expected_ids, {})
 
     # Generator for WikiText
-    def get_sliding_window_generator(self,
+    @staticmethod
+    def get_sliding_window_generator(
             model: Model,
             dataset: Dataset,
             eval_config: EvalConfig,
@@ -62,7 +59,7 @@ class Generators:
             ):
             ids = torch.tensor([ids], device=model.device)
             expected_ids = ids[..., 1:]
-            logits = self.get_all_logits(model, ids)[..., :-1, :]
+            logits = model.get_all_logits(input_ids=ids)[..., :-1, :]
             yield (logits, expected_ids, {})
 
         buffer_tokens = [] # Initialize the buffer
@@ -83,6 +80,7 @@ class Generators:
         yield get_sliding_window_outputs(model, ids)
 
     # Eval for masked models like BERT/RoBERTa
+    @staticmethod
     def get_masked_generator(self,
             model: Model,
             dataset: Dataset,
@@ -92,7 +90,7 @@ class Generators:
 
         if c.masked_token_id is None:
             c.masked_token_id = \
-                self.get_ids(model, c.masked_token_string)[0, 1].item()
+                model.get_ids(text=c.masked_token_string)[0, 1].item()
 
         def run_random_masking(orig_ids):
             # Number of random elements to select
@@ -120,20 +118,164 @@ class Generators:
         for data in dataset:
             text = data[c.dataset_text_label]
 
-            orig_ids = self.get_ids(model, text)
+            orig_ids = model.get_ids(text=text)
             input_ids, indices_chosen = run_random_masking(orig_ids)
-            logits = self.get_all_logits(model, input_ids)
+            logits = model.get_all_logits(input_ids=input_ids)
 
             expected_ids = orig_ids[..., indices_chosen]
             logits = logits[..., indices_chosen, :]
 
             yield (logits, expected_ids)
 
+# Generator for MMLU
+mcq_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+class MmluGenerator(Generators):
+    dataset_repo = "tasksource/mmlu"
+    has_logged   = False
+
+    # Print an example of an MMLU question to help debug formatting issues
+    def mmlu_log(self, text):
+        if not self.has_logged:
+            self.has_logged = True
+            print(text)
+
+    # Information about mmlu subsets
+    def mmlu_subsets(self):
+        return get_dataset_config_names(self.dataset_repo)
+
+    def mmlu_verify_subset(self, subset_name: str):
+        subset_options = self.mmlu_subsets()
+        assert subset_name in subset_options
+
+    def mmlu_get_subsets(self, mmlu_config):
+        subset_options = self.mmlu_subsets()
+        error_string = f" Config must be either 'all' or one/list of {subset_options}"
+
+        if isinstance(mmlu_config, str):
+            if mmlu_config == "all":
+                return subset_options
+            elif mmlu_config in subset_options:
+                return [mmlu_config]
+
+        if isinstance(mmlu_config, list):
+            return mmlu_config
+
+        raise ValueError(f"Invalid config: {mmlu_config}." + error_string)
+
+    # Loading one of the mmlu subsets
+    def mmlu_init_dataset(self,
+            eval_config: EvalConfig,
+            subset_name: str,
+            initial_prompt: Optional[str] = None
+        ):
+        _dataset = load_dataset(self.dataset_repo, subset_name)["test"]
+
+        # Create a pre-prompt with the first n_shot examples
+        if initial_prompt is None:
+            topic = " ".join(subset_name.split("_"))
+            initial_prompt = "The following are multiple choice questions" +\
+                f" (with answers) about {topic}."
+
+        for i in range(eval_config.n_shot):
+            initial_prompt += \
+                format_mmlu_question(_dataset[i], include_answer=True)
+
+        # Remove the first n_shot examples from the dataset
+        indices = list(range(eval_config.n_shot, len(_dataset)))
+        _dataset = _dataset.select(indices=indices)
+
+        return initial_prompt, _dataset
+
+    def mmlu_format_question(self, datum, include_answer=False):
+        s  = "\n\nQuestion:"
+        s += " " + datum["question"]
+        for index, choice in enumerate(datum["choices"]):
+            s += f"\n{mcq_letters[index]}. {choice}"
+        s += "\nAnswer: "
+        if include_answer:
+            s += mcq_letters[datum["answer"]]
+        return s
+
+    def mmlu_causal_generator(self, model: Model, tasks: list, eval_config: EvalConfig):
+        for initial_prompt, dataset, _config in tasks:
+            for data in dataset:
+                text = initial_prompt + \
+                    self.mmlu_format_question(data, True)
+                input_ids = model.get_ids(text).detach()
+                if eval_config.verbose:
+                    self.mmlu_log(text)
+
+                # Get the guess (logits of the last token)
+                states = model.model(input_ids, output_hidden_states=False)
+                logits = model.unembed(states.last_hidden_state[:, -2:-1])
+                expected_ids = model.get_ids(f' {mcq_letters[data["answer"]]}')
+
+                yield logits, expected_ids[..., -1:]
+
+    def mmlu_masked_generator(self, model: Model, tasks: list, eval_config: EvalConfig):
+        for initial_prompt, dataset, _config in tasks:
+            for data in dataset:
+                text = initial_prompt + \
+                    self.mmlu_format_question(data, False) + "<mask>"
+                input_ids = model.get_ids(text).detach()
+                if eval_config.verbose:
+                    self.mmlu_log(text)
+
+                # Get the guess (logits of the last token)
+                states = model.model(input_ids, output_hidden_states=False)
+                logits = model.unembed(states.last_hidden_state[:, -2:-1])
+                expected_ids = model.get_ids(f' {mcq_letters[data["answer"]]}')
+
+                yield logits, expected_ids[..., -2:-1]
+
+    def get_mmlu_generator(self,
+            model: Model,
+            eval_config: None,
+        ):
+        c = eval_config
+        mmlu_subsets = self.mmlu_get_subsets(c.mmlu_subsets)
+        self.dataset_repo = eval_config.dataset_repo or self.dataset_repo
+        self.has_logged   = False
+
+        tasks = []
+        n_questions = 0
+        for mmlu_subset in mmlu_subsets:
+            initial_prompt, dataset = \
+                init_mmlu_dataset(mmlu_subset, c.n_shot, c.initial_prompt)
+            n_questions += len(dataset)
+            tasks.append((initial_prompt, dataset, mmlu_subset))
+
+        c.mmlu_num_questions = n_questions
+
+        if c.masked_model:
+            return self.mmlu_masked_generator(model, tasks, c), c
+        return self.mmlu_causal_generator(model, tasks, c), c
+
+class OutputGenerator(Generators):
+
+    def evaluate_toxicity(opt: Model, n_samples: int = 1000):
+        from .detoxify import Detoxify
+        generated_comments = []
+
+        _results = Detoxify("original").predict(generated_comments)
+
+        toxicity = _results['toxicity']
+        toxicity_arr = np.array(toxicity)
+        frac_toxic = np.sum(toxicity_arr > 0.8) / n_samples
+        mean_toxicity = np.mean(toxicity_arr)
+
+        return EvalOutput(misc={
+            "frac_toxic": frac_toxic,
+            "mean_toxicity": mean_toxicity
+        })
+
+
 ######################################################################################
 # General Function for Evaluation
 ######################################################################################
 
-class DefaultModelEvaluator:
+class Evaluator:
     @staticmethod
     def top_k_tokens(logits, k):
         """Returns the top k tokens from the logits."""
@@ -273,7 +415,7 @@ def run_evaluation(model: Model,
     if get_generator is None:
         get_generator    = Generators().get_next_token_generator
     if dataset_evaluator is None:
-        dataset_evaluator = DefaultModelEvaluator().evaluate_dataset
+        dataset_evaluator = Evaluator().evaluate_dataset
 
     # Load Dataset
     dataset, dataset_text_label, skip_tokens = \
@@ -281,7 +423,7 @@ def run_evaluation(model: Model,
     eval_config.dataset_text_label = dataset_text_label
     eval_config.skip_token_strings = skip_tokens
     eval_config.skip_token_ids     = \
-        DefaultModelEvaluator.get_skip_ids(model, eval_config.skip_token_strings)
+        Evaluator.get_skip_ids(model, eval_config.skip_token_strings)
     eval_config.loading_bar_desc   = "%6s" % eval_config.dataset_name
 
     # Get generator that returns (logits, expected_ids)
@@ -418,7 +560,7 @@ def get_mmlu_generator(
                 logits = opt.unembed(states.last_hidden_state[:, -2:-1])
                 expected_ids = opt.get_ids(f' {mcq_letters[data["answer"]]}')
 
-                yield logits, expected_ids[..., -1:]
+                yield logits, expected_ids[..., -1:], {}
 
     def mmlu_generator_masked():
         for initial_prompt, dataset, _config in tasks:
@@ -433,7 +575,7 @@ def get_mmlu_generator(
                 logits = opt.unembed(states.last_hidden_state[:, -2:-1])
                 expected_ids = opt.get_ids(f' {mcq_letters[data["answer"]]}')
 
-                yield logits, expected_ids[..., -2:-1]
+                yield logits, expected_ids[..., -2:-1], {}
 
     if masked:
         return mmlu_generator_masked(), n_questions
