@@ -271,7 +271,7 @@ def run_evaluation(model: Model,
         dataset_evaluator: Callable = None,
         ):
     if get_generator is None:
-        get_generator    = Generators.get_next_token_generator
+        get_generator    = Generators().get_next_token_generator
     if dataset_evaluator is None:
         dataset_evaluator = DefaultModelEvaluator().evaluate_dataset
 
