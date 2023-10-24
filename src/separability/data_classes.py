@@ -82,6 +82,12 @@ class EvalConfig:
     verbose: bool = False
     # Custom Eval Parameters
     masked_model: bool = False
+    masked_token_str: str = "<mask>"
+    masked_token_id: int = None
+    masked_frac_chosen: float            = 0.15
+    masked_frac_chosen_masked: float     = 0.8
+    masked_frac_chosen_randomized: float = 0.1
+    masked_frac_chosen_unchanged: float  = 0.1
     n_shot: int        = 1
     sliding_window_buffer_size = 1024
     sliding_window_step_size = 512

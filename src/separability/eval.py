@@ -14,7 +14,7 @@ from .texts import prepare
 ######################################################################################
 
 class Generators:
-    """ Code for making generators for each dataset. """
+    """ Different datasets are evaluated differently. This is handled here. """
     # Have code specific to my Model class here
     @staticmethod
     def tokenize(model, ids):
@@ -29,7 +29,7 @@ class Generators:
         return model.get_all_logits(input_ids)
 
     # Default generator for most texts
-    def build_next_token_generator(self,
+    def get_next_token_generator(self,
             model: Model,
             dataset: Dataset,
             eval_config: EvalConfig,
@@ -46,7 +46,7 @@ class Generators:
             yield (logits, expected_ids, {})
 
     # Generator for WikiText
-    def build_sliding_window_generator(self,
+    def get_sliding_window_generator(self,
             model: Model,
             dataset: Dataset,
             eval_config: EvalConfig,
@@ -82,6 +82,53 @@ class Generators:
         ids = model.tokenizer.convert_tokens_to_ids(buffer_tokens[:buffer_size])
         yield get_sliding_window_outputs(model, ids)
 
+    # Eval for masked models like BERT/RoBERTa
+    def get_masked_generator(self,
+            model: Model,
+            dataset: Dataset,
+            eval_config: EvalConfig
+        ):
+        c = eval_config
+
+        if c.masked_token_id is None:
+            c.masked_token_id = \
+                self.get_ids(model, c.masked_token_string)[0, 1].item()
+
+        def run_random_masking(orig_ids):
+            # Number of random elements to select
+            n_tokens = ( orig_ids.shape[-1] - 2 )
+            f_chosen     = n_tokens * c.masked_frac_chosen
+            n_chosen     = int(f_chosen)
+            n_masked     = int(f_chosen * c.masked_frac_chosen_masked)
+            n_randomized = int(f_chosen * c.masked_frac_chosen_randomized)
+            n_unchanged  = n_chosen - n_masked - n_randomized
+
+            # Shuffle and select the first n_tokens indices, excluding padding
+            indices = torch.randperm(n_tokens)[:n_chosen] + 1
+            indices_masked     = indices[:n_masked]
+            indices_randomized = indices[n_masked:n_masked+n_randomized]
+            indices_unchanged  = indices[n_masked+n_randomized:]
+
+            input_ids = orig_ids.clone()
+            device = input_ids.device
+            input_ids[0, indices_masked] = eval_config.masked_token_id
+            input_ids[0, indices_randomized] = \
+                torch.randint(4, model.cfg.d_vocab-1, (n_randomized,)).to(device)
+
+            return input_ids, indices
+
+        for data in dataset:
+            text = data[c.dataset_text_label]
+
+            orig_ids = self.get_ids(model, text)
+            input_ids, indices_chosen = run_random_masking(orig_ids)
+            logits = self.get_all_logits(model, input_ids)
+
+            expected_ids = orig_ids[..., indices_chosen]
+            logits = logits[..., indices_chosen, :]
+
+            yield (logits, expected_ids)
+
 ######################################################################################
 # General Function for Evaluation
 ######################################################################################
@@ -114,9 +161,6 @@ class DefaultModelEvaluator:
         # Generate top k token ids
         top_tokens  = self.top_k_tokens(logits, 1)
         topk_tokens = self.top_k_tokens(logits, k) if k!=1 else top_tokens
-
-        print(top_tokens.shape, topk_tokens.shape)
-        print(expected_ids.shape)
 
         # Initialise RawAccuracyData object
         acc = RawAccuracyData(
@@ -174,6 +218,11 @@ class DefaultModelEvaluator:
         # Loop over the dataset
         pbar = tqdm(total=c.sample_size)
         for (logits, expected_ids, _other_data) in generator:
+            # If start index != 0, skip the first tokens
+            if c.start_index != 0:
+                logits       = logits[..., c.start_index:]
+                expected_ids = expected_ids[..., c.start_index:]
+
             # Assess performance on a sample
             sample_acc_data, _sample_misc_data = self.evaluate_topk_performance(
                 expected_ids=expected_ids, logits=logits,
@@ -670,7 +719,7 @@ def evaluate_human_eval(opt: Model, n_questions: int = None):
 # Code for evaluating on masked dataset BERT tasks
 ####################################################################################
 
-def masked_generator(opt, dataset, dataset_text_label):
+def masked_generator(opt: Model, dataset, dataset_text_label):
     token_limit = opt.limit
     for data in dataset:
         # predict next token from text
