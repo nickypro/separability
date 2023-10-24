@@ -338,10 +338,6 @@ class Model():
             layer["attn.b_O"] = torch.zeros_like( layer["attn.b_O"] )
             layer["mlp.b_out"] = torch.zeros_like( layer["mlp.b_out"] )
 
-    def _tokenize(self, ids:str):
-        """ Uses tokenizer tokenize function. You may want get_ids instead"""
-        return self.tokenizer.tokenize(text)
-
     def get_ids( self, text:str, limit:Optional[int]=None ):
         limit = self.limit if (limit is None) else limit
         input_ids = self.tokenizer( text, return_tensors='pt').input_ids

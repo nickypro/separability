@@ -70,8 +70,12 @@ def _set_empty_attrs_to_dict(__class):
 class EvalConfig:
     dataset_name: str
     dataset_repo: str = None
+    dataset_subset: str = None
+    dataset_type: str = "prediction" # ["prediction", "generation", "mmlu"]
+    dataset_text_label: str = "text"
+    dataset_filter: Optional[Callable] = None
+    dataset_has_test_split: bool = True
     sample_size: int = 1e5
-    dataset_text_label = "text"
     skip_token_strings: Optional[List[str]] = None
     skip_token_ids: Tensor = None
     topk: int = 10
@@ -98,6 +102,13 @@ class EvalConfig:
     generated_text_length: int = 50
     generated_text_temperature: float = None
     misc: Optional[Dict[str, any]] = None
+
+    def to_dict(self):
+        _dict = {}
+        for attr in self.__dataclass_fields__:
+            _dict[attr] = getattr(self, attr)
+        return _dict
+
 
 @dataclass
 class EvalOutput:
