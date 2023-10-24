@@ -71,7 +71,8 @@ class EvalConfig:
     dataset_name: str
     sample_size: int = 1e5
     dataset_text_label = "text"
-    skip_tokens: Optional[List[str]] = None
+    skip_token_strings: Optional[List[str]] = None
+    skip_token_ids: Tensor = None
     topk: int = 10
     start_index: int = 0
     num_texts_to_skip:  int = 0
@@ -125,7 +126,7 @@ class RawAccuracyData:
     token_counts: Optional[np.ndarray] = None
 
     # Make addition just the sum of attributes
-    def __sum__(self, other):
+    def __add__(self, other):
         if self.token_counts is None and other.token_counts is None:
             new_token_counts = None
         elif self.token_counts is None:

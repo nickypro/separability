@@ -59,26 +59,30 @@ class DefaultModelEvaluator:
         top_tokens  = self.top_k_tokens(logits, 1)
         topk_tokens = self.top_k_tokens(logits, k) if k!=1 else top_tokens
 
+        print(top_tokens.shape, topk_tokens.shape)
+        print(expected_ids.shape)
+
         # Initialise RawAccuracyData object
         acc = RawAccuracyData(
             token_counts = np.zeros(logits.size()[-1])
         )
 
         # Collect Accuracy Data for Sample
-        for i, expected_id in enumerate(expected_ids):
-            is_accurate      = (expected_id in top_tokens[i])
-            is_topk_accurate = (expected_id in topk_tokens[i])
+        for j, text_expected_ids in enumerate(expected_ids):
+            for i, expected_id in enumerate(text_expected_ids):
+                is_accurate      = (expected_id in top_tokens[j][i])
+                is_topk_accurate = (expected_id in topk_tokens[j][i])
 
-            acc.num_predictions   += 1
-            acc.num_accurate      += is_accurate
-            acc.num_topk_accurate += is_topk_accurate
+                acc.num_predictions   += 1
+                acc.num_accurate      += is_accurate
+                acc.num_topk_accurate += is_topk_accurate
 
-            if int(expected_id) not in skip_ids:
-                acc.num_skip_predictions   += 1
-                acc.num_skip_accurate      += is_accurate
-                acc.num_topk_skip_accurate += is_topk_accurate
+                if int(expected_id) not in skip_ids:
+                    acc.num_skip_predictions   += 1
+                    acc.num_skip_accurate      += is_accurate
+                    acc.num_topk_skip_accurate += is_topk_accurate
 
-            acc.token_counts[expected_id] += 1
+                acc.token_counts[expected_id] += 1
 
         # Allow return of misc data
         misc = {
@@ -116,7 +120,8 @@ class DefaultModelEvaluator:
         for (logits, expected_ids, _other_data) in generator:
             # Assess performance on a sample
             sample_acc_data, _sample_misc_data = self.evaluate_topk_performance(
-                expected_ids=expected_ids, logits=logits, k=c.topk, skip_ids=c.skip_eval,
+                expected_ids=expected_ids, logits=logits,
+                k=c.topk, skip_ids=c.skip_token_ids,
             )
             sample_losses = self.evaluate_ce_losses(
                 expected_ids=expected_ids, logits=logits,
@@ -124,7 +129,7 @@ class DefaultModelEvaluator:
 
             # Record performance
             total_acc_data += sample_acc_data
-            loss_tracker.add_all( sample_losses.detach() )
+            loss_tracker.add_all( sample_losses.detach().flatten() )
 
             # Print output string showing current accuracy
             pbar.update( sample_acc_data.num_skip_predictions )
@@ -141,9 +146,10 @@ class DefaultModelEvaluator:
 
         pbar.close()
 
+        mean_loss = float(loss_tracker.mean.cpu())
         loss_data =  {
-            'loss':     round(float(loss_tracker.mean), 4),
-            'log_loss': round(float(np.log(loss_tracker.mean)), 4),
+            'loss':     round(mean_loss, 4),
+            'log_loss': round(np.log(mean_loss), 4),
         }
         misc_data =  {
             'accuracy_counts': total_acc_data.to_dict(),
@@ -168,7 +174,9 @@ def run_evaluation(model: Model,
     dataset, dataset_text_label, skip_tokens = \
         prepare(eval_config.dataset_name, eval_config.num_tokens_to_skip)
     eval_config.dataset_text_label = dataset_text_label
-    eval_config.skip_tokens        = skip_tokens
+    eval_config.skip_token_strings = skip_tokens
+    eval_config.skip_token_ids     = \
+        DefaultModelEvaluator.get_skip_ids(model, eval_config.skip_token_strings)
     eval_config.loading_bar_desc   = "%6s" % eval_config.dataset_name
 
     # Get generator that returns (logits, expected_ids)
@@ -728,8 +736,14 @@ def evaluate_all( opt: Model,
 
     out = EvalAllOutput()
     for dataset in datasets:
-        dataset_out = evaluate(opt, dataset_name=dataset, sample_size=sample_size,
-            topk=topk, verbose=verbose, dataset_tokens_to_skip=dataset_tokens_to_skip)
+        eval_config = EvalConfig(
+            dataset_name = dataset,
+            num_tokens_to_skip = dataset_tokens_to_skip,
+            sample_size  = sample_size,
+            topk         = topk,
+            verbose      = verbose,
+        )
+        dataset_out = run_evaluation(opt, eval_config)
         out.add(dataset, dataset_out)
 
     return out.to_dict()
