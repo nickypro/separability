@@ -94,6 +94,27 @@ class InverseLinear(torch.nn.Module):
 # Define Neuron Mask Class
 ######################################################################################
 
+class NeuronMaskList(torch.nn.Module):
+    """ Class for storing all the Neuron Masks"""
+
+    def __init__(self,
+            shape: torch.Size,
+            n_layers: int,
+            act_fn: str = "step"
+            ):
+        super(NeuronMaskList, self).__init__()
+        # list all the Neuron Masks as a torch accessible list of parameters
+        self.masks = torch.nn.ModuleList([
+            NeuronMask(shape=shape, act_fn=act_fn) for _ in range(n_layers)
+        ])
+
+    def forward(self, x):
+        "Given [layer, activation], returns all the activations masked for each layer."
+        y = []
+        for act in x:
+            y.append(act)
+        return torch.stack(y)
+
 class NeuronMask(torch.nn.Module):
     """Class for creating a mask for a single layer of a neural network."""
 
