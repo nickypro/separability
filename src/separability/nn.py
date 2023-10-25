@@ -154,6 +154,21 @@ class NeuronMask(torch.nn.Module):
         mask = self.get_mask()
         return x * mask
 
+class NeuronPostBias(torch.nn.Module):
+    """Container for holding after-the-fact biases in the model."""
+
+    def __init__(self, shape):
+        super(NeuronPostBias, self).__init__()
+        self.shape = shape
+        _vec = torch.zeros(shape, dtype=torch.float32)
+        self.param = torch.nn.Parameter(_vec)
+
+    def get_bias(self):
+        return self.param
+
+    def forward(self, x):
+        return x + self.get_bias()
+
 ######################################################################################
 # Define MLP Deletion functions
 ######################################################################################

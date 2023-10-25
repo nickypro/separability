@@ -22,7 +22,8 @@ import matplotlib as mpl
 
 # Import from inside module
 from .model_repos import supported_model_repos
-from .nn import InverseLinear, NeuronMask, NeuronFunctionList, \
+from .nn import InverseLinear, \
+    NeuronMask, NeuronPostBias, NeuronFunctionList, \
     mlp_delete_rows_raw, mlp_svd_two_layer_raw, mlp_delete_columns_raw
 from .model_maps import convert_hf_model_config, ModelMap, ConfigClass
 from .data_classes import DtypeMap, EvalOutput
@@ -113,6 +114,8 @@ class Model():
         self.layers: list = None
         self.activations: dict = None
         self.masks: dict = None
+        self.post_biases: dict = None
+        self.post_biases_enabled: bool = False
         self.attn_pre_out_mode: str = None
         self.mlp_pre_out_mode: str = None
         self.init_model()
@@ -162,9 +165,11 @@ class Model():
             "mlp_pre_out": {}
         }
         self.masks = {}
+        self.post_biases = {}
 
         self.register_activations()
         self.register_masks()
+        self.register_post_biases()
         if self.dtype_map.is_low_precision:
             return self
         if self.svd_attn:
@@ -192,8 +197,10 @@ class Model():
         self.model.to( device )
         if self.masks is not None:
             for key in self.masks.keys():
-                for i in range(len(self.masks[key])):
-                    self.masks[key][i] = self.masks[key][i].to(device)
+                self.masks[key] = self.masks[key].to( device )
+        if self.post_biases is not None:
+            for key in self.post_biases.keys():
+                self.post_biases[key] = self.post_biases.to( device )
 
     def out_stack(self, tensor_list: List[Tensor]) -> Tensor:
         if self.use_accelerator or self.device != self.output_device:
@@ -284,6 +291,50 @@ class Model():
 
         self.masks["mlp_pre_out"]  = NeuronFunctionList(self.masks["mlp_pre_out"])
         self.masks["attn_pre_out"] = NeuronFunctionList(self.masks["attn_pre_out"])
+
+    def register_output_bias(self,
+            module: torch.nn.Module,
+            component: str,
+            layer_index: int
+            ):
+        if component not in self.post_biases:
+            self.post_biases[component] = [None for _ in range(self.cfg.n_layers)]
+        if self.post_biases[component][layer_index] is not None:
+            print(f"WARNING: {component} {layer_index} already has a mask!")
+
+        shape = (self.cfg.d_model,)
+        if component == "attn_v":
+            shape = (self.cfg.n_heads, self.cfg.d_head)
+        if component == "mlp_in":
+            shape = (self.cfg.d_mlp,)
+
+        post_bias = NeuronPostBias(shape)
+        dtype, device = self.dtype, module.weight.device
+        mask = post_bias.to(dtype=dtype, device=device)
+        self.masks[component][layer_index] = mask
+
+        # Register the post-hook for biasing
+        def post_hook_bias(_module, _output):
+            if not self.post_biases_enabled:
+                return (_output[0],)
+            return (post_bias(_output[0]),)
+
+        module.register_forward_post_hook(post_hook_bias)
+
+    def register_post_biases(self):
+        do_attn_vo_biases = \
+            "attn_v" in self.layers[0] and \
+            self.layers[0]["attn_v"] is not None
+
+        if do_attn_vo_biases:
+            for layer_index, layer in enumerate(self.layers):
+                attn_v = layer["attn.v_proj"]
+                self.register_output_bias(attn_v, "attn_v", layer_index)
+                attn_o = layer["attn.o_proj"]
+                self.register_output_bias(attn_o, "attn_o", layer_index)
+
+            self.post_biases["attn_v"] = NeuronFunctionList(self.post_biases["attn_v"])
+            self.post_biases["attn_o"] = NeuronFunctionList(self.post_biases["attn_o"])
 
     def list_masks(self, mask_labels=None):
         if isinstance(mask_labels, str):
