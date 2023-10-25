@@ -5,6 +5,7 @@ from typing import Any, Mapping, Optional, Union
 from torch import Tensor
 import torch.nn.functional as F
 import torch
+from torch.nn.modules.module import Module
 
 ######################################################################################
 # Define InverseLinear Layer Class
@@ -94,19 +95,13 @@ class InverseLinear(torch.nn.Module):
 # Define Neuron Mask Class
 ######################################################################################
 
-class NeuronMaskList(torch.nn.Module):
+class NeuronFunctionList(torch.nn.Module):
     """ Class for storing all the Neuron Masks"""
 
-    def __init__(self,
-            shape: torch.Size,
-            n_layers: int,
-            act_fn: str = "step"
-            ):
-        super(NeuronMaskList, self).__init__()
+    def __init__(self, neuron_function_list):
+        super(NeuronFunctionList, self).__init__()
         # list all the Neuron Masks as a torch accessible list of parameters
-        self.masks = torch.nn.ModuleList([
-            NeuronMask(shape=shape, act_fn=act_fn) for _ in range(n_layers)
-        ])
+        self.masks = torch.nn.ModuleList(neuron_function_list)
 
     def forward(self, x):
         "Given [layer, activation], returns all the activations masked for each layer."
@@ -114,6 +109,9 @@ class NeuronMaskList(torch.nn.Module):
         for act in x:
             y.append(act)
         return torch.stack(y)
+
+    def __getitem__(self, index: int):
+        return self.masks[index]
 
 class NeuronMask(torch.nn.Module):
     """Class for creating a mask for a single layer of a neural network."""
@@ -126,30 +124,30 @@ class NeuronMask(torch.nn.Module):
         _vec = torch.ones(shape, dtype=torch.float32)
         if self.act_fn == "sigmoid":
             _vec[...] = torch.inf
-        self.mask = torch.nn.Parameter(_vec)
+        self.param = torch.nn.Parameter(_vec)
 
     def get_mask(self):
         # if step, we want heaviside step function. ie: mask = mask > 0
         if self.act_fn == "step":
-            return (self.mask > 0)
+            return (self.param > 0)
         if self.act_fn == "sigmoid":
-            return torch.sigmoid(self.mask)
+            return torch.sigmoid(self.param)
         if self.act_fn == "tanh":
-            return torch.tanh(self.mask)
+            return torch.tanh(self.param)
         if self.act_fn == "relu":
-            return torch.relu(self.mask)
+            return torch.relu(self.param)
         if callable(self.act_fn):
-            return self.act_fn(self.mask)
+            return self.act_fn(self.param)
         raise ValueError(f"Unknown activation function: {self.act_fn}")
 
     def set_mask(self, new_mask: Tensor):
         params: dict = self.state_dict()
-        params["mask"] = new_mask.view(self.shape)
+        params["param"] = new_mask.view(self.shape)
         self.load_state_dict(params)
 
     def delete_neurons(self, keep_indices: Tensor):
         params: dict = self.state_dict()
-        params["mask"] = params["mask"] * keep_indices.to(params["mask"].device)
+        params["param"] = params["param"] * keep_indices.to(params["param"].device)
         self.load_state_dict(params)
 
     def forward(self, x):

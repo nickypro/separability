@@ -22,8 +22,8 @@ import matplotlib as mpl
 
 # Import from inside module
 from .model_repos import supported_model_repos
-from .nn import InverseLinear, NeuronMask, mlp_delete_rows_raw, \
-    mlp_svd_two_layer_raw, mlp_delete_columns_raw
+from .nn import InverseLinear, NeuronMask, NeuronFunctionList, \
+    mlp_delete_rows_raw, mlp_svd_two_layer_raw, mlp_delete_columns_raw
 from .model_maps import convert_hf_model_config, ModelMap, ConfigClass
 from .data_classes import DtypeMap, EvalOutput
 
@@ -281,6 +281,9 @@ class Model():
             # Optionally, build pre_out hook if possible
             attn_o = layer["attn.out_proj"]
             self.register_input_mask(attn_o, "attn_pre_out", layer_index)
+
+        self.masks["mlp_pre_out"]  = NeuronFunctionList(self.masks["mlp_pre_out"])
+        self.masks["attn_pre_out"] = NeuronFunctionList(self.masks["attn_pre_out"])
 
     def list_masks(self, mask_labels=None):
         if isinstance(mask_labels, str):
