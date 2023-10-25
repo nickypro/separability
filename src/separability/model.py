@@ -200,7 +200,7 @@ class Model():
                 self.masks[key] = self.masks[key].to( device )
         if self.post_biases is not None:
             for key in self.post_biases.keys():
-                self.post_biases[key] = self.post_biases.to( device )
+                self.post_biases[key] = self.post_biases[key].to( device )
 
     def out_stack(self, tensor_list: List[Tensor]) -> Tensor:
         if self.use_accelerator or self.device != self.output_device:
