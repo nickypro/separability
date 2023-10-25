@@ -166,11 +166,16 @@ class NeuronPostBias(torch.nn.Module):
         _vec = torch.zeros(shape, dtype=torch.float32)
         self.param = torch.nn.Parameter(_vec)
 
-    def get_bias(self):
-        return self.param
+    def get_bias(self, x):
+        shape = x.shape
+        bias  = self.param
+        if self.shape == shape:
+            return bias
+        bias = bias.view(shape[-1])
+        return bias
 
     def forward(self, x):
-        return x + self.get_bias()
+        return x + self.get_bias(x)
 
 ######################################################################################
 # Define MLP Deletion functions

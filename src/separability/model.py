@@ -311,26 +311,28 @@ class Model():
         post_bias = NeuronPostBias(shape)
         dtype, device = self.dtype, module.weight.device
         mask = post_bias.to(dtype=dtype, device=device)
-        self.masks[component][layer_index] = mask
+        self.post_biases[component][layer_index] = mask
 
         # Register the post-hook for biasing
-        def post_hook_bias(_module, _output):
+        def post_hook_bias(_module, _input, _output):
             if not self.post_biases_enabled:
-                return (_output[0],)
-            return (post_bias(_output[0]),)
+                return _output
+            return post_bias(_output)
 
-        module.register_forward_post_hook(post_hook_bias)
+        module.register_forward_hook(post_hook_bias)
 
     def register_post_biases(self):
+        self.post_biases_enabled = True
+
         do_attn_vo_biases = \
-            "attn_v" in self.layers[0] and \
-            self.layers[0]["attn_v"] is not None
+            "attn.v_proj" in self.layers[0] and \
+            self.layers[0]["attn.v_proj"] is not None
 
         if do_attn_vo_biases:
             for layer_index, layer in enumerate(self.layers):
                 attn_v = layer["attn.v_proj"]
                 self.register_output_bias(attn_v, "attn_v", layer_index)
-                attn_o = layer["attn.o_proj"]
+                attn_o = layer["attn.out_proj"]
                 self.register_output_bias(attn_o, "attn_o", layer_index)
 
             self.post_biases["attn_v"] = NeuronFunctionList(self.post_biases["attn_v"])
