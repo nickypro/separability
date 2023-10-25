@@ -102,7 +102,7 @@ class NeuronFunctionList(torch.nn.Module):
     def __init__(self, neuron_function_list):
         super(NeuronFunctionList, self).__init__()
         # list all the Neuron Masks as a torch accessible list of parameters
-        self.masks = torch.nn.ModuleList(neuron_function_list)
+        self.layers = torch.nn.ModuleList(neuron_function_list)
 
     def forward(self, x):
         "Given [layer, activation], returns all the activations masked for each layer."
@@ -112,7 +112,7 @@ class NeuronFunctionList(torch.nn.Module):
         return torch.stack(y)
 
     def __getitem__(self, index: int):
-        return self.masks[index]
+        return self.layers[index]
 
 # Neuron Mask. EG: [a, b, c] -> [a, 0, c]
 class NeuronMask(torch.nn.Module):
