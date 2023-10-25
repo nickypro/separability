@@ -92,9 +92,10 @@ class InverseLinear(torch.nn.Module):
         self.inverse_bias = state_dict["inverse_bias"]
 
 ######################################################################################
-# Define Neuron Mask Class
+# Define Hooks on Neuron Activations we can use. EG: Neuron Mask Class
 ######################################################################################
 
+# Class for holding the hook classes
 class NeuronFunctionList(torch.nn.Module):
     """ Class for storing all the Neuron Masks"""
 
@@ -113,6 +114,7 @@ class NeuronFunctionList(torch.nn.Module):
     def __getitem__(self, index: int):
         return self.masks[index]
 
+# Neuron Mask. EG: [a, b, c] -> [a, 0, c]
 class NeuronMask(torch.nn.Module):
     """Class for creating a mask for a single layer of a neural network."""
 
@@ -154,6 +156,7 @@ class NeuronMask(torch.nn.Module):
         mask = self.get_mask()
         return x * mask
 
+# Neuron Post Bias (EG: For SVD and stuff) out -> out + bias
 class NeuronPostBias(torch.nn.Module):
     """Container for holding after-the-fact biases in the model."""
 
