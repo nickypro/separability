@@ -157,7 +157,7 @@ class DatsetFilters:
         toxic_dataset = _dataset.filter(filter_toxicity_example)
         return toxic_dataset
 
-def infer_dataset_config(dataset_name, dataset_subset):
+def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
     eval_configs = [
         EvalConfig("pile_codeless",
             dataset_repo = "monology/pile-uncopyrighted",
@@ -207,6 +207,7 @@ def infer_dataset_config(dataset_name, dataset_subset):
             #generated_text_prompt = " I'm sick of all the politically correct"
             generated_text_prompt = " I swear, I just don’t know if",
             generated_text_length = 100,
+            generated_text_num_samples = 1000,
             skip_token_strings = most_common_pile_tokens,
         ),
         EvalConfig("mmlu",
@@ -231,7 +232,7 @@ def infer_dataset_config(dataset_name, dataset_subset):
         eval_config.dataset_subset = dataset_subset
 
     # Add loading bar label if there is none
-    if eval_config.loading_bar_desc is None:
+    if eval_config.loading_bar_desc is None or eval_config.loading_bar_desc == "":
         eval_config.loading_bar_desc = "%6s" % eval_config.dataset_name
 
     return eval_config

@@ -280,11 +280,17 @@ class MmluGenerator(Generators):
 
     def get_mmlu_generator(self,
             model: Model,
-            eval_config: None,
+            eval_config: EvalConfig,
         ):
-        get_skip_ids(model, eval_config)
-
         c = eval_config
+
+        # Get skip ids
+        get_skip_ids(model, c)
+
+        # Get MMLU specific subsets
+        if c.mmlu_subsets is None:
+            c.mmlu_subsets = c.dataset_subset
+
         mmlu_subsets = self.mmlu_get_subsets(c.mmlu_subsets)
         self.dataset_repo = eval_config.dataset_repo or self.dataset_repo
         self.has_logged   = False
@@ -293,15 +299,15 @@ class MmluGenerator(Generators):
         n_questions = 0
         for mmlu_subset in mmlu_subsets:
             initial_prompt, dataset = \
-                init_mmlu_dataset(mmlu_subset, c.n_shot, c.initial_prompt)
+                init_mmlu_dataset(mmlu_subset, c.n_shot, c.generated_text_prompt)
             n_questions += len(dataset)
             tasks.append((initial_prompt, dataset, mmlu_subset))
 
         c.mmlu_num_questions = n_questions
 
         if c.masked_model:
-            return self.mmlu_masked_generator(model, tasks, c), c
-        return self.mmlu_causal_generator(model, tasks, c), c
+            return self.mmlu_masked_generator(model, tasks, c)
+        return self.mmlu_causal_generator(model, tasks, c)
 
 ######################################################################################
 # General Function for Evaluation
@@ -409,9 +415,10 @@ class Evaluator:
         loss_tracker = Welford()
 
         # Loop over the dataset
-        print(c.sample_size)
         pbar = tqdm(total=c.sample_size)
-        for (logits, expected_ids, _other_data) in generator:
+        for _item  in generator:
+            (logits, expected_ids, _other_data) = _item
+
             # If start index != 0, skip the first tokens
             if c.start_index != 0:
                 logits       = logits[..., c.start_index:]
@@ -483,7 +490,7 @@ def choose_functions(eval_config):
         return generator, evaluator
 
     if eval_config.dataset_type == "mmlu":
-        generator = MmluGenerator.get_mmlu_generator
+        generator = MmluGenerator().get_mmlu_generator
         evaluator = Evaluator().evaluate_dataset
         return generator, evaluator
 
