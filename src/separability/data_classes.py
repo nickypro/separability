@@ -75,6 +75,7 @@ class EvalConfig:
     dataset_text_label: str = "text"
     dataset_filter: Optional[Callable] = None
     dataset_has_test_split: bool = True
+    dataset_split: str = None # "test", "train"
     sample_size: int = 1e5
     skip_token_strings: Optional[List[str]] = None
     skip_token_ids: Tensor = None

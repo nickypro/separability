@@ -7,11 +7,25 @@ from welford_torch import Welford
 from tqdm import tqdm
 from .data_classes import EvalConfig, EvalOutput, EvalAllOutput, RawAccuracyData
 from .model import Model
-from .texts import prepare
+from .texts import prepare, infer_dataset_config, prepare_dataset
 
 ######################################################################################
 # Code that handles loop of: text -> outputs + expected inputs
 ######################################################################################
+
+def get_skip_ids(model, eval_config: EvalConfig):
+    # Get the set of token ids to skip when evaluating performance
+    if eval_config.skip_token_ids is not None:
+        return eval_config.skip_token_ids
+    skip_strings = eval_config.skip_token_strings
+    skip_ids = set()
+    skip_strings = [] if (skip_strings is None) else skip_strings
+    idx = -2 if eval_config.masked_model else -1
+    for skip_string in skip_strings:
+        skip_id = int( model.get_ids( skip_string ).squeeze(dim=0)[idx] )
+        skip_ids.add( skip_id )
+    eval_config.skip_token_ids = skip_ids
+    return skip_ids
 
 class Generators:
     """ Different datasets are evaluated differently. This is handled here.
@@ -23,13 +37,14 @@ class Generators:
       - model.get_all_logits(input_ids)
 
     """
-
     @staticmethod
     def get_next_token_generator(
             model: Model,
-            dataset: Dataset,
             eval_config: EvalConfig,
         ):
+
+        dataset = prepare_dataset(eval_config)
+        get_skip_ids(model, eval_config)
 
         for data in dataset:
             # predict next token from text
@@ -45,9 +60,11 @@ class Generators:
     @staticmethod
     def get_sliding_window_generator(
             model: Model,
-            dataset: Dataset,
             eval_config: EvalConfig,
             ):
+        dataset = prepare_dataset(eval_config)
+        get_skip_ids(model, eval_config)
+
         buffer_size = eval_config.sliding_window_buffer_size
         step_size   = eval_config.sliding_window_step_size
         dataset_text_label = eval_config.dataset_text_label
@@ -83,9 +100,11 @@ class Generators:
     @staticmethod
     def get_masked_generator(
             model: Model,
-            dataset: Dataset,
             eval_config: EvalConfig
         ):
+        dataset = prepare_dataset(eval_config)
+        get_skip_ids(model, eval_config)
+
         c = eval_config
 
         if c.masked_token_id is None:
@@ -129,6 +148,8 @@ class Generators:
 
     @staticmethod
     def get_many_generated_texts_generator(model, eval_config):
+        get_skip_ids(model, eval_config)
+
         c = eval_config
         generated_outputs = []
         for _ in tqdm(range(c.generated_text_num_samples)):
@@ -261,6 +282,8 @@ class MmluGenerator(Generators):
             model: Model,
             eval_config: None,
         ):
+        get_skip_ids(model, eval_config)
+
         c = eval_config
         mmlu_subsets = self.mmlu_get_subsets(c.mmlu_subsets)
         self.dataset_repo = eval_config.dataset_repo or self.dataset_repo
@@ -305,9 +328,11 @@ class Evaluator:
             expected_ids: torch.Tensor,
             logits: torch.Tensor,
             k: int,
-            skip_ids: Optional[set] = (None,),
+            skip_ids: Optional[set] = None,
         ):
         """Evaluates performance with top-1 and top-k token predictions."""
+        if skip_ids is None:
+            skip_ids = []
 
         # Generate top k token ids
         top_tokens  = self.top_k_tokens(logits, 1)
@@ -384,6 +409,7 @@ class Evaluator:
         loss_tracker = Welford()
 
         # Loop over the dataset
+        print(c.sample_size)
         pbar = tqdm(total=c.sample_size)
         for (logits, expected_ids, _other_data) in generator:
             # If start index != 0, skip the first tokens
@@ -446,13 +472,18 @@ class Evaluator:
         })
 
 def choose_functions(eval_config):
-    if eval_config.dataset_type == "mmlu":
-        generator = MmluGenerator.get_mmlu_generator
-        evaluator = Evaluator().evaluate_dataset
+    if eval_config.dataset_name == "toxicity":
+        generator = Generators.get_many_generated_texts_generator
+        evaluator = Evaluator().evaluate_toxicity
         return generator, evaluator
 
     if eval_config.dataset_type == "generator":
         generator = Generators.get_many_generated_texts_generator
+        evaluator = Evaluator().evaluate_dataset
+        return generator, evaluator
+
+    if eval_config.dataset_type == "mmlu":
+        generator = MmluGenerator.get_mmlu_generator
         evaluator = Evaluator().evaluate_dataset
         return generator, evaluator
 
@@ -473,26 +504,14 @@ def run_evaluation(model: Model,
     if dataset_evaluator is None:
         dataset_evaluator = auto_evaluator
 
-    # Load Dataset
-    dataset, dataset_text_label, skip_tokens = \
-        prepare(eval_config.dataset_name, eval_config.num_tokens_to_skip)
-    eval_config.dataset_text_label = dataset_text_label
-    eval_config.skip_token_strings = skip_tokens
-    eval_config.skip_token_ids     = \
-        Evaluator.get_skip_ids(model, eval_config.skip_token_strings)
-    eval_config.loading_bar_desc   = "%6s" % eval_config.dataset_name
-
     # Get generator that returns (logits, expected_ids)
-    generator = get_generator(model, dataset, eval_config)
+    generator = get_generator(model, eval_config)
 
     # Run Evaluation
     out: EvalOutput = dataset_evaluator(generator, eval_config)
     out.misc["eval_config"] = eval_config.to_dict()
 
     return out
-
-def evaluate(model, dataset):
-    infer_eval_config(dataset)
 
 ####################################################################################
 # Evaluate on Text Generation tasks
@@ -531,7 +550,7 @@ def format_mmlu_question(datum, include_answer=False):
     #s += "\n\n"
     #s += "Choices:"
     for index, choice in enumerate(datum["choices"]):
-        s += f"\n{mcq_letterdicts[index]}. {choice}"
+        s += f"\n{mcq_letters[index]}. {choice}"
     s += "\nAnswer: "
     if include_answer:
         s += mcq_letters[datum["answer"]]
@@ -1043,13 +1062,15 @@ def evaluate_all( opt: Model,
 
     out = EvalAllOutput()
     for dataset in datasets:
-        eval_config = EvalConfig(
-            dataset_name = dataset,
-            num_tokens_to_skip = dataset_tokens_to_skip,
-            sample_size  = sample_size,
-            topk         = topk,
-            verbose      = verbose,
-        )
+        _d_c = dataset.split(":")
+        dataset_name   = _d_c[0]
+        dataset_subset = _d_c[1] if len(_d_c) >= 2 else None
+        eval_config: EvalConfig  = infer_dataset_config(dataset_name, dataset_subset)
+        eval_config.num_tokens_to_skip = dataset_tokens_to_skip
+        eval_config.sample_size  = sample_size
+        eval_config.topk         = topk
+        eval_config.verbose      = verbose
+
         dataset_out = run_evaluation(opt, eval_config)
         out.add(dataset, dataset_out)
 

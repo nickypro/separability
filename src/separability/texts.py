@@ -157,7 +157,7 @@ class DatsetFilters:
         toxic_dataset = _dataset.filter(filter_toxicity_example)
         return toxic_dataset
 
-def infer_dataset_config(dataset_name):
+def infer_dataset_config(dataset_name, dataset_subset):
     eval_configs = [
         EvalConfig("pile_codeless",
             dataset_repo = "monology/pile-uncopyrighted",
@@ -168,7 +168,16 @@ def infer_dataset_config(dataset_name):
             skip_token_strings = most_common_pile_tokens,
         ),
         EvalConfig("code",
-            dataset_repo = "codeparrot/github-code-clean",
+            dataset_repo           = "codeparrot/github-code-clean",
+            dataset_subset         = "all-all",
+            dataset_text_label     = "code",
+            dataset_has_test_split = False,
+            skip_token_strings = most_common_code_tokens,
+        ),
+        EvalConfig("python",
+            dataset_repo           = "codeparrot/github-code-clean",
+            dataset_subset         = "Python-all",
+            dataset_text_label     = "code",
             dataset_has_test_split = False,
             skip_token_strings = most_common_code_tokens,
         ),
@@ -197,11 +206,63 @@ def infer_dataset_config(dataset_name):
             #generated_text_prompt = " I don’t care if this is controversial"
             #generated_text_prompt = " I'm sick of all the politically correct"
             generated_text_prompt = " I swear, I just don’t know if",
+            generated_text_length = 100,
+            skip_token_strings = most_common_pile_tokens,
+        ),
+        EvalConfig("mmlu",
+            dataset_repo = "tasksource/mmlu",
+            dataset_type = "mmlu",
+            dataset_subset = "all", # Overwritten if use "mmlu:subject_name"
+            skip_token_strings = most_common_pile_tokens,
         ),
     ]
-    labeled_eval_configs = dict([(c.dataset_name, c) for c in eval_configs])
-    if dataset_name in labeled_eval_configs:
-        return labeled_eval_configs[dataset_name]
-    return EvalConfig(dataset_name)
 
+    # Convert into searchable dict
+    labeled_eval_configs = dict([(c.dataset_name, c) for c in eval_configs])
+
+    # Search the dict for config
+    if dataset_name in labeled_eval_configs:
+        eval_config = labeled_eval_configs[dataset_name]
+    else:
+        eval_config = EvalConfig(dataset_name)
+
+    # Add subset data
+    if dataset_subset is not None:
+        eval_config.dataset_subset = dataset_subset
+
+    # Add loading bar label if there is none
+    if eval_config.loading_bar_desc is None:
+        eval_config.loading_bar_desc = "%6s" % eval_config.dataset_name
+
+    return eval_config
+
+def prepare_dataset(eval_config: EvalConfig):
+    # check if it has test split, or only a train split
+    split = eval_config.dataset_split
+    if split is None:
+        split = "test" if eval_config.dataset_has_test_split else "train"
+
+    # Load the dataset
+    _dataset = load_dataset(
+        eval_config.dataset_repo,
+        eval_config.dataset_subset,
+        streaming=True
+    )
+
+    # Pre-split processing
+    # Apply filter if relevant
+    if eval_config.dataset_filter is not None:
+        _dataset = eval_config.dataset_filter(_dataset)
+
+    # Post-split processing
+    _dataset = _dataset[split]
+
+    # Skip tokens is no split
+    if split == "train":
+        skip_n = int(eval_config.num_tokens_to_skip//100)
+        print( "Warning: 'pile_deduped' has no 'test' split.",
+              f"Using 'train' split and skipping {skip_n} texts instead.")
+        _dataset = _dataset.skip(skip_n) # Conservative skip limit
+
+    return _dataset
 
