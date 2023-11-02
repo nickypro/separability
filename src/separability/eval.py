@@ -7,7 +7,7 @@ from welford_torch import Welford
 from tqdm import tqdm
 from .data_classes import EvalConfig, EvalOutput, EvalAllOutput, RawAccuracyData
 from .model import Model
-from .texts import prepare, infer_dataset_config, prepare_dataset
+from .texts import infer_dataset_config, prepare_dataset
 
 ######################################################################################
 # Code that handles loop of: text -> outputs + expected inputs
@@ -510,6 +510,10 @@ class Evaluator:
             "frac_toxic": frac_toxic,
             "mean_toxicity": mean_toxicity,
         })
+
+######################################################################################
+# Run the full evaluation
+######################################################################################
 
 def choose_functions(eval_config):
     if eval_config.dataset_name == "toxicity":

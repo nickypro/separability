@@ -22,7 +22,7 @@ from .texts import infer_dataset_config, prepare_dataset
 from .data_classes import RunDataItem, ActivationCollector, \
                           ActivationSummaryHolder, ActivationOverview, \
                           EvalConfig
-from .eval import evaluate, evaluate_all
+from .eval import evaluate_all
 
 ######################################################################################
 # New code for getting attention activations and evaluating model
