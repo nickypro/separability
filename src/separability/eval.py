@@ -48,7 +48,7 @@ class Generators:
 
         for data in dataset:
             # predict next token from text
-            text = data[ eval_config.dataset_text_label ]
+            text = data[ eval_config.dataset_text_key ]
             with torch.no_grad():
                 input_ids    = model.get_ids(text=text)
                 logits       = model.get_all_logits(input_ids=input_ids)[..., :-1, :]
@@ -67,7 +67,7 @@ class Generators:
 
         buffer_size = eval_config.sliding_window_buffer_size
         step_size   = eval_config.sliding_window_step_size
-        dataset_text_label = eval_config.dataset_text_label
+        dataset_text_key = eval_config.dataset_text_key
         eval_config.start_index = buffer_size - step_size - 1
 
         def get_sliding_window_outputs(
@@ -83,7 +83,7 @@ class Generators:
         token_count   = 0  # Initialize the token counter
 
         for sample in dataset:
-            tokenized_text = model.tokenizer.tokenize(sample[dataset_text_label])
+            tokenized_text = model.tokenizer.tokenize(sample[dataset_text_key])
             buffer_tokens.extend(tokenized_text)
 
             while len(buffer_tokens) >= buffer_size:
@@ -135,7 +135,7 @@ class Generators:
             return input_ids, indices
 
         for data in dataset:
-            text = data[c.dataset_text_label]
+            text = data[c.dataset_text_key]
 
             orig_ids = model.get_ids(text=text)
             input_ids, indices_chosen = run_random_masking(orig_ids)
@@ -308,6 +308,39 @@ class MmluGenerator(Generators):
         if c.masked_model:
             return self.mmlu_masked_generator(model, tasks, c)
         return self.mmlu_causal_generator(model, tasks, c)
+
+class ImageGenerators(Generators):
+    """ Datasets are evaluated differently. Image related ones are handled here.
+
+    Assumes model has the following functions:
+      - model.processor(img, return_tensors="pt")
+      - model.predictor(**img_dict)
+
+    """
+    @staticmethod
+    def get_image_classification_generator(
+            model: Model,
+            eval_config: EvalConfig,
+        ):
+
+        dataset = prepare_dataset(eval_config)
+
+        for data in dataset:
+            # predict next token from text
+            img   = data[eval_config.dataset_image_key]
+            label = data[eval_config.dataset_image_label_key]
+            with torch.no_grad():
+                try:
+                    inputs = model.processor(img, return_tensors="pt")
+                except ValueError:
+                    print("Skipping image due to error.")
+                    continue
+                inputs = inputs.to(model.device)
+                logits = model.predictor(**inputs).logits.unsqueeze(0)
+            expected_ids = torch.tensor([[label]]).to(model.device)
+
+            yield (logits, expected_ids, {})
+
 
 ######################################################################################
 # General Function for Evaluation
@@ -491,6 +524,11 @@ def choose_functions(eval_config):
 
     if eval_config.dataset_type == "mmlu":
         generator = MmluGenerator().get_mmlu_generator
+        evaluator = Evaluator().evaluate_dataset
+        return generator, evaluator
+
+    if eval_config.dataset_type == "image-classification":
+        generator = ImageGenerators.get_image_classification_generator
         evaluator = Evaluator().evaluate_dataset
         return generator, evaluator
 
@@ -947,11 +985,11 @@ def evaluate_human_eval(opt: Model, n_questions: int = None):
 # Code for evaluating on masked dataset BERT tasks
 ####################################################################################
 
-def masked_generator(opt: Model, dataset, dataset_text_label):
+def masked_generator(opt: Model, dataset, dataset_text_key):
     token_limit = opt.limit
     for data in dataset:
         # predict next token from text
-        input_ids = opt.get_ids(data[dataset_text_label])[:, :token_limit]
+        input_ids = opt.get_ids(data[dataset_text_key])[:, :token_limit]
         orig_ids, masked_ids, indices = \
             opt.roberta_masked_ids(input_ids=input_ids, frac=0.15)
         with torch.no_grad():
