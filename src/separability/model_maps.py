@@ -1,6 +1,6 @@
 # Code mostly from TransformerLens
 # https://github.com/neelnanda-io/TransformerLens/blob/main/transformer_lens/loading_from_pretrained.py
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, Dict
 from dataclasses import dataclass
 import einops
 from transformers import AutoConfig
@@ -30,6 +30,9 @@ class ConfigClass:
     final_rms: bool = False
     gated_mlp: bool = False
     model_type: str = "causal"
+    model_modality: str = "language" # language, vision, (maybe "speech" one day?)
+    label2id: Optional[Dict[str, int]] = None # for vision transformers
+    id2label: Optional[Dict[int, str]] = None
 
 def convert_hf_model_config(official_model_name: str):
     """
@@ -236,6 +239,26 @@ def convert_hf_model_config(official_model_name: str):
             "scale_attn_by_inverse_layer_idx": False,
             "normalization_type": "LN",
 
+        }
+    elif architecture == "ViTForImageClassification":
+        cfg_dict = {
+            "model_type": "classification",
+            "model_modality": "vision",
+            "d_model": hf_config.hidden_size,
+            "d_head": hf_config.hidden_size // hf_config.num_attention_heads,
+            "n_heads": hf_config.num_attention_heads,
+            "d_mlp": hf_config.intermediate_size,
+            "n_layers": hf_config.num_hidden_layers,
+            "n_ctx": None, # max positional embeddings
+            "eps": hf_config.layer_norm_eps,
+            "d_vocab": None, # images are processed differently
+            "act_fn": hf_config.hidden_act,
+            "use_attn_scale": True,
+            "use_local_attn": False,
+            "scale_attn_by_inverse_layer_idx": False,
+            "normalization_type": "LN",
+            "label2id": hf_config.label2id,
+            "id2label": hf_config.id2label,
         }
     else:
         raise NotImplementedError(f"{architecture} is not currently supported.")
@@ -788,6 +811,114 @@ def build_roberta_layer_map(cfg: ConfigClass):
     return opt_layer_map
 
 #####################################################################################
+# VISION TRANSFORMERS (eg: ViT)
+#####################################################################################
+
+# ViT
+#####
+
+vit_model_map = {
+    "model"           : "vit",
+    "layers"          : "vit.encoder.layer",
+    "embed"           : "vit.embeddings",
+    #"embed.W_embed"   : "vit.embeddings.patch_embeddings.weight", ? is CNN
+    #"pos_embed.W_pos" : Can't see any ???
+    "ln_final"        : "layernorm",
+    "ln_final.w"      : "layernorm.weight",
+    "ln_final.b"      : "layernorm.bias",
+    "lm_head"         : "classifier",
+    "unembed.W_U"     : "classifier.weight",
+    "unembed.b_U"     : "classifier.bias",
+}
+
+def build_vit_layer_map(cfg: ConfigClass):
+    attn_proj_map = {
+        "q": "attention.query",
+        "k": "attention.key",
+        "v": "attention.value",
+        "o": "output.dense"
+    }
+
+    def vit_qkv_weight(layer, key: str, inpt: Optional[Any]=None):
+        # Prepare shape changing
+        their_shape = "(n_heads d_head) d_model"
+        my_shape    = "n_heads d_head d_model"
+        sizes = generate_sizes_dict(my_shape, cfg)
+
+        # Get attn proj module
+        attn = layer.attention
+        attn_proj = get_attrs(attn, attn_proj_map[key])
+
+        # Get mode
+        if inpt is None:
+            W = attn_proj.weight
+            W = einops.rearrange(W, f"{their_shape} -> {my_shape}", **sizes)
+            return W
+
+        # Set mode
+        W = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(attn_proj, "weight", W)
+
+    def vit_qkv_bias(layer, key: str, inpt: Optional[Any]=None):
+        # Prepare shape changing
+        their_shape = "(n_heads d_head)"
+        my_shape    = "n_heads d_head"
+        sizes = generate_sizes_dict(my_shape, cfg)
+
+        # Get attn proj module
+        attn = layer.attention
+        attn_proj = get_attrs(attn, attn_proj_map[key])
+
+        if inpt is None:
+            b = attn_proj.bias
+            b = einops.rearrange(b, f"{their_shape} -> {my_shape}", **sizes)
+            return b
+
+        # Set mode
+        b = einops.rearrange(inpt, f"{my_shape} -> {their_shape}", **sizes)
+        update_param(attn_proj, "bias", b)
+
+
+    vit_layer_map = {
+        "ln1"           : "layernorm_before.LayerNorm",
+        "ln1.w"         : "layernorm_before.LayerNorm.weight",
+        "ln1.b"         : "layernorm_before.LayerNorm.bias",
+
+        "attn"          : "attention",
+        "attn.q_proj"   : "attention.attention.query",
+        "attn.k_proj"   : "attention.attention.key",
+        "attn.v_proj"   : "attention.attention.value",
+
+        **generate_attn_qkv_functions(vit_qkv_weight, vit_qkv_bias),
+
+        "attn.out"      : "attention.output",
+        "attn.out_proj" : "attention.output.dense",
+        "attn.W_O"      : "attention.output.dense.weight",
+        "attn.b_O"      : "attention.output.dense.bias",
+
+        "attn.inv_out_proj" : "attention.inv_out_proj",
+        "attn.W_O_inv"  : "attention.inv_out_proj.weight",
+        "attn.b_O_inv"  : "attention.inv_out_proj.inverse_bias",
+
+        "ln2"           : "layernorm_after",
+        "ln2.w"         : "layernorm_after.weight",
+        "ln2.b"         : "layernorm_after.bias",
+
+        "fc1"           : "intermediate.dense",
+        "mlp.W_in"      : "intermediate.dense.weight",
+        "mlp.b_in"      : "intermediate.dense.bias",
+
+        "activation_fn" : "intermediate.intermediate_act_fn",
+
+        "fc2"           : "output.dense",
+        "mlp.W_out"     : "output.dense.weight",
+        "mlp.b_out"     : "output.dense.bias",
+    }
+
+    return vit_layer_map
+
+
+#####################################################################################
 # Build Model Layer Map interfaces
 #####################################################################################
 
@@ -813,6 +944,8 @@ def get_model_key_map(config: ConfigClass):
         return gpt2_model_map
     if architecture == "RobertaForMaskedLM":
         return roberta_model_map
+    if architecture == "ViTForImageClassification":
+        return vit_model_map
 
     raise NotImplementedError(f"Architecture {architecture} not implemented")
 
@@ -829,6 +962,8 @@ def get_layer_key_map(config: ConfigClass):
         return build_gpt2_layer_map(config)
     if architecture == "RobertaForMaskedLM":
         return build_roberta_layer_map(config)
+    if architecture == "ViTForImageClassification":
+        return build_vit_layer_map(config)
 
     raise NotImplementedError(f"Architecture {architecture} not implemented")
 
