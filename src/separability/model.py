@@ -108,6 +108,7 @@ class Model():
         # Initialize model components
         self.cfg: ConfigClass = None
         self.tokenizer: AutoTokenizer = None
+        self.processor = None # vision models
         self.predictor: AutoModelForCausalLM = None
         self.map: ModelMap = None
         self.model = None
@@ -144,10 +145,21 @@ class Model():
         self.cfg = convert_hf_model_config(self.model_repo)
         self.cfg.is_low_precision = self.dtype_map.is_low_precision
 
-        # Import model components
-        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_repo, legacy=False)
-        self.predictor = AutoModelForCausalLM.from_pretrained(
-            self.model_repo, device_map=device_map, **self.dtype_args)
+        # Import model components (Default: Causal Language Models)
+        if self.cfg.model_modality == "vision":
+            from transformers import AutoImageProcessor, AutoModelForImageClassification
+            self.tokenizer = None,
+            self.processor = AutoImageProcessor.from_pretrained(
+                self.model_repo, device_map=device_map, **self.dtype_args)
+            self.predictor = AutoModelForImageClassification.from_pretrained(
+                self.model_repo, device_map=device_map, **self.dtype_args)
+        elif self.cfg.model_modality == "language":
+            self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_repo, legacy=False)
+            self.processor = None
+            self.predictor = AutoModelForCausalLM.from_pretrained(
+                self.model_repo, device_map=device_map, **self.dtype_args)
+        else:
+            raise NotImplementedError(f"Model modality {self.cfg.model_modality} not implemented.")
 
         # Build map for working with model
         self.map = ModelMap(self.predictor, self.cfg)
@@ -437,7 +449,6 @@ class Model():
                         layer.append( o )
 
             layers.append(layer)
-
         return layers
 
     def run_masking(self, activations: Tensor, component: str):
