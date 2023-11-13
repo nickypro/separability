@@ -18,15 +18,286 @@ import matplotlib.pyplot as plt
 # Import from this project
 from .model import Model
 from .texts import prepare
+from .texts import infer_dataset_config, prepare_dataset
 from .data_classes import RunDataItem, ActivationCollector, \
-                          ActivationSummaryHolder, ActivationOverview
+                          ActivationSummaryHolder, ActivationOverview, \
+                          EvalConfig
 from .eval import evaluate, evaluate_all
+
+######################################################################################
+# New code for getting attention activations and evaluating model
+######################################################################################
+
+def get_input_activations(opt: Model, eval_config: EvalConfig, dataset_item: dict):
+    """ dataset_item --> opt --> (input_ids, text_activations, residual_stream) """
+    model_modality = opt.cfg.model_modality
+
+    if model_modality == "vision":
+        raw_img = dataset_item[eval_config.dataset_image_key]
+        label   = dataset_item[eval_config.dataset_image_label_key]
+
+        img = opt.processor(raw_img, return_tensors="pt")
+
+        embeddings = opt["embed"](torch.tensor(img["pixel_values"]))
+        _n_texts, _n_tokens, _d_model = embeddings.shape
+        input_ids = torch.zeros([1, _n_tokens], dtype=int)
+        input_ids[0, 0]  = label
+        input_ids[0, 1:] = -1
+
+        # TODO: fix this so that it works for deletion and not just masking
+        output = opt.predictor(**img)
+
+        text_activations = [0,0,0,0]
+        residual_stream  = [0]
+
+        return input_ids, text_activations, residual_stream
+
+    if model_modality == "language":
+        text  = dataset_item[eval_config.dataset_text_key]
+
+        input_ids = opt.get_ids(text).detach()
+
+        # Skip if there is only 1 token
+        if len(input_ids.flatten().shape) == 0:
+            raise ValueError("Cannot evaluate 1 token input")
+
+        text_activations = opt.get_text_activations( input_ids=input_ids )
+        residual_stream = opt.get_residual_stream(
+            text_activations=text_activations ).detach()
+
+        return input_ids, text_activations, residual_stream
+
+    raise NotImplementedError(f"Invalid model modality {model_modality}")
+
+def get_midlayer_activations( opt: Model,
+        dataset_name: str,
+        sample_size: int = 10000,
+        attn_mode: str = "pre-out",
+        check_accuracy: bool = False,
+        calculate_loss: bool = False,
+        k: int = 10,
+        check_skips: bool = False,
+        calculate_ff: bool = True,
+        calculate_attn: bool = True,
+        collect_ff: bool = False,
+        collect_attn: bool = False,
+        use_ff_activation_function: bool = True,
+    ):
+    """Gets the number of activations of the midlayer ('key' layer) of MLPs for
+    each layer, as well as for the pre_out layer of attention for each layer.
+
+    Args:
+        opt (Model): my special sauce opt model
+        dataset_name (str): 'code' or 'pile'
+        sample_size (int, optional): number of tokens to sample. Defaults to 10000.
+        num_samples (int, optional): number of times to run. Defaults to 1.
+        check_accuracy (bool, optional): whether to only look at accurate outputs.
+            Defaults to False.
+        k (int, optional): top k to check when looking at accuracy. Defaults to 10.
+        check_skips (bool, optional): whether to skip most frequent tokens.
+            Defaults to False.
+        calculate_ff (bool, optional): whether to calculate the number of activations
+            of the midlayer of MLPs. Defaults to True.
+        calculate_attn (bool, optional): whether to calculate self-attention
+            activation means and masses. Defaults to True.
+        collect_ff (bool, optional): whether to collect all ff activations.
+            Defaults to False.
+        collect_attn (bool, optional): whether to collect all attn pre out
+            activations. Defaults to False.
+        use_ff_activation_function (bool, optional): whether to use the activation
+            function on the ff activations. Defaults to True.
+
+    Returns:
+        Dict:
+            "ff" (dict: ActivationCollector.summary):
+                tensor shapes (n_layers, d_ff)
+            "attn" (dict: ActivationCollector.summary):
+                tensor shapes: (n_layers, d_attn, d_ff):
+            "raw":
+                "ff": Tensor[n_tokens, n_layers, d_ff]]
+                "attn": Tensor[n_tokens, n_layers, n_head, d_head]
+                "criteria": Tensor[n_tokens]
+            "texts_viewed" (int): number of texts viewed in the dataset
+
+    ActivationCollector.summary:
+        "mean": Tensor[shape]
+        "std": Tensor[shape]
+        "pos_mass": Tensor[shape]
+        "pos_var": Tensor[shape]
+        "neg_mass": Tensor[shape]
+        "neg_var": Tensor[shape]
+        "pos_count": Tensor[shape]
+    """
+    eval_config = infer_dataset_config(dataset_name)
+    eval_config.dataset_split = "train"
+    eval_config.is_train_mode = True
+    dataset   = prepare_dataset(eval_config)
+    skip_eval = eval_config.skip_token_strings or []
+
+    do_ff   = calculate_ff   or collect_ff
+    do_attn = calculate_attn or collect_attn
+    if attn_mode not in ["pre-out", "value"]:
+        raise NotImplementedError("attn_mode must be 'pre-out' or 'value'")
+
+    # ff activation collector
+    if do_ff:
+        ff_shape = (opt.cfg.n_layers, opt.cfg.d_mlp)
+        ff_data = ActivationCollector( ff_shape, opt.output_device, collect_ff )
+        ff_data_loss_normed = ActivationCollector( ff_shape, opt.output_device, collect_ff )
+        ff_data_log_loss_normed = ActivationCollector( ff_shape, opt.output_device, collect_ff )
+
+    # self-attention activation collector
+    if do_attn:
+        attn_shape = (opt.cfg.n_layers, opt.cfg.n_heads, opt.cfg.d_head)
+        attn_data = ActivationCollector( attn_shape, opt.output_device, collect_attn )
+        attn_data_loss_normed = ActivationCollector( attn_shape, opt.output_device, collect_ff )
+        attn_data_log_loss_normed = ActivationCollector( attn_shape, opt.output_device, collect_ff )
+
+    if collect_ff or collect_attn:
+        criteria_raw = []
+
+    if not (calculate_ff or calculate_attn or collect_ff or collect_attn):
+        raise ValueError("Must calculate or collect either ff or attn."
+                        + "Otherwise, use evaluate_all() instead")
+
+    # Prepare skip ids if they are being used
+    if check_skips:
+        skip_ids = set()
+        for skip_string in skip_eval:
+            skip_id = int( opt.get_ids( skip_string ).squeeze()[-1] )
+            skip_ids.add( skip_id )
+
+    # Number of tokens viewed counter (that meet criteria)
+    curr_count = 0
+    texts_viewed = 0
+
+    with tqdm(total=sample_size) as pbar:
+        for data in dataset:
+            texts_viewed += 1
+            # Get all necessary activations
+            with torch.no_grad():
+
+                try:
+                    input_ids, text_activations, residual_stream = \
+                        get_input_activations(opt, eval_config, data)
+                except ValueError:
+                    print(f"Could not process an input of {dataset_name}")
+                    continue
+
+                # Get activations of self attention
+                if do_attn and attn_mode == "pre-out":
+                    attn_activations = opt.get_attn_pre_out_activations(
+                        text_activations=text_activations, reshape=True ).detach()
+                    attn_activations = einops.rearrange(attn_activations,
+                        'layer token head pos -> token layer head pos')
+
+                if do_attn and attn_mode == "value":
+                    attn_activations = opt.get_attn_value_activations(
+                        text_activations=text_activations, reshape=True ).detach()
+                    attn_activations = einops.rearrange(attn_activations,
+                        'layer token (head pos) -> token layer head pos',
+                        head=opt.cfg.n_heads, pos=opt.cfg.d_head)
+
+                # Get activations of FF mid layer
+                if do_ff:
+                    ff_keys = opt.get_ff_key_activations(
+                        residual_stream=residual_stream,
+                        use_activation_function=use_ff_activation_function ).detach()
+                    ff_keys = einops.rearrange( ff_keys,
+                        'layer token pos -> token layer pos')
+
+            # Initialize criteria for counting the token activation
+            criteria = torch.ones_like( input_ids[0], dtype=torch.bool ).detach()
+
+            # (Optional) Check if prediction is accurate enough to count
+            if check_accuracy or calculate_loss:
+                logits = opt.unembed( residual_stream[-1] ).unsqueeze(dim=0).detach()
+                loss = opt.evaluate_ce_losses(input_ids=input_ids, logits=logits)[0]
+
+                if check_accuracy:
+                    top_k_tokens = opt.top_k_tokens( logits, k=k ).squeeze()
+                    for index in range(len(input_ids[0])-1):
+                        criteria[index] *= (input_ids[0, index+1] in top_k_tokens[index])
+            else:
+                logits, loss = None, None
+
+            # (Optional) Choose a set of token ids to skip
+            if check_skips:
+                for index in range(len(input_ids[0])-1):
+                    criteria[index] *= (input_ids[0, index+1] in skip_ids)
+
+            # Count the number of activations in FF
+            if do_ff:
+                for token_index, ff_activation in enumerate(ff_keys):
+                    if not criteria[token_index]:
+                        continue
+                    ff_data.add(ff_activation)
+
+                    if token_index == 0 or loss is None:
+                        continue
+                    token_loss = loss[token_index-1]
+                    ff_data_loss_normed.add(ff_activation/token_loss)
+                    ff_data_log_loss_normed.add(ff_activation/torch.log(token_loss))
+
+            # Count the number of activations in Self-Attention
+            if do_attn:
+                for token_index, attn_activation in enumerate(attn_activations):
+                    if not criteria[token_index]:
+                        continue
+                    attn_data.add(attn_activation)
+
+                    if token_index == 0 or loss is None:
+                        continue
+                    token_loss = loss[token_index-1]
+                    attn_data_loss_normed.add(attn_activation/token_loss)
+                    attn_data_log_loss_normed.add(attn_activation/torch.log(token_loss))
+
+            if collect_ff or collect_attn:
+                for criterion in criteria:
+                    criteria_raw.append( criterion.cpu() )
+
+            # Keep track of number of tokens looked at
+            num_valid_tokens = criteria.sum()
+            curr_count += num_valid_tokens
+            pbar.update( int(num_valid_tokens) )
+
+            if curr_count > sample_size:
+                break
+
+    output = {
+        "texts_viewed": texts_viewed,
+    }
+
+    # Summary information about activations
+    if calculate_ff:
+        output["ff"] = ActivationSummaryHolder(
+            orig = ff_data.summary(dtype=opt.dtype),
+            loss_normed = ff_data_loss_normed.summary(dtype=opt.dtype, allow_nan=True),
+            log_loss_normed = ff_data_log_loss_normed.summary(dtype=opt.dtype, allow_nan=True),
+        )
+    if calculate_attn:
+        output["attn"] = ActivationSummaryHolder(
+            orig = attn_data.summary(dtype=opt.dtype),
+            loss_normed = attn_data_loss_normed.summary(dtype=opt.dtype, allow_nan=True),
+            log_loss_normed = attn_data_log_loss_normed.summary(dtype=opt.dtype, allow_nan=True),
+        )
+
+    # Raw activations of data
+    if collect_ff or collect_attn:
+        output["raw"] = { "criteria": torch.stack(criteria_raw) }
+    if collect_ff:
+        output["raw"]["ff"] = ff_data.get_raw()
+    if collect_attn:
+        output["raw"]["attn"] = attn_data.get_raw()
+
+    return ActivationOverview(**output)
+
 
 ######################################################################################
 # Code for counting both FF and Self-Attention activations
 ######################################################################################
 
-def get_midlayer_activations( opt: Model,
+def get_midlayer_activations_old( opt: Model,
         dataset_name: str,
         sample_size: int = 10000,
         attn_mode: str = "pre-out",
