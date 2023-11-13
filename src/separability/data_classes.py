@@ -72,7 +72,7 @@ class EvalConfig:
     dataset_repo: str = None
     dataset_subset: str = None
     dataset_type: str = "prediction" # ["prediction", "generation", "mmlu"]
-    dataset_text_label: str = "text"
+    dataset_text_key: str = "text"
     dataset_filter: Optional[Callable] = None
     dataset_has_test_split: bool = True
     dataset_split: str = None # "test", "train"
@@ -87,6 +87,9 @@ class EvalConfig:
     loading_bar_desc: str = "Acc"
     verbose: bool = False
     # Custom Eval Parameters
+    is_train_mode: bool = False
+    dataset_image_key: str = "image"
+    dataset_image_label_key: str = "label"
     n_shot: int = 0
     masked_model: bool = False
     masked_token_str: str = "<mask>"
@@ -479,8 +482,10 @@ class ActivationCollector:
             raise ValueError('No data points added to ActivationCollector')
         return torch.stack(self.raw)
 
-    def summary(self, dtype: torch.dtype = torch.float32):
+    def summary(self, dtype: torch.dtype = torch.float32, allow_nan=False):
         if self.n_points == 0:
+            if allow_nan:
+                return ActivationSummary(0,0,0,0,0,0,0,0)
             raise ValueError('No data points added to ActivationCollector')
 
         return ActivationSummary(
