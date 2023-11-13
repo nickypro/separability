@@ -37,15 +37,16 @@ def get_input_activations(opt: Model, eval_config: EvalConfig, dataset_item: dic
         label   = dataset_item[eval_config.dataset_image_label_key]
 
         img = opt.processor(raw_img, return_tensors="pt")
+        pixel_values = img["pixel_values"].to(opt.device)
 
-        embeddings = opt["embed"](torch.tensor(img["pixel_values"]))
+        embeddings = opt["embed"](pixel_values)
         _n_texts, _n_tokens, _d_model = embeddings.shape
         input_ids = torch.zeros([1, _n_tokens], dtype=int)
         input_ids[0, 0]  = label
         input_ids[0, 1:] = -1
 
         # TODO: fix this so that it works for deletion and not just masking
-        output = opt.predictor(**img)
+        output = opt.predictor(pixel_values=pixel_values)
 
         text_activations = [0,0,0,0]
         residual_stream  = [0]
