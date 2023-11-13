@@ -103,8 +103,12 @@ def load_wiki(test=0):
 #most_common_pile_tokens = ['\n', '.', ',', ' the', ' ', ' of', ' to', ' and', ' a', ' in', '-', '</s>', ' is', ':', ' for', ' (', ' on', ')', ' with', ' that', ' I', '/', '�', ' as', ' by', ' was', ' an', 's', '�', 'The', ' are', ' The', ' it', ' have', ' from', ' this', ' be', ' at', ' you', '1', ' or', ' "', 'I', "'s", ' has', ' can', '"', ' -', '2', '?']
 
 # Load the JSON data
-script_path = os.path.abspath(os.path.dirname(__file__))
-json_file_path = os.path.join(script_path, 'data/llama_most_common_tokens.json')
+def script_path(filename):
+    __script_path = os.path.abspath(os.path.dirname(__file__))
+    return os.path.join(__script_path, filename)
+
+
+json_file_path = script_path('data/llama_most_common_tokens.json')
 with open(json_file_path, 'r') as file:
     llama_most_common_tokens = json.load(file)
 most_common_pile_tokens          = llama_most_common_tokens["all"]["skip50"]["tokens_str"]
@@ -142,7 +146,7 @@ def prepare( dataset_name, test:int = 0 ):
 
     raise ValueError( f"Unknown dataset: {dataset_name}" )
 
-class DatsetFilters:
+class DatasetFilters:
     @staticmethod
     def filter_civil(_dataset):
         def filter_toxicity_example(example):
@@ -157,6 +161,27 @@ class DatsetFilters:
         toxic_dataset = _dataset.filter(filter_toxicity_example)
         return toxic_dataset
 
+    @staticmethod
+    def filter_birds(_dataset):
+        with open(script_path("data/imagenet_birds.json"), "r") as file:
+            bird_json = json.load(file)
+        bird_ids = set(bird_json["id2label"].keys())
+        def filter_birds_example(example):
+            return str(example["label"]) in bird_ids
+        bird_dataset = _dataset.filter(filter_birds_example)
+        return bird_dataset
+
+    @staticmethod
+    def filter_birdless(_dataset):
+        with open(script_path("data/imagenet_birds.json"), "r") as file:
+            bird_json = json.load(file)
+        bird_ids = set(bird_json["id2label"].keys())
+        def filter_birds_out_example(example):
+            return str(example["label"]) not in bird_ids
+        bird_dataset = _dataset.filter(filter_birds_out_example)
+        return bird_dataset
+
+
 def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
     eval_configs = [
         EvalConfig("pile_codeless",
@@ -170,14 +195,14 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
         EvalConfig("code",
             dataset_repo           = "codeparrot/github-code-clean",
             dataset_subset         = "all-all",
-            dataset_text_label     = "code",
+            dataset_text_key       = "code",
             dataset_has_test_split = False,
             skip_token_strings = most_common_code_tokens,
         ),
         EvalConfig("python",
             dataset_repo           = "codeparrot/github-code-clean",
             dataset_subset         = "Python-all",
-            dataset_text_label     = "code",
+            dataset_text_key       = "code",
             dataset_has_test_split = False,
             skip_token_strings = most_common_code_tokens,
         ),
@@ -187,12 +212,12 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
         ),
         EvalConfig("civil",
             dataset_repo = "civil_comments",
-            dataset_filter = DatsetFilters.filter_civil,
+            dataset_filter = DatasetFilters.filter_civil,
             skip_token_strings = most_common_pile_tokens,
         ),
         EvalConfig("toxic",
             dataset_repo = "civil_comments",
-            dataset_filter = DatsetFilters.filter_toxic,
+            dataset_filter = DatasetFilters.filter_toxic,
             skip_token_strings = most_common_pile_tokens,
         ),
         EvalConfig("wiki",
@@ -216,6 +241,23 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
             dataset_subset = "all", # Overwritten if use "mmlu:subject_name"
             skip_token_strings = most_common_pile_tokens,
         ),
+        EvalConfig("imagenet-1k",
+            dataset_split = "validation",
+            dataset_repo = "imagenet-1k",
+            dataset_type = "image-classification",
+        ),
+        EvalConfig("imagenet-1k-birds",
+            dataset_split = "validation",
+            dataset_repo = "imagenet-1k",
+            dataset_type = "image-classification",
+            dataset_filter=DatasetFilters.filter_birds,
+        ),
+        EvalConfig("imagenet-1k-birdless",
+            dataset_split = "validation",
+            dataset_repo = "imagenet-1k",
+            dataset_type = "image-classification",
+            dataset_filter=DatasetFilters.filter_birdless,
+        ),
     ]
 
     # Convert into searchable dict
@@ -238,6 +280,8 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
     return eval_config
 
 def prepare_dataset(eval_config: EvalConfig):
+    """ Returns iterable dataset object. """
+
     # check if it has test split, or only a train split
     split = eval_config.dataset_split
     if split is None:
@@ -259,7 +303,7 @@ def prepare_dataset(eval_config: EvalConfig):
     _dataset = _dataset[split]
 
     # Skip tokens is no split
-    if split == "train":
+    if split == "train" and not eval_config.is_train_mode:
         skip_n = int(eval_config.num_tokens_to_skip//100)
         print( "Warning: 'pile_deduped' has no 'test' split.",
               f"Using 'train' split and skipping {skip_n} texts instead.")
