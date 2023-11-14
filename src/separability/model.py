@@ -804,6 +804,7 @@ class Model():
 
         if self.mask_fn != "delete":
             mask = self.masks["attn_pre_out"][layer_index]
+            remove_indices = torch.tensor(remove_indices).to(self.device)
             keep_indices = torch.logical_not(remove_indices).flatten()
             mask.delete_neurons(keep_indices)
             return self
@@ -990,6 +991,7 @@ class Model():
 
                 # Alternatively, we can mask the removal indices
                 mask = self.masks["mlp_pre_out"][layer_index]
+                mlp_remove_indices = torch.tensor(mlp_remove_indices).to(self.device)
                 keep_indices = torch.logical_not(mlp_remove_indices).flatten()
                 mask.delete_neurons(keep_indices)
 
