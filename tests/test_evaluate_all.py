@@ -23,7 +23,7 @@ class TestEvaluate:
         eval_config = EvalConfig("code",
             dataset_repo           = "codeparrot/github-code-clean",
             dataset_subset         = "all-all",
-            dataset_text_label     = "code",
+            dataset_text_key       = "code",
             dataset_has_test_split = False,
             sample_size            = eval_sample_size,
             num_tokens_to_skip     = eval_sample_size,
