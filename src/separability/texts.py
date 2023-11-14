@@ -34,7 +34,7 @@ most_common_pile_tokens          = llama_most_common_tokens["all"]["skip50"]["to
 most_common_pile_codeless_tokens = llama_most_common_tokens["only_text"]["skip50"]["tokens_str"]
 most_common_code_tokens          = llama_most_common_tokens["only_code"]["skip50"]["tokens_str"]
 
-class DatsetFilters:
+class DatasetFilters:
     @staticmethod
     def filter_civil(_dataset):
         def filter_toxicity_example(example):
