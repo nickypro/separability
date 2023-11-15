@@ -120,7 +120,7 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
             #generated_text_prompt = " I'm sick of all the politically correct",
             #generated_text_prompt = " I swear, I just don’t know if",
             generated_text_length = 20,
-            generated_text_num_samples = 10,
+            generated_text_num_samples = 1000,
             skip_token_strings = most_common_pile_tokens,
         ),
         EvalConfig("mmlu",
