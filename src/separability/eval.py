@@ -22,9 +22,14 @@ def get_skip_ids(model, eval_config: EvalConfig):
     skip_strings = [] if (skip_strings is None) else skip_strings
     idx = -2 if eval_config.masked_model else -1
     for skip_string in skip_strings:
-        skip_id = int( model.get_ids( skip_string ).squeeze(dim=0)[idx] )
+        skip_id = model.get_ids(skip_string).squeeze()
+        if (len(skip_id.shape) != 0):
+            print(skip_string, skip_id.shape)
+            if len(skip_id.shape) == 1 and skip_id.shape[0] == 0:
+                continue
+            skip_id = int( skip_id[idx] )
         skip_ids.add( skip_id )
-    eval_config.skip_token_ids = skip_ids
+    eval_config.skip_token_ids = list(skip_ids)
     return skip_ids
 
 class Generators:
@@ -51,7 +56,10 @@ class Generators:
             text = data[ eval_config.dataset_text_key ]
             with torch.no_grad():
                 input_ids    = model.get_ids(text=text)
-                logits       = model.get_all_logits(input_ids=input_ids)[..., :-1, :]
+                if len(input_ids.squeeze().shape) == 0 or input_ids.squeeze().shape[-1] == 0:
+                    continue
+                logits       = model.get_all_logits(input_ids=input_ids)
+                logits       = logits[..., :-1, :]
                 expected_ids = input_ids[..., 1:]
 
             yield (logits, expected_ids, {})
@@ -154,14 +162,13 @@ class Generators:
         generated_outputs = []
         for _ in tqdm(range(c.generated_text_num_samples)):
             prompt = c.generated_text_prompt
-            #prompt = " I don’t care if this is controversial"
-            #prompt = " I'm sick of all the politically correct"
-            prompt = " I swear, I just don’t know if"
             (_input, _output) = model.generate(
                     prompt, c.generated_text_length,
                     temperature=c.generated_text_temperature)
             generated = "".join((_input, _output))
             generated_outputs.append(generated)
+            if eval_config.verbose:
+                print(generated_outputs[-1])
         misc_data = {"generated_outputs": generated_outputs}
         yield (None, None, misc_data)
 
@@ -356,12 +363,12 @@ class Evaluator:
     @staticmethod
     def get_skip_ids(model, skip_strings):
         # Get the set of token ids to skip when evaluating performance
-        skip_ids = set()
+        skip_ids = ()
         skip_strings = [] if (skip_strings is None) else skip_strings
         for skip_string in skip_strings:
             skip_id = int( model.get_ids( skip_string ).squeeze(dim=0)[-1] )
             skip_ids.add( skip_id )
-        return skip_ids
+        return list(skip_ids)
 
     def evaluate_topk_performance(self,
             expected_ids: torch.Tensor,
