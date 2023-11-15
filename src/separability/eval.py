@@ -165,7 +165,9 @@ class Generators:
             (_input, _output) = model.generate(
                     prompt, c.generated_text_length,
                     temperature=c.generated_text_temperature)
-            generated = "".join((_input, _output))
+            generated = _output
+            if eval_config.generated_text_include_prompt:
+                generated = "".join((_input, _output))
             generated_outputs.append(generated)
             if eval_config.verbose:
                 print(generated_outputs[-1])

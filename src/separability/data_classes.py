@@ -102,6 +102,7 @@ class EvalConfig:
     sliding_window_buffer_size = 1024
     sliding_window_step_size = 512
     generated_text_prompt: str = None
+    generated_text_include_prompt: bool = False
     generated_text_num_samples: int = 1
     generated_text_length: int = 50
     generated_text_temperature: float = None
