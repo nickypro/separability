@@ -359,11 +359,16 @@ class LossTracker:
         self.loss = Welford()
         self.log_loss = Welford()
         self.perplexity = Welford()
+    
+    def add(self, losses):
+        self.loss.add(losses.mean())
+        self.log_loss.add(torch.log(losses).mean())
+        self.perplexity.add(torch.exp(losses).mean())
 
     def add_all(self, losses):
-        self.loss.add(losses)
-        self.log_loss.add(torch.log(losses))
-        self.perplexity.add(torch.exp(losses))
+        self.loss.add_all(losses)
+        self.log_loss.add_all(torch.log(losses))
+        self.perplexity.add_all(torch.exp(losses))
 
     def summarize(self):
         return {
