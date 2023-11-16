@@ -360,10 +360,10 @@ class LossTracker:
         self.log_loss = Welford()
         self.perplexity = Welford()
 
-    def add(self, losses):
-        self.loss.add(losses.mean())
-        self.log_loss.add(torch.log(losses).mean())
-        self.perplexity.add(torch.exp(losses).mean())
+    def add_all(self, losses):
+        self.loss.add(losses)
+        self.log_loss.add(torch.log(losses))
+        self.perplexity.add(torch.exp(losses))
 
     def summarize(self):
         return {
@@ -488,7 +488,7 @@ class Evaluator:
 
             # Record performance
             total_acc_data += sample_acc_data
-            loss_tracker.add(sample_losses.detach().flatten())
+            loss_tracker.add_all(sample_losses.detach().flatten())
             self.update_pbar(c, pbar, sample_acc_data, total_acc_data)
 
             # Stop if limit is reached
