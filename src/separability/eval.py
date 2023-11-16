@@ -24,7 +24,6 @@ def get_skip_ids(model, eval_config: EvalConfig):
     for skip_string in skip_strings:
         skip_id = model.get_ids(skip_string).squeeze()
         if (len(skip_id.shape) != 0):
-            print(skip_string, skip_id.shape)
             if len(skip_id.shape) == 1 and skip_id.shape[0] == 0:
                 continue
             skip_id = int( skip_id[idx] )
@@ -355,6 +354,26 @@ class ImageGenerators(Generators):
 # General Function for Evaluation
 ######################################################################################
 
+class LossTracker:
+    def __init__(self):
+        self.loss = Welford()
+        self.log_loss = Welford()
+        self.perplexity = Welford()
+
+    def add_all(self, losses):
+        self.loss.add(losses)
+        self.log_loss.add(torch.log(losses))
+        self.perplexity.add(torch.exp(losses))
+
+    def summarize(self):
+        return {
+            'perplexity': round(self.perplexity.mean.item(), 4),
+            'loss':       round(self.loss.mean.item(), 4),
+            'log_loss':   round(self.log_loss.mean.item(), 4),
+        }
+
+
+
 class Evaluator:
     @staticmethod
     def top_k_tokens(logits, k):
@@ -438,14 +457,6 @@ class Evaluator:
             out_str += f"(Skip: {percent['topk_skip']}|{percent['skip']})"
             pbar.set_description( out_str )
 
-    def summarize_loss(self, loss_tracker: Welford):
-        mean_loss = float(loss_tracker.mean.cpu())
-        return {
-            'perplexity': round(np.exp(mean_loss), 4),
-            'loss':       round(mean_loss, 4),
-            'log_loss':   round(np.log(mean_loss), 4),
-        }
-
     def evaluate_dataset( self,
             generator: Callable,
             eval_config: EvalConfig,
@@ -454,7 +465,7 @@ class Evaluator:
 
         # Initialize variables
         total_acc_data = RawAccuracyData()
-        loss_tracker = Welford()
+        loss_tracker = LossTracker()
 
         # Loop over the dataset
         pbar = tqdm(total=c.sample_size)
@@ -477,7 +488,7 @@ class Evaluator:
 
             # Record performance
             total_acc_data += sample_acc_data
-            loss_tracker.add_all( sample_losses.detach().flatten() )
+            loss_tracker.add_all(sample_losses.detach().flatten())
             self.update_pbar(c, pbar, sample_acc_data, total_acc_data)
 
             # Stop if limit is reached
@@ -488,7 +499,7 @@ class Evaluator:
 
         misc_data =  { 'accuracy_data': total_acc_data.to_dict() }
         return EvalOutput(
-            loss_data = self.summarize_loss(loss_tracker),
+            loss_data = loss_tracker.summarize(),
             percent   = total_acc_data.get_percentages(),
             misc      = misc_data,
         )
