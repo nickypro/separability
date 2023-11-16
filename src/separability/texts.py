@@ -68,6 +68,38 @@ class DatasetFilters:
             return str(example["label"]) not in bird_ids
         bird_dataset = _dataset.filter(filter_birds_out_example)
         return bird_dataset
+    
+    @staticmethod
+    def filter_mushroom(_dataset):
+        mushroom_ids = set([ "52" ])
+        def filter_mushroom_example(example):
+            return str(example["fine_label"]) in mushroom_ids
+        mushroom_dataset = _dataset.filter(filter_mushroom_example)
+        return mushroom_dataset
+    
+    @staticmethod
+    def filter_mushroomless(_dataset):
+        mushroom_ids = set([ "52" ])
+        def filter_mushroom_out_example(example):
+            return str(example["fine_label"]) not in mushroom_ids
+        mushroomless_dataset = _dataset.filter(filter_mushroom_out_example)
+        return mushroomless_dataset
+
+    @staticmethod
+    def filter_rocket(_dataset):
+        rocket_ids = set([ "69" ])
+        def filter_rocket_example(example):
+            return str(example["fine_label"]) in rocket_ids
+        rocket_dataset = _dataset.filter(filter_rocket_example)
+        return rocket_dataset
+    
+    @staticmethod
+    def filter_rocketless(_dataset):
+        rocket_ids = set([ "69" ])
+        def filter_rocket_out_example(example):
+            return str(example["fine_label"]) not in rocket_ids
+        rocketless_dataset = _dataset.filter(filter_rocket_out_example)
+        return rocketless_dataset
 
 
 def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
@@ -146,6 +178,48 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
             dataset_repo = "imagenet-1k",
             dataset_type = "image-classification",
             dataset_filter=DatasetFilters.filter_birdless,
+        ),
+        EvalConfig("cifar100",
+            dataset_repo = "cifar100",
+            dataset_type = "image-classification",
+            dataset_image_key = "img",
+            dataset_image_label_key = "fine_label",
+        ),
+        EvalConfig("cifar100-mushroom",
+            dataset_repo = "cifar100",
+            dataset_type = "image-classification",
+            dataset_split = "train",
+            is_train_mode = True,
+            dataset_image_key = "img",
+            dataset_image_label_key = "fine_label",
+            dataset_filter=DatasetFilters.filter_mushroom,
+        ),
+        EvalConfig("cifar100-mushroomless",
+            dataset_repo = "cifar100",
+            dataset_type = "image-classification",
+            dataset_split = "test",
+            is_train_mode = False,
+            dataset_image_key = "img",
+            dataset_image_label_key = "fine_label",
+            dataset_filter=DatasetFilters.filter_mushroomless,
+        ),
+        EvalConfig("cifar100-rocket",
+            dataset_repo = "cifar100",
+            dataset_type = "image-classification",
+            dataset_split = "train",
+            is_train_mode = True,
+            dataset_image_key = "img",
+            dataset_image_label_key = "fine_label",
+            dataset_filter=DatasetFilters.filter_rocket,
+        ),
+        EvalConfig("cifar100-rocketless",
+            dataset_repo = "cifar100",
+            dataset_type = "image-classification",
+            dataset_split = "test",
+            is_train_mode = False,
+            dataset_image_key = "img",
+            dataset_image_label_key = "fine_label",
+            dataset_filter=DatasetFilters.filter_rocketless,
         ),
     ]
 
