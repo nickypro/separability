@@ -6,7 +6,7 @@ That is, the 'codeparrot-clean' and 'the pile' datasets.
 import os
 import json
 import argparse
-from datasets import load_dataset
+from datasets import load_dataset, concatenate_datasets
 
 from .data_classes import EvalConfig
 from .model import Model
@@ -101,6 +101,13 @@ class DatasetFilters:
         rocketless_dataset = _dataset.filter(filter_rocket_out_example)
         return rocketless_dataset
 
+    @staticmethod
+    def filter_veh2(_dataset):
+        rocket_ids = set([ "19" ])
+        def filter_rocket_example(example):
+            return str(example["coarse_label"]) in rocket_ids
+        rocket_dataset = _dataset.filter(filter_rocket_example)
+        return rocket_dataset
 
 def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
     eval_configs = [
@@ -143,6 +150,7 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
         EvalConfig("wiki",
             dataset_repo = "wikitext",
             dataset_subset = "wikitext-103-v1",
+            sample_size = int(1e6),
             skip_token_strings = opt_most_common_pile_tokens,
         ),
         EvalConfig("toxicity",
@@ -183,13 +191,15 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
             dataset_repo = "cifar100",
             dataset_type = "image-classification",
             dataset_image_key = "img",
+            num_texts_to_skip = 1,
             dataset_image_label_key = "fine_label",
         ),
         EvalConfig("cifar100-mushroom",
             dataset_repo = "cifar100",
             dataset_type = "image-classification",
-            dataset_split = "train",
+            dataset_split = ["train", "test"],
             is_train_mode = True,
+            num_texts_to_skip = 1,
             dataset_image_key = "img",
             dataset_image_label_key = "fine_label",
             dataset_filter=DatasetFilters.filter_mushroom,
@@ -199,15 +209,31 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
             dataset_type = "image-classification",
             dataset_split = "test",
             is_train_mode = False,
+            num_texts_to_skip = 1,
             dataset_image_key = "img",
             dataset_image_label_key = "fine_label",
             dataset_filter=DatasetFilters.filter_mushroomless,
         ),
+        EvalConfig("cifar100-mushroom-mia",
+            dataset_repo = "cifar100",
+            dataset_type = "image-membership-inference-attack",
+            is_train_mode = True,
+            dataset_image_key = "img",
+            dataset_image_label_key = "fine_label",
+            mia_retain = "cifar100-mushroomless",
+            mia_retain_split = "train",
+            mia_forget = "cifar100-mushroom",
+            mia_forget_split = "train",
+            mia_test = "cifar100",
+            mia_test_split = "test",
+            dataset_filter=DatasetFilters.filter_mushroom,
+        ),
         EvalConfig("cifar100-rocket",
             dataset_repo = "cifar100",
             dataset_type = "image-classification",
-            dataset_split = "train",
+            dataset_split = ["train", "test"],
             is_train_mode = True,
+            num_texts_to_skip = 1,
             dataset_image_key = "img",
             dataset_image_label_key = "fine_label",
             dataset_filter=DatasetFilters.filter_rocket,
@@ -217,9 +243,39 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
             dataset_type = "image-classification",
             dataset_split = "test",
             is_train_mode = False,
+            num_texts_to_skip = 1,
             dataset_image_key = "img",
             dataset_image_label_key = "fine_label",
             dataset_filter=DatasetFilters.filter_rocketless,
+        ),
+        EvalConfig("cifar100-rocket-mia",
+            dataset_repo = "cifar100",
+            dataset_type = "image-membership-inference-attack",
+            is_train_mode = True,
+            dataset_image_key = "img",
+            dataset_image_label_key = "fine_label",
+            mia_retain = "cifar100-rocketless",
+            mia_retain_split = "train",
+            mia_forget = "cifar100-rocket",
+            mia_forget_split = "train",
+            mia_test = "cifar100",
+            mia_test_split = "test",
+            dataset_filter=DatasetFilters.filter_rocket,
+        ),
+        EvalConfig("cifar20",
+            dataset_repo = "cifar100",
+            dataset_type = "image-classification",
+            dataset_image_key = "img",
+            dataset_image_label_key = "coarse_label",
+        ),
+        EvalConfig("cifar20-veh2",
+            dataset_repo = "cifar100",
+            dataset_type = "image-classification",
+            dataset_split = ["train", "test"],
+            is_train_mode = True,
+            dataset_image_key = "img",
+            dataset_image_label_key = "coarse_label",
+            dataset_filter=DatasetFilters.filter_veh2,
         ),
     ]
 
@@ -257,13 +313,23 @@ def prepare_dataset(eval_config: EvalConfig):
         streaming=True
     )
 
-    # Pre-split processing
+
+    # Post-split processing
+    if isinstance(split, list) or isinstance(split, tuple):
+        __d = [_dataset[s] for s in split]
+        _dataset = concatenate_datasets(__d)
+
+    else:
+        _dataset = _dataset[split]
+
     # Apply filter if relevant
     if eval_config.dataset_filter is not None:
         _dataset = eval_config.dataset_filter(_dataset)
-
-    # Post-split processing
-    _dataset = _dataset[split]
+    
+    # Skip n texts if relevant
+    if eval_config.num_texts_to_skip >= 1:
+        print(f"skipping {eval_config.num_texts_to_skip} texts in {eval_config.dataset_name}")
+        _dataset = _dataset.skip(eval_config.num_texts_to_skip) # Conservative skip limit
 
     # Skip tokens is no split
     if split == "train" and not eval_config.is_train_mode:
