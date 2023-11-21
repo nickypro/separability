@@ -349,6 +349,14 @@ class ImageGenerators(Generators):
 
             yield (logits, expected_ids, {})
 
+    @staticmethod
+    def return_model_as_generator(
+            model: Model,
+            eval_config: EvalConfig,
+        ):
+        return model
+
+
 
 ######################################################################################
 # General Function for Evaluation
@@ -535,6 +543,33 @@ class Evaluator:
             "frac_toxic": frac_toxic,
             "mean_toxicity": mean_toxicity,
         })
+    
+    def evaluate_mia(self,
+            model: Model,
+            eval_config: EvalConfig
+            ):
+        from .mia import get_membership_attack_prob
+        
+        retain_config = infer_dataset_config(eval_config.mia_retain) # eg: cifar100 no mushrooms train
+        retain_config.dataset_split = eval_config.mia_retain_split or retain_config.dataset_split
+        retain_config.is_train_mode = True
+        forget_config = infer_dataset_config(eval_config.mia_forget) # eg: cifar100 mushrooms train
+        forget_config.dataset_split = eval_config.mia_forget_split or forget_config.dataset_split
+        forget_config.is_train_mode = True
+        test_config   = infer_dataset_config(eval_config.mia_test) # eg: cifar100 all test
+        test_config.dataset_split = eval_config.mia_test_split or test_config.dataset_split
+        test_config.is_train_mode = True
+
+        retain_loader = prepare_dataset(retain_config)
+        forget_loader = prepare_dataset(forget_config)
+        test_loader = prepare_dataset(test_config)
+
+        svc, lr = get_membership_attack_prob(retain_loader, forget_loader, test_loader, model)
+
+        return EvalOutput(misc={
+            "mia": lr,
+            "mia-svc": svc,
+        })
 
 ######################################################################################
 # Run the full evaluation
@@ -559,6 +594,11 @@ def choose_functions(eval_config):
     if eval_config.dataset_type == "image-classification":
         generator = ImageGenerators.get_image_classification_generator
         evaluator = Evaluator().evaluate_dataset
+        return generator, evaluator
+    
+    if eval_config.dataset_type == "image-membership-inference-attack":
+        generator = ImageGenerators.return_model_as_generator
+        evaluator = Evaluator().evaluate_mia
         return generator, evaluator
 
     evaluator = Evaluator().evaluate_dataset
