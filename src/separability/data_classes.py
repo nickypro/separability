@@ -106,6 +106,13 @@ class EvalConfig:
     generated_text_num_samples: int = 1
     generated_text_length: int = 50
     generated_text_temperature: float = None
+    # Membership Inference Attack
+    mia_retain: str = None
+    mia_retain_split: str = None
+    mia_forget: str = None
+    mia_forget_split: str = None
+    mia_test: str = None
+    mia_test_split: str = None
     misc: Optional[Dict[str, any]] = None
 
     def to_dict(self):
@@ -340,7 +347,11 @@ class RunDataHistory:
         self.history.append(item)
 
         # Calculate EXTRACT prediction areas
-        self.calculate_areas()
+        try:
+            self.calculate_areas()
+        except:
+            pass
+            # print("adding areas didn't work")
         item = self.history[-1]
 
         # Log to wandb
