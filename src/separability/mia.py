@@ -1,27 +1,34 @@
+from torch.nn import functional as F
+import torch
+import numpy as np
+from sklearn.svm import SVC
+from sklearn.linear_model import LogisticRegression
+
 
 def entropy(p, dim=-1, keepdim=False):
     return -torch.where(p > 0, p * p.log(), p.new([0.0])).sum(dim=dim, keepdim=keepdim)
 
 
-def collect_prob(data_loader, model):
-    data_loader = torch.utils.data.DataLoader(
-        data_loader.dataset, batch_size=1, shuffle=False
-    )
+def collect_prob(dataset, model):
     prob = []
     with torch.no_grad():
-        for batch in data_loader:
-            batch = [tensor.to(next(model.parameters()).device) for tensor in batch]
-            data, _, target = batch
-            output = model(data)
-            prob.append(F.softmax(output, dim=-1).data)
+        for data in dataset:
+            inputs = model.processor(data["img"], return_tensors="pt").to(model.device)
+            logits = model.predictor(**inputs).logits.unsqueeze(0)
+            prob.append(F.softmax(logits, dim=-1))
     return torch.cat(prob)
 
 
 # https://arxiv.org/abs/2205.08096
 def get_membership_attack_data(retain_loader, forget_loader, test_loader, model):
+    print("getting retain prob")
     retain_prob = collect_prob(retain_loader, model)
+    print("getting forget prob")
     forget_prob = collect_prob(forget_loader, model)
+    print("getting test prob")
     test_prob = collect_prob(test_loader, model)
+
+    print(retain_prob.shape, forget_prob.shape, test_prob.shape)
 
     X_r = (
         torch.cat([entropy(retain_prob), entropy(test_prob)])
@@ -41,11 +48,18 @@ def get_membership_attack_prob(retain_loader, forget_loader, test_loader, model)
     X_f, Y_f, X_r, Y_r = get_membership_attack_data(
         retain_loader, forget_loader, test_loader, model
     )
-    # clf = SVC(C=3,gamma='auto',kernel='rbf')
+    # MIA with SVC
+    clf = SVC(C=3,gamma='auto',kernel='rbf')
+    clf.fit(X_r, Y_r)
+    results = clf.predict(X_f)
+    results_svc = results.mean()
+
+    # MIA with Logistic Regression
     clf = LogisticRegression(
         class_weight="balanced", solver="lbfgs", multi_class="multinomial"
     )
     clf.fit(X_r, Y_r)
     results = clf.predict(X_f)
-    return results.mean()
+    results_lr = results.mean()
+    return results_svc, results_lr
 
