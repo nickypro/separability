@@ -68,7 +68,7 @@ class DatasetFilters:
             return str(example["label"]) not in bird_ids
         bird_dataset = _dataset.filter(filter_birds_out_example)
         return bird_dataset
-    
+
     @staticmethod
     def filter_mushroom(_dataset):
         mushroom_ids = set([ "52" ])
@@ -76,7 +76,7 @@ class DatasetFilters:
             return str(example["fine_label"]) in mushroom_ids
         mushroom_dataset = _dataset.filter(filter_mushroom_example)
         return mushroom_dataset
-    
+
     @staticmethod
     def filter_mushroomless(_dataset):
         mushroom_ids = set([ "52" ])
@@ -92,7 +92,7 @@ class DatasetFilters:
             return str(example["fine_label"]) in rocket_ids
         rocket_dataset = _dataset.filter(filter_rocket_example)
         return rocket_dataset
-    
+
     @staticmethod
     def filter_rocketless(_dataset):
         rocket_ids = set([ "69" ])
@@ -190,6 +190,7 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
         EvalConfig("cifar100",
             dataset_repo = "cifar100",
             dataset_type = "image-classification",
+            streaming = False,
             dataset_image_key = "img",
             num_texts_to_skip = 1,
             dataset_image_label_key = "fine_label",
@@ -197,6 +198,7 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
         EvalConfig("cifar100-mushroom",
             dataset_repo = "cifar100",
             dataset_type = "image-classification",
+            streaming = False,
             dataset_split = ["train", "test"],
             is_train_mode = True,
             num_texts_to_skip = 1,
@@ -207,6 +209,7 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
         EvalConfig("cifar100-mushroomless",
             dataset_repo = "cifar100",
             dataset_type = "image-classification",
+            streaming = False,
             dataset_split = "test",
             is_train_mode = False,
             num_texts_to_skip = 1,
@@ -232,6 +235,7 @@ def infer_dataset_config(dataset_name:str, dataset_subset:str=None):
             dataset_repo = "cifar100",
             dataset_type = "image-classification",
             dataset_split = ["train", "test"],
+            streaming = False,
             is_train_mode = True,
             num_texts_to_skip = 1,
             dataset_image_key = "img",
@@ -310,7 +314,7 @@ def prepare_dataset(eval_config: EvalConfig):
     _dataset = load_dataset(
         eval_config.dataset_repo,
         eval_config.dataset_subset,
-        streaming=True
+        streaming=eval_config.streaming,
     )
 
 
@@ -325,11 +329,16 @@ def prepare_dataset(eval_config: EvalConfig):
     # Apply filter if relevant
     if eval_config.dataset_filter is not None:
         _dataset = eval_config.dataset_filter(_dataset)
-    
+
     # Skip n texts if relevant
     if eval_config.num_texts_to_skip >= 1:
         print(f"skipping {eval_config.num_texts_to_skip} texts in {eval_config.dataset_name}")
-        _dataset = _dataset.skip(eval_config.num_texts_to_skip) # Conservative skip limit
+
+        # Skip only works for DatasetIterable. Kinda annoying ngl
+        if hasattr(_dataset, "skip"):
+            _dataset = _dataset.skip(eval_config.num_texts_to_skip) # Conservative skip limit
+        else:
+            _dataset = _dataset[eval_config.num_texts_to_skip:]
 
     # Skip tokens is no split
     if split == "train" and not eval_config.is_train_mode:
@@ -344,4 +353,4 @@ def prepare(dataset_name):
     eval_config = infer_dataset_config(dataset_name)
     eval_config.dataset_split = "train"
     _dataset = prepare_dataset(eval_config)
-    return _dataset, eval_config.dataset_text_label, eval_config.skip_token_strings
+    return _dataset, eval_config.dataset_text_key, eval_config.skip_token_strings

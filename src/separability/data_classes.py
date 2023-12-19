@@ -76,6 +76,7 @@ class EvalConfig:
     dataset_filter: Optional[Callable] = None
     dataset_has_test_split: bool = True
     dataset_split: str = None # "test", "train"
+    streaming: bool = True # Do not download the whole dataset by default
     sample_size: int = 1e5
     skip_token_strings: Optional[List[str]] = None
     skip_token_ids: Tensor = None
